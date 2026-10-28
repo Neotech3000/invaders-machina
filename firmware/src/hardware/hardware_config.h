@@ -25,10 +25,16 @@ static constexpr bool kPanelRgbOrder = false;  // BGR, as in the image that drew
 static constexpr int kSpiHostIsSpi2 = 1;
 static constexpr uint32_t kSpiWriteHz = 20000000;
 
-// Shared-bus chip-select for the resistive controller on this class
-// (XPT2046 on GPIO 33). Held high so that chip stays off the SPI bus.
-// The touch IC on this unit is UNCONFIRMED. This is not a touch driver.
-static constexpr int kPinSharedBusCsHoldHigh = 33;
+// Resistive touch on this board class: XPT2046, same SPI2 pins as the panel.
+// Chip select is GPIO 33. The interrupt pin is left unused and the panel polls
+// the chip, so a missing IRQ wire cannot hide it. This is that known wiring.
+static constexpr int kPinTouchCs = 33;
+static constexpr int kPinTouchIrq = -1;
+static constexpr uint32_t kTouchHz = 2500000;
+static constexpr int kTouchXMin = 300;
+static constexpr int kTouchXMax = 3900;
+static constexpr int kTouchYMin = 300;
+static constexpr int kTouchYMax = 3900;
 
 // Serial monitor baud. UNCONFIRMED placeholder. Not a measured link baud.
 static constexpr uint32_t kMonitorBaudPlaceholder = 115200;
