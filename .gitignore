@@ -1,0 +1,6 @@
+desktop/node_modules/
+desktop/dist/
+firmware/.pio/
+firmware/.vscode/
+.env
+*.env
