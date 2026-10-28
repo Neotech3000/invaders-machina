@@ -211,3 +211,13 @@ bool formatError(char* out, size_t cap, const char* id, const char* ref, const c
   payload["message"] = message;
   return emit(doc, out, cap);
 }
+
+bool formatGameResult(char* out, size_t cap, const char* id, bool hit, int score) {
+  JsonDocument doc;
+  doc["v"] = kProtoVersion;
+  doc["type"] = "game.result";
+  doc["id"] = id;
+  doc["payload"]["hit"] = hit;
+  doc["payload"]["score"] = score;
+  return emit(doc, out, cap);
+}

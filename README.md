@@ -17,6 +17,10 @@ npm start
 
 `npm start` opens a frameless port picker. Connect to the CH340, then hand the cat over. While the cat is on the laptop it can be hidden or returned to the panel. On either side the tabby blinks and, less often, opens its mouth. Those frames stay local and do not take keyboard focus.
 
+Click the cat's face to pet it. The eyes go wide for a moment on the laptop, and the same reaction is sent to the panel when the face is showing there. Pet on the picker does that while the cat is on the display. The click stays in the window you clicked.
+
+Spot starts the tap-the-spot game. On the laptop, click the moving gold dot. On the panel, a dot travels through a green ring. The touch chip on this board is still unconfirmed, so press Tap on the picker when the dot sits in the ring. That one button is the panel's tap, sent over the serial link.
+
 ## Firmware
 
 PlatformIO, env `cyd`. The board profile is an ESP32-D0WD-V3 with 4MB flash and no PSRAM. The panel is an ST7796, 320x480, on the pins in `firmware/src/hardware/hardware_config.h`.

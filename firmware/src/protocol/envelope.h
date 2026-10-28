@@ -37,3 +37,4 @@ bool formatShown(char* out, size_t cap, const char* id, const char* expression);
 bool formatAbort(char* out, size_t cap, const char* id, const char* reason);
 bool formatError(char* out, size_t cap, const char* id, const char* ref, const char* code,
                  const char* message);
+bool formatGameResult(char* out, size_t cap, const char* id, bool hit, int score);

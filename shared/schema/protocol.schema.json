@@ -23,6 +23,11 @@
         "handoff.return",
         "handoff.shown",
         "session.end",
+        "pet",
+        "game.start",
+        "game.stop",
+        "game.tap",
+        "game.result",
         "error"
       ]
     },

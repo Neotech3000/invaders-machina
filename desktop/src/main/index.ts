@@ -161,8 +161,8 @@ async function handoffOnce(shotPath: string) {
 }
 
 app.whenReady().then(async () => {
-  picker = makeWindow("picker", 392, 460);
-  catWin = makeWindow("cat", 176, 214);
+  picker = makeWindow("picker", 392, 540);
+  catWin = makeWindow("cat", 176, 248);
   chipWin = makeWindow("chip", 120, 48);
   picker.setPosition(48, 48);
   placeBottomRight(catWin);
@@ -222,6 +222,34 @@ app.whenReady().then(async () => {
     publish();
     return session.snapshot();
   });
+  ipcMain.handle("pet", () => {
+    session.pet();
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send("pet");
+    }
+    publish();
+    return session.snapshot();
+  });
+  ipcMain.handle("start-spot", () => {
+    session.startSpot();
+    publish();
+    return session.snapshot();
+  });
+  ipcMain.handle("stop-spot", () => {
+    session.stopSpot();
+    publish();
+    return session.snapshot();
+  });
+  ipcMain.handle("spot-hit", () => {
+    session.spotHit();
+    publish();
+    return session.snapshot();
+  });
+  ipcMain.handle("device-tap", () => {
+    session.deviceTap();
+    publish();
+    return session.snapshot();
+  });
 
   picker.showInactive();
 
@@ -247,6 +275,42 @@ app.whenReady().then(async () => {
         };
         tick();
       })`);
+      const png = await catWin.capturePage();
+      if (shot) {
+        fs.mkdirSync(path.dirname(shot), { recursive: true });
+        fs.writeFileSync(shot, png.toPNG());
+        console.log("JITTERS shot", shot);
+      }
+      app.exit(0);
+    } catch (err) {
+      console.error("JITTERS FAIL", err instanceof Error ? err.message : err);
+      app.exit(1);
+    }
+    return;
+  }
+
+  const gameAt = process.argv.indexOf("--preview-game");
+  if (gameAt >= 0) {
+    const shot = process.argv[gameAt + 1] ?? "";
+    if (!picker.isDestroyed()) picker.hide();
+    try {
+      session.startSpot();
+      await catWin.loadFile(path.join(__dirname, "index.html"), { query: { view: "cat", game: "1" } });
+      publish();
+      placeBottomRight(catWin);
+      catWin.showInactive();
+      const seen = await catWin.webContents.executeJavaScript(`new Promise((resolve) => {
+        const start = Date.now();
+        const tick = () => {
+          const img = document.querySelector("img");
+          const spot = document.querySelector("[data-spot]");
+          if (spot && img && img.complete && img.naturalWidth > 0) resolve("spot");
+          else if (Date.now() - start > 4000) resolve("timeout");
+          else setTimeout(tick, 40);
+        };
+        tick();
+      })`);
+      if (seen !== "spot") throw new Error("spot missing");
       const png = await catWin.capturePage();
       if (shot) {
         fs.mkdirSync(path.dirname(shot), { recursive: true });
