@@ -60,10 +60,6 @@ class WinPort implements CatPort {
     return this.visible && !this.win.isDestroyed() && this.win.isVisible();
   }
 
-  setExpression(expression: Expr) {
-    if (!this.win.isDestroyed()) this.win.webContents.send("expression", expression);
-    publish();
-  }
 }
 
 function makeWindow(view: string, width: number, height: number) {
@@ -211,11 +207,6 @@ app.whenReady().then(async () => {
     publish();
     return session.snapshot();
   });
-  ipcMain.handle("park", () => {
-    session.park();
-    publish();
-    return session.snapshot();
-  });
   ipcMain.handle("hide", () => {
     session.hideCat();
     publish();
@@ -233,6 +224,42 @@ app.whenReady().then(async () => {
   });
 
   picker.showInactive();
+
+  const previewAt = process.argv.indexOf("--preview-face");
+  if (previewAt >= 0) {
+    const shot = process.argv[previewAt + 1] ?? "";
+    if (!picker.isDestroyed()) picker.hide();
+    try {
+      await new Promise<void>((resolve) => {
+        if (catWin.webContents.isLoading()) catWin.webContents.once("did-finish-load", () => resolve());
+        else resolve();
+      });
+      placeBottomRight(catWin);
+      catWin.showInactive();
+      await catWin.webContents.executeJavaScript(`new Promise((resolve) => {
+        const start = Date.now();
+        const tick = () => {
+          const img = document.querySelector("img");
+          const frame = img && img.getAttribute("data-frame");
+          if (frame === "blink" && img.complete && img.naturalWidth > 0) resolve(frame);
+          else if (Date.now() - start > 8000) resolve(frame || "timeout");
+          else setTimeout(tick, 40);
+        };
+        tick();
+      })`);
+      const png = await catWin.capturePage();
+      if (shot) {
+        fs.mkdirSync(path.dirname(shot), { recursive: true });
+        fs.writeFileSync(shot, png.toPNG());
+        console.log("JITTERS shot", shot);
+      }
+      app.exit(0);
+    } catch (err) {
+      console.error("JITTERS FAIL", err instanceof Error ? err.message : err);
+      app.exit(1);
+    }
+    return;
+  }
 
   const once = process.argv.includes("--handoff-once");
   if (!once) return;

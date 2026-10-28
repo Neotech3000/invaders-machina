@@ -87,9 +87,6 @@ function Picker() {
         </button>
       </div>
       <div className="row">
-        <button disabled={phase !== "present"} onClick={() => run(() => window.jitters.park())}>
-          Park
-        </button>
         <button disabled={phase !== "present"} onClick={() => run(() => window.jitters.hide())}>
           Hide
         </button>
@@ -104,16 +101,47 @@ function Picker() {
   );
 }
 
+type FaceFrame = "idle" | "blink" | "mouth";
+
+// Matches the panel: blink every 3.4s for 140ms, mouth every 7.6s for 380ms.
+function useFaceFrame(): FaceFrame {
+  const [frame, setFrame] = useState<FaceFrame>("idle");
+  useEffect(() => {
+    const started = performance.now();
+    let timer = 0;
+    const schedule = () => {
+      const elapsed = performance.now() - started;
+      const blinkPos = elapsed % 3400;
+      const mouthPos = elapsed % 7600;
+      let next: FaceFrame = "idle";
+      let wait = 200;
+      if (blinkPos >= 1600 && blinkPos < 1740) {
+        next = "blink";
+        wait = 1740 - blinkPos;
+      } else if (mouthPos >= 2200 && mouthPos < 2580) {
+        next = "mouth";
+        wait = 2580 - mouthPos;
+      } else {
+        const blinkIn = blinkPos < 1600 ? 1600 - blinkPos : 3400 - blinkPos + 1600;
+        const mouthIn = mouthPos < 2200 ? 2200 - mouthPos : 7600 - mouthPos + 2200;
+        wait = Math.min(blinkIn, mouthIn);
+      }
+      setFrame(next);
+      timer = window.setTimeout(schedule, Math.max(30, wait));
+    };
+    schedule();
+    return () => window.clearTimeout(timer);
+  }, []);
+  return frame;
+}
+
 function Cat() {
   const snap = useSnap();
-  const expression = snap?.expression ?? "idle";
+  const frame = useFaceFrame();
   return (
     <main className="cat">
-      <img src={`assets/${expression}.png`} alt={expression} width={128} height={128} />
+      <img src={`assets/${frame}.png`} alt="Jitters" data-frame={frame} width={128} height={128} />
       <div className="row">
-        <button disabled={snap?.phase !== "present"} onClick={() => void window.jitters.park()}>
-          Park
-        </button>
         <button disabled={snap?.phase !== "present"} onClick={() => void window.jitters.hide()}>
           Hide
         </button>

@@ -30,5 +30,8 @@ void loop() {
   if (handoff != nullptr) {
     handoff->poll();
   }
+  if (Display* display = make_display()) {
+    display->tick();
+  }
   delay(1);
 }

@@ -114,17 +114,11 @@ DeviceHandoff::Slot* DeviceHandoff::insertSlot(const char* id) {
 }
 
 bool DeviceHandoff::deviceKnows(const char* expression) const {
-  return same(expression, kExprIdle) || same(expression, kExprParked);
+  return same(expression, kExprIdle);
 }
 
 bool DeviceHandoff::peerKnows(const char* expression) const {
-  if (same(expression, kExprIdle)) {
-    return peerIdle_;
-  }
-  if (same(expression, kExprParked)) {
-    return peerParked_;
-  }
-  return false;
+  return same(expression, kExprIdle) && peerIdle_;
 }
 
 void DeviceHandoff::sendHello() {
@@ -168,7 +162,6 @@ void DeviceHandoff::sendError(const char* ref, const char* code, const char* mes
 void DeviceHandoff::helloTimedOut() {
   helloOutstanding_ = false;
   peerIdle_ = false;
-  peerParked_ = false;
   clearDedup();
   sendHello();
 }
@@ -179,7 +172,6 @@ void DeviceHandoff::linkDown() {
   returnArmed_ = false;
   helloOutstanding_ = false;
   peerIdle_ = false;
-  peerParked_ = false;
   accepted_[0] = '\0';
   commitId_[0] = '\0';
   commitLine_[0] = '\0';
@@ -248,7 +240,6 @@ void DeviceHandoff::onLine(const char* line) {
       return;
     }
     peerIdle_ = msg.exprIdle;
-    peerParked_ = msg.exprParked;
     return;
   }
 

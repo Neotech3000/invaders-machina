@@ -22,7 +22,6 @@ struct Envelope {
   bool ok = false;
   bool hasExpression = false;
   bool exprIdle = false;
-  bool exprParked = false;
 };
 
 // Returns false when the line is not one JSON object with v, type, and id.

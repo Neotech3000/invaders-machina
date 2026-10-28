@@ -77,21 +77,23 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void show(const char* expression) override {
+    (void)expression;
     if (!ready_) {
       visible_ = false;
       return;
     }
-    const CatFace& face = cat_face_for(expression);
-    fillScreen(TFT_BLACK);
+    const CatFace& face = cat_frame(kCatIdle);
     constexpr int kMaxEdge = 250;
     const float fit_w = static_cast<float>(kMaxEdge) / static_cast<float>(face.width);
     const float fit_h = static_cast<float>(kMaxEdge) / static_cast<float>(face.height);
-    const float scale = fit_w < fit_h ? fit_w : fit_h;
-    const int drawn_w = static_cast<int>(face.width * scale);
-    const int drawn_h = static_cast<int>(face.height * scale);
-    const int x = (kPanelWidth - drawn_w) / 2;
-    const int y = (kPanelHeight - drawn_h) / 2;
-    drawPng(face.png, face.length, x, y, 0, 0, 0, 0, scale, scale);
+    scale_ = fit_w < fit_h ? fit_w : fit_h;
+    const int drawn_w = static_cast<int>(face.width * scale_);
+    const int drawn_h = static_cast<int>(face.height * scale_);
+    origin_x_ = (kPanelWidth - drawn_w) / 2;
+    origin_y_ = (kPanelHeight - drawn_h) / 2;
+    fillScreen(TFT_BLACK);
+    paint(kCatIdle);
+    shown_at_ = millis();
     visible_ = true;
   }
 
@@ -104,12 +106,50 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   bool isVisible() const override { return visible_; }
 
+  void tick() override {
+    if (!visible_ || !ready_) {
+      return;
+    }
+    const uint32_t elapsed = millis() - shown_at_;
+    const uint32_t blink_pos = elapsed % kBlinkEveryMs;
+    const uint32_t mouth_pos = elapsed % kMouthEveryMs;
+    CatFrame next = kCatIdle;
+    if (blink_pos >= kBlinkAtMs && blink_pos < kBlinkAtMs + kBlinkHoldMs) {
+      next = kCatBlink;
+    } else if (mouth_pos >= kMouthAtMs && mouth_pos < kMouthAtMs + kMouthHoldMs) {
+      next = kCatMouth;
+    }
+    if (next == frame_) {
+      return;
+    }
+    paint(next);
+  }
+
  private:
+  // Same rhythm as the desktop window. Idle first, then a short blink, then a small mouth.
+  static constexpr uint32_t kBlinkEveryMs = 3400;
+  static constexpr uint32_t kBlinkAtMs = 1600;
+  static constexpr uint32_t kBlinkHoldMs = 140;
+  static constexpr uint32_t kMouthEveryMs = 7600;
+  static constexpr uint32_t kMouthAtMs = 2200;
+  static constexpr uint32_t kMouthHoldMs = 380;
+
+  void paint(CatFrame frame) {
+    const CatFace& face = cat_frame(frame);
+    drawPng(face.png, face.length, origin_x_, origin_y_, 0, 0, 0, 0, scale_, scale_);
+    frame_ = frame;
+  }
+
   lgfx::Bus_SPI bus_;
   lgfx::Panel_ST7796 panel_;
   lgfx::Light_PWM light_;
   bool ready_ = false;
   bool visible_ = false;
+  CatFrame frame_ = kCatIdle;
+  float scale_ = 1;
+  int origin_x_ = 0;
+  int origin_y_ = 0;
+  uint32_t shown_at_ = 0;
 };
 
 PanelDisplay* panel_display = nullptr;

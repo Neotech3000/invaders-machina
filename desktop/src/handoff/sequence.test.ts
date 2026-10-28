@@ -29,9 +29,6 @@ class FakeCat implements CatPort {
   isVisible() {
     return this.visible;
   }
-  setExpression(expression: Expr) {
-    this.expression = expression;
-  }
 }
 
 async function flush() {
@@ -42,14 +39,12 @@ async function main() {
   const cat = new FakeCat();
   const chip = new FakeCat();
   const sim = new DeviceSim();
-  const sent: string[] = [];
   const trace: string[] = [];
   const session = new DesktopHandoff({
     cat,
     chip,
     clock: new ManualClock(),
     send: (line) => {
-      sent.push(line);
       sim.feed(line);
     },
     close: () => {},
@@ -73,11 +68,6 @@ async function main() {
   assert.equal(sim.visible, false);
   assert.equal(session.phase, "present");
   assert.equal(session.owner, "desktop");
-
-  const beforePark = sent.length;
-  session.park();
-  assert.equal(sent.length, beforePark);
-  assert.equal(cat.expression, "parked");
 
   session.hideCat();
   assert.equal(cat.visible, false);

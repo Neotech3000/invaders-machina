@@ -15,7 +15,7 @@ npm test
 npm start
 ```
 
-`npm start` opens a frameless port picker. Connect to the CH340, then hand the cat over. While the cat is on the laptop it can be parked, hidden, or returned to the panel.
+`npm start` opens a frameless port picker. Connect to the CH340, then hand the cat over. While the cat is on the laptop it can be hidden or returned to the panel. On either side the tabby blinks and, less often, opens its mouth. Those frames stay local and do not take keyboard focus.
 
 ## Firmware
 

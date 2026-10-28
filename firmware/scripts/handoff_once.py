@@ -137,7 +137,7 @@ def main():
                 "payload": {
                     "role": "desktop",
                     "proto": 1,
-                    "expressions": ["idle", "parked"],
+                    "expressions": ["idle"],
                     "owner": "device",
                 },
             }

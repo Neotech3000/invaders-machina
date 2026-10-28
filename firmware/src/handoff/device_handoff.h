@@ -61,7 +61,6 @@ class DeviceHandoff {
   bool commitArmed_ = false;
   bool returnArmed_ = false;
   bool peerIdle_ = false;
-  bool peerParked_ = false;
   int malformed_ = 0;
   char accepted_[16] = {};
   char commitId_[33] = {};
