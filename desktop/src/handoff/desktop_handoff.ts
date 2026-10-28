@@ -29,6 +29,9 @@ export interface Snapshot {
   chipVisible: boolean;
   status: string;
   portId: string | null;
+  spot: boolean;
+  desktopScore: number;
+  deviceScore: number;
 }
 
 export interface SessionOptions {
@@ -52,6 +55,9 @@ export class DesktopHandoff {
   owner: "device" | "desktop" = "device";
   status = "Choose a port";
   portId: string | null = null;
+  spot = false;
+  desktopScore = 0;
+  deviceScore = 0;
   private readonly seen: string[] = [];
   private readonly acks = new Map<string, string>();
   private seq = 1;
@@ -71,7 +77,42 @@ export class DesktopHandoff {
       chipVisible: this.opt.chip.isVisible(),
       status: this.status,
       portId: this.portId,
+      spot: this.spot,
+      desktopScore: this.desktopScore,
+      deviceScore: this.deviceScore,
     };
+  }
+
+  pet() {
+    if (this.canTalk()) {
+      this.send("pet", {});
+    }
+  }
+
+  startSpot() {
+    this.spot = true;
+    this.desktopScore = 0;
+    this.deviceScore = 0;
+    if (this.canTalk()) {
+      this.send("game.start", {});
+    }
+  }
+
+  stopSpot() {
+    this.spot = false;
+    if (this.canTalk()) {
+      this.send("game.stop", {});
+    }
+  }
+
+  spotHit() {
+    if (!this.spot) return;
+    this.desktopScore += 1;
+  }
+
+  deviceTap() {
+    if (!this.spot || !this.canTalk()) return;
+    this.send("game.tap", {});
   }
 
   onOpen(portId: string) {
@@ -98,6 +139,7 @@ export class DesktopHandoff {
     this.phase = "disconnected";
     this.owner = "device";
     this.portId = null;
+    this.spot = false;
     if (!this.status.includes("did not") && !this.status.includes("quiet")) {
       this.status = reason ? `Link closed (${reason})` : "Disconnected";
     }
@@ -166,6 +208,9 @@ export class DesktopHandoff {
   disconnect() {
     if (this.opened) {
       try {
+        if (this.spot) {
+          this.send("game.stop", {});
+        }
         this.send("session.end", { reason: "user" });
       } catch {
         /* the write is best-effort */
@@ -246,6 +291,16 @@ export class DesktopHandoff {
       this.owner = "device";
       this.status = "Cat is on the display";
       this.opt.trace?.("shown");
+      if (this.spot) {
+        this.send("game.start", {});
+      }
+      return;
+    }
+    if (msg.type === "game.result") {
+      const score = Number(payload.score);
+      if (Number.isFinite(score)) {
+        this.deviceScore = score;
+      }
       return;
     }
     if (msg.type === "handoff.abort") {
@@ -333,6 +388,10 @@ export class DesktopHandoff {
     this.arm("silence", timeouts.silenceMs, () => this.shutdown("silence"));
   }
 
+  private canTalk() {
+    return this.opened && this.phase !== "disconnected" && this.phase !== "connecting";
+  }
+
   private shutdown(reason: string) {
     if (this.closing) return;
     this.closing = true;
@@ -342,6 +401,7 @@ export class DesktopHandoff {
     this.phase = "disconnected";
     this.owner = "device";
     this.portId = null;
+    this.spot = false;
     const wasOpen = this.opened;
     this.opened = false;
     if (wasOpen) this.opt.close();

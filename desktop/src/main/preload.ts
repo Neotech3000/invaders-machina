@@ -12,9 +12,17 @@ const api = {
   hide: (): Promise<Snapshot> => ipcRenderer.invoke("hide"),
   unhide: (): Promise<Snapshot> => ipcRenderer.invoke("unhide"),
   returnToDevice: (): Promise<Snapshot> => ipcRenderer.invoke("return"),
+  pet: (): Promise<Snapshot> => ipcRenderer.invoke("pet"),
+  startSpot: (): Promise<Snapshot> => ipcRenderer.invoke("start-spot"),
+  stopSpot: (): Promise<Snapshot> => ipcRenderer.invoke("stop-spot"),
+  spotHit: (): Promise<Snapshot> => ipcRenderer.invoke("spot-hit"),
+  deviceTap: (): Promise<Snapshot> => ipcRenderer.invoke("device-tap"),
   onState: (cb: (snap: Snapshot) => void) => {
     const listener = (_event: unknown, snap: Snapshot) => cb(snap);
     ipcRenderer.on("state", listener);
+  },
+  onPet: (cb: () => void) => {
+    ipcRenderer.on("pet", () => cb());
   },
 };
 

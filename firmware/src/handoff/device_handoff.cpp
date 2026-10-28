@@ -272,6 +272,40 @@ void DeviceHandoff::onLine(const char* line) {
     return;
   }
 
+  if (isType(msg, "pet")) {
+    if (display_.isVisible()) {
+      display_.pet();
+    }
+    return;
+  }
+
+  if (isType(msg, "game.start")) {
+    if (display_.isVisible()) {
+      display_.setSpotGame(true);
+    }
+    char id[16];
+    makeId(id, sizeof id);
+    if (formatGameResult(scratch_, sizeof scratch_, id, false, display_.spotScore())) {
+      sendRaw(scratch_);
+    }
+    return;
+  }
+
+  if (isType(msg, "game.stop")) {
+    display_.setSpotGame(false);
+    return;
+  }
+
+  if (isType(msg, "game.tap")) {
+    const bool hit = display_.spotTap();
+    char id[16];
+    makeId(id, sizeof id);
+    if (formatGameResult(scratch_, sizeof scratch_, id, hit, display_.spotScore())) {
+      sendRaw(scratch_);
+    }
+    return;
+  }
+
   if (state_ == State::Local) {
     return;
   }
