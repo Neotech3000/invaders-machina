@@ -74,6 +74,12 @@ li label {
   justify-content: flex-start;
 }
 
+.cat img {
+  width: 128px;
+  height: 128px;
+  object-fit: contain;
+}
+
 .cat .row button {
   padding: 4px 6px;
   font-size: 12px;

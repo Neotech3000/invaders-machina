@@ -1,5 +1,6 @@
 #include "board.h"
 
+#include "cat_faces.h"
 #include "hardware_config.h"
 
 #include <Arduino.h>
@@ -80,23 +81,17 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       visible_ = false;
       return;
     }
-    const char* word = (expression != nullptr && expression[0] != '\0')
-                           ? expression
-                           : "idle";
-    constexpr int margin_x = 24;
-    constexpr int margin_y = 48;
-    const int x = margin_x;
-    const int y = margin_y;
-    const int w = kPanelWidth - margin_x * 2;
-    const int h = kPanelHeight - margin_y * 2;
-    const uint16_t fill = color565(0xC4, 0x7A, 0x3A);
-    const uint16_t ink = color565(0x1A, 0x1A, 0x1A);
+    const CatFace& face = cat_face_for(expression);
     fillScreen(TFT_BLACK);
-    fillRect(x, y, w, h, fill);
-    setFont(&fonts::Font4);
-    setTextDatum(lgfx::middle_center);
-    setTextColor(ink);
-    drawString(word, x + w / 2, y + h / 2);
+    constexpr int kMaxEdge = 250;
+    const float fit_w = static_cast<float>(kMaxEdge) / static_cast<float>(face.width);
+    const float fit_h = static_cast<float>(kMaxEdge) / static_cast<float>(face.height);
+    const float scale = fit_w < fit_h ? fit_w : fit_h;
+    const int drawn_w = static_cast<int>(face.width * scale);
+    const int drawn_h = static_cast<int>(face.height * scale);
+    const int x = (kPanelWidth - drawn_w) / 2;
+    const int y = (kPanelHeight - drawn_h) / 2;
+    drawPng(face.png, face.length, x, y, 0, 0, 0, 0, scale, scale);
     visible_ = true;
   }
 
