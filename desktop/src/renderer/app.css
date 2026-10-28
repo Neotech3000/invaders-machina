@@ -85,24 +85,6 @@ li label {
   object-fit: contain;
 }
 
-.spot {
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  padding: 0;
-  border-radius: 50%;
-  background: #ffc43d;
-  box-shadow: 0 0 0 3px rgba(255, 196, 61, 0.45);
-}
-
-.score {
-  height: 16px;
-  margin: 0;
-  color: #fff;
-  font-size: 12px;
-}
-
 .cat .row button {
   padding: 4px 6px;
   font-size: 12px;
@@ -111,4 +93,80 @@ li label {
 .chip button {
   background: #c47a3a;
   color: #1a1a1a;
+}
+
+.invaders {
+  position: relative;
+  width: 320px;
+  height: 480px;
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+}
+
+.inv-score {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  margin: 0;
+  font: 16px monospace;
+}
+
+.inv-row {
+  position: absolute;
+  top: 40px;
+  left: 29px;
+  display: flex;
+  gap: 10px;
+}
+
+.alien {
+  width: 24px;
+  height: 16px;
+  background: #46be5a;
+  box-shadow: inset 4px 4px 0 #000, inset -8px 4px 0 #000;
+}
+
+.alien.gone {
+  background: transparent;
+  box-shadow: none;
+}
+
+.shot {
+  position: absolute;
+  left: 158px;
+  top: 250px;
+  width: 4px;
+  height: 10px;
+  background: #ffd640;
+}
+
+.ship {
+  position: absolute;
+  left: 142px;
+  top: 386px;
+  width: 36px;
+  height: 14px;
+  background: #d6e0ee;
+  box-shadow: inset 6px 5px 0 #244070;
+}
+
+.invaders .bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 72px;
+  display: flex;
+  gap: 4px;
+  background: #000;
+}
+
+.invaders .bar span {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1c2028;
+  font: 16px monospace;
 }

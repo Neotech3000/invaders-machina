@@ -87,18 +87,6 @@ async function main() {
   const shownAt = trace.indexOf("shown");
   assert.ok(hiddenAt < shownAt);
 
-  session.pet();
-  assert.equal(session.phase, "linked");
-  session.startSpot();
-  assert.equal(session.spot, true);
-  session.deviceTap();
-  session.spotHit();
-  assert.equal(session.desktopScore, 1);
-  assert.equal(session.phase, "linked");
-  assert.equal(cat.visible, false);
-  session.stopSpot();
-  assert.equal(session.spot, false);
-
   console.log("sequence ok", trace.join(" "));
 }
 

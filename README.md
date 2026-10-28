@@ -15,11 +15,11 @@ npm test
 npm start
 ```
 
-`npm start` opens a frameless port picker. Connect to the CH340, then hand the cat over. While the cat is on the laptop it can be hidden or returned to the panel. On either side the tabby blinks and, less often, opens its mouth. Those frames stay local and do not take keyboard focus.
+`npm start` opens a frameless port picker. Connect to the CH340, then hand the cat over. While the cat is on the laptop it can be hidden or returned to the panel. The laptop cat stays in its window. It still blinks and, less often, opens its mouth. Those frames stay local and do not take keyboard focus.
 
-Click the cat's face to pet it. The eyes go wide for a moment on the laptop, and the same reaction is sent to the panel when the face is showing there. Pet on the picker does that while the cat is on the display. The click stays in the window you clicked.
+On the panel the tabby walks the 320×480 screen on its own, with the same blink and mouth. Invaders is only on the display. Tap PLAY along the bottom edge to start. LEFT, FIRE, and RIGHT are buttons on that same edge. After a round, tap WALK to bring the walking cat back. The resistive controller is the XPT2046 on GPIO 33, sharing the display SPI bus. The laptop does not start or play the game.
 
-Spot starts the tap-the-spot game. On the laptop, click the moving gold dot. On the panel, a dot travels through a green ring. The touch chip on this board is still unconfirmed, so press Tap on the picker when the dot sits in the ring. That one button is the panel's tap, sent over the serial link.
+The panel keeps the 20 MHz SPI clock that already drew a stable picture. Faces are decoded into sprites once, then pushed about every 32 ms. Only the sliver the picture left behind is cleared, instead of redrawing the whole screen from the PNG.
 
 ## Firmware
 

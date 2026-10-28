@@ -97,25 +97,6 @@ function Picker() {
           Return
         </button>
       </div>
-      <div className="row">
-        <button disabled={!connected} onClick={() => run(() => window.jitters.pet())}>
-          Pet
-        </button>
-        <button
-          disabled={!connected}
-          onClick={() => run(() => (snap?.spot ? window.jitters.stopSpot() : window.jitters.startSpot()))}
-        >
-          {snap?.spot ? "Stop spot" : "Spot"}
-        </button>
-        {snap?.spot && phase === "linked" ? (
-          <button onClick={() => run(() => window.jitters.deviceTap())}>Tap</button>
-        ) : null}
-      </div>
-      {snap?.spot ? (
-        <p className="status">
-          Laptop {snap.desktopScore} · Panel {snap.deviceScore}
-        </p>
-      ) : null}
     </main>
   );
 }
@@ -154,55 +135,9 @@ function useFaceFrame(): FaceFrame {
   return frame;
 }
 
-function useHappy(): boolean {
-  const [until, setUntil] = useState(0);
-  const [, redraw] = useState(0);
-  useEffect(() => {
-    window.jitters.onPet(() => {
-      const end = performance.now() + 700;
-      setUntil(end);
-      window.setTimeout(() => redraw((n) => n + 1), 720);
-    });
-  }, []);
-  return performance.now() < until;
-}
-
-function SpotDot() {
-  const [pos, setPos] = useState({ x: 56, y: 70 });
-  useEffect(() => {
-    let frame = 0;
-    const loop = (time: number) => {
-      setPos({
-        x: 56 + Math.sin(time / 380) * 46,
-        y: 72 + Math.cos(time / 510) * 26,
-      });
-      frame = window.requestAnimationFrame(loop);
-    };
-    frame = window.requestAnimationFrame(loop);
-    return () => window.cancelAnimationFrame(frame);
-  }, []);
-  return (
-    <button
-      type="button"
-      className="spot"
-      data-spot="1"
-      style={{ left: pos.x, top: pos.y }}
-      onMouseDown={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        void window.jitters.spotHit();
-      }}
-    />
-  );
-}
-
 function Cat() {
   const snap = useSnap();
-  const blink = useFaceFrame();
-  const happy = useHappy();
-  const frame = happy ? "happy" : blink;
-  const previewGame = new URLSearchParams(location.search).get("game") === "1";
-  const playing = Boolean(snap?.spot) || previewGame;
+  const frame = useFaceFrame();
   return (
     <main className="cat">
       <div className="stage">
@@ -213,14 +148,8 @@ function Cat() {
           width={128}
           height={128}
           draggable={false}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            void window.jitters.pet();
-          }}
         />
-        {playing ? <SpotDot /> : null}
       </div>
-      <p className="score">{playing ? `Spot ${snap?.desktopScore ?? 0}` : ""}</p>
       <div className="row">
         <button disabled={snap?.phase !== "present"} onClick={() => void window.jitters.hide()}>
           Hide
@@ -236,6 +165,27 @@ function Cat() {
   );
 }
 
+function InvadersStill() {
+  const aliens = [true, true, true, false, true, true, true, true];
+  return (
+    <main className="invaders" data-invaders="1">
+      <p className="inv-score">SCORE 20</p>
+      <div className="inv-row">
+        {aliens.map((alive, index) => (
+          <span key={index} className={alive ? "alien" : "alien gone"} />
+        ))}
+      </div>
+      <span className="shot" />
+      <span className="ship" />
+      <div className="bar">
+        <span>LEFT</span>
+        <span>FIRE</span>
+        <span>RIGHT</span>
+      </div>
+    </main>
+  );
+}
+
 function Chip() {
   return (
     <main className="chip">
@@ -246,5 +196,7 @@ function Chip() {
 
 const root = document.getElementById("root");
 if (root) {
-  createRoot(root).render(view === "cat" ? <Cat /> : view === "chip" ? <Chip /> : <Picker />);
+  createRoot(root).render(
+    view === "cat" ? <Cat /> : view === "chip" ? <Chip /> : view === "invaders" ? <InvadersStill /> : <Picker />,
+  );
 }
