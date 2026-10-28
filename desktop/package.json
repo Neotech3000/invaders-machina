@@ -1,0 +1,22 @@
+{
+  "name": "jitters",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Jitters desktop cat. Frameless companion window. No screen capture, no global hooks.",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "electron .",
+    "test": "node dist/sequence.test.cjs"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "serialport": "^13.0.0"
+  },
+  "devDependencies": {
+    "electron": "^35.7.5",
+    "esbuild": "^0.25.5"
+  }
+}
