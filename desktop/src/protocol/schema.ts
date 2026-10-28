@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import Ajv from "ajv";
 
-export type Expr = "idle" | "parked";
+export type Expr = "idle";
 
 export interface Timeouts {
   helloMs: number;
@@ -58,5 +58,5 @@ export function encode(type: string, id: string, payload: Record<string, unknown
 }
 
 export function isExpr(value: unknown): value is Expr {
-  return value === "idle" || value === "parked";
+  return value === "idle";
 }

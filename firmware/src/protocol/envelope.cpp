@@ -109,8 +109,6 @@ bool parseEnvelope(const char* line, Envelope& out) {
       }
       if (strcmp(name, kExprIdle) == 0) {
         out.exprIdle = true;
-      } else if (strcmp(name, kExprParked) == 0) {
-        out.exprParked = true;
       }
     }
   }
@@ -127,7 +125,6 @@ bool formatHello(char* out, size_t cap, const char* id) {
   payload["proto"] = kProtoVersion;
   JsonArray expressions = payload["expressions"].to<JsonArray>();
   expressions.add(kExprIdle);
-  expressions.add(kExprParked);
   payload["owner"] = "device";
   return emit(doc, out, cap);
 }

@@ -9,7 +9,6 @@ const api = {
   connect: (id: string): Promise<Snapshot> => ipcRenderer.invoke("connect", id),
   disconnect: (): Promise<Snapshot> => ipcRenderer.invoke("disconnect"),
   bring: (): Promise<Snapshot> => ipcRenderer.invoke("bring"),
-  park: (): Promise<Snapshot> => ipcRenderer.invoke("park"),
   hide: (): Promise<Snapshot> => ipcRenderer.invoke("hide"),
   unhide: (): Promise<Snapshot> => ipcRenderer.invoke("unhide"),
   returnToDevice: (): Promise<Snapshot> => ipcRenderer.invoke("return"),

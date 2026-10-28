@@ -1,4 +1,4 @@
-import { encode, isExpr, parseLine, timeouts, type Envelope, type Expr } from "../protocol/schema";
+import { encode, expressions, isExpr, parseLine, timeouts, type Envelope, type Expr } from "../protocol/schema";
 
 export type Phase =
   | "disconnected"
@@ -13,7 +13,6 @@ export interface CatPort {
   show(expression: Expr): Promise<void>;
   hide(): void;
   isVisible(): boolean;
-  setExpression(expression: Expr): void;
 }
 
 export interface Clock {
@@ -132,13 +131,6 @@ export class DesktopHandoff {
     this.status = "Asking the display";
   }
 
-  park() {
-    if (this.phase !== "present") return;
-    this.expression = "parked";
-    this.opt.cat.setExpression("parked");
-    this.status = "Parked";
-  }
-
   hideCat() {
     if (this.phase !== "present") return;
     this.opt.cat.hide();
@@ -196,7 +188,7 @@ export class DesktopHandoff {
       this.send("hello", {
         role: "desktop",
         proto: 1,
-        expressions: ["idle", "parked"],
+        expressions: [...expressions],
         owner: "device",
       });
       this.arm("hello", timeouts.helloMs, () => {

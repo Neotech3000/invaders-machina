@@ -8,4 +8,6 @@ class Display {
   virtual void show(const char* expression) = 0;
   virtual void hide() = 0;
   virtual bool isVisible() const = 0;
+  // Advance a local face animation. Must return quickly so the link keeps polling.
+  virtual void tick() {}
 };

@@ -14,7 +14,7 @@ export class DeviceSim {
     this.emit("hello", {
       role: "device",
       proto: 1,
-      expressions: ["idle", "parked"],
+      expressions: ["idle"],
       owner: "device",
     });
   }

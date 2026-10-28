@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// A cropped face bitmap. idle is the orange tabby. parked is the wink.
+// One frame of the orange tabby. blink closes the eyes. mouth opens the mouth a little.
 struct CatFace {
   const uint8_t* png;
   uint32_t length;
@@ -10,4 +10,6 @@ struct CatFace {
   int height;
 };
 
-const CatFace& cat_face_for(const char* expression);
+enum CatFrame : uint8_t { kCatIdle = 0, kCatBlink = 1, kCatMouth = 2 };
+
+const CatFace& cat_frame(CatFrame frame);

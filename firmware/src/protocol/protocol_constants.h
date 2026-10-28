@@ -17,4 +17,3 @@ static constexpr int kMaxLineBytes = 1024;
 static constexpr int kMalformedLimit = 5;
 
 static constexpr const char* kExprIdle = "idle";
-static constexpr const char* kExprParked = "parked";
