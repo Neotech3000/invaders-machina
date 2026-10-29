@@ -14,6 +14,7 @@ let stream: ByteStream | null = null;
 let picker: BrowserWindow;
 let catWin: BrowserWindow;
 let chipWin: BrowserWindow;
+let userHold = false;
 
 function placeBottomRight(win: BrowserWindow) {
   const area = screen.getPrimaryDisplay().workArea;
@@ -83,6 +84,29 @@ function makeWindow(view: string, width: number, height: number) {
   });
   void win.loadFile(path.join(__dirname, "index.html"), { query: { view } });
   return win;
+}
+
+function ch340Ready(): boolean {
+  try {
+    assertOpenable(PREFERRED_PORT);
+  } catch {
+    return false;
+  }
+  return listPorts().some((port) => port.id === PREFERRED_PORT);
+}
+
+async function maybeAutoConnect() {
+  if (userHold) {
+    if (!ch340Ready()) userHold = false;
+    return;
+  }
+  if (session.phase !== "disconnected" || stream) return;
+  if (!ch340Ready()) return;
+  try {
+    await connect(PREFERRED_PORT);
+  } catch (err) {
+    console.log("JITTERS auto-connect", err instanceof Error ? err.message : err);
+  }
 }
 
 async function connect(id: string) {
@@ -198,6 +222,7 @@ app.whenReady().then(async () => {
     return session.snapshot();
   });
   ipcMain.handle("disconnect", () => {
+    userHold = true;
     session.disconnect();
     publish();
     return session.snapshot();
@@ -226,6 +251,15 @@ app.whenReady().then(async () => {
   picker.showInactive();
 
   const previewAt = process.argv.indexOf("--preview-face");
+  const gameAt = process.argv.indexOf("--preview-invaders");
+  const once = process.argv.includes("--handoff-once");
+  if (previewAt < 0 && gameAt < 0 && !once) {
+    void maybeAutoConnect();
+    setInterval(() => {
+      void maybeAutoConnect();
+    }, 1500);
+  }
+
   if (previewAt >= 0) {
     const shot = process.argv[previewAt + 1] ?? "";
     if (!picker.isDestroyed()) picker.hide();
@@ -261,7 +295,6 @@ app.whenReady().then(async () => {
     return;
   }
 
-  const gameAt = process.argv.indexOf("--preview-invaders");
   if (gameAt >= 0) {
     const shot = process.argv[gameAt + 1] ?? "";
     if (!picker.isDestroyed()) picker.hide();
@@ -295,7 +328,6 @@ app.whenReady().then(async () => {
     return;
   }
 
-  const once = process.argv.includes("--handoff-once");
   if (!once) return;
   const shotFlag = process.argv.indexOf("--shot");
   const shot = shotFlag >= 0 ? process.argv[shotFlag + 1] : "";
