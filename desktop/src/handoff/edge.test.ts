@@ -1,7 +1,7 @@
 import assert from "assert";
 import { DesktopHandoff, type CatPort, type Clock, type Expr } from "./desktop_handoff";
 import { controlsFor } from "../renderer/controls";
-import { encode } from "../protocol/schema";
+import { encode, parseLine } from "../protocol/schema";
 import { kMaxSerialBuf, takeLines } from "../transport/serial";
 
 class ManualClock implements Clock {
@@ -80,6 +80,12 @@ function link() {
   );
   ctx.session.onLine(device("hello.ack", "e-ack000001", { ok: true, proto: 1 }));
   assert.equal(ctx.session.phase, "linked");
+  const sync = ctx.sent.find((line) => line.includes("\"time.sync\""));
+  assert.ok(sync, "laptop sends the time once the link is up");
+  const parsed = parseLine(sync ?? "");
+  assert.equal(parsed?.type, "time.sync");
+  assert.equal(typeof parsed?.payload.unix, "number");
+  assert.equal(typeof parsed?.payload.offset, "number");
   return ctx;
 }
 
