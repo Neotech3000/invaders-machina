@@ -105,6 +105,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     const bool rose = down && !touch_down_;
     touch_down_ = down;
 
+    if (mode_ == Mode::Splash) {
+      if (static_cast<int32_t>(now - splash_at_) >= 0) startGodFight();
+      return;
+    }
     if (!demo_ && (mode_ == Mode::Play || mode_ == Mode::Advance) && rose && on &&
         std::strcmp(where, "BACK") == 0) {
       beginPause();
@@ -112,7 +116,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (demo_) {
       // The cabinet flies itself until someone taps PLAY.
-      if (on && std::strcmp(where, "PLAY") == 0) {
+      if (mode_ != Mode::Splash && on && std::strcmp(where, "PLAY") == 0) {
         beginMenu();
         return;
       }
@@ -196,7 +200,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
  private:
   enum class Mode : uint8_t {
-    Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom
+    Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom, Splash
   };
 
   struct Box {
@@ -289,6 +293,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kBossH = 30;
   static constexpr int kMiniW = 30;
   static constexpr int kMiniH = 20;
+  static constexpr int kAllyW = 18;
+  static constexpr int kAllyH = 16;
   static constexpr int kShotW = 3;
   static constexpr int kShotH = 8;
   static constexpr int kShipStep = 5;
@@ -749,6 +755,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     score_ = 0;
     level_ = 1 + static_cast<int>(millis() % 5);
     lives_ = 3;
+    god_ = 0;
+    god_wave_ = 0;
+    god_entrance_ = false;
     raid_ = false;
     mini_ = false;
     invuln_ = 0;
@@ -889,6 +898,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     fadeOut();
     score_ = 0;
     lives_ = 3;
+    god_ = 0;
+    god_wave_ = 0;
+    god_entrance_ = false;
     mini_ = false;
     raid_ = false;
     invuln_ = 0;
@@ -916,11 +928,173 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     beginCampaign();
   }
 
+  // ---- Olympian gods -----------------------------------------------------
+
+  bool isGodLevel(int lv) const { return lv % 25 == 0; }
+
+  int godForLevel(int lv) const { return ((lv / 25 - 1) % 12) + 1; }
+
+  const char* godName() const {
+    switch (god_) {
+      case 1: return "ZEUS";
+      case 2: return "HERA";
+      case 3: return "POSEIDON";
+      case 4: return "DEMETER";
+      case 5: return "ATHENA";
+      case 6: return "ARES";
+      case 7: return "APOLLO";
+      case 8: return "ARTEMIS";
+      case 9: return "APHRODITE";
+      case 10: return "HEPHAESTUS";
+      case 11: return "HERMES";
+      case 12: return "DIONYSUS";
+      default: return "GOD";
+    }
+  }
+
+  uint16_t godInk() const {
+    switch (god_) {
+      case 1: return color565(255, 214, 56);
+      case 2: return color565(226, 170, 255);
+      case 3: return color565(64, 190, 255);
+      case 4: return color565(120, 220, 96);
+      case 5: return color565(206, 214, 232);
+      case 6: return color565(255, 72, 60);
+      case 7: return color565(255, 200, 88);
+      case 8: return color565(176, 220, 255);
+      case 9: return color565(255, 140, 200);
+      case 10: return color565(255, 128, 40);
+      case 11: return color565(140, 255, 220);
+      case 12: return color565(190, 96, 255);
+      default: return palette().accent;
+    }
+  }
+
+  int godBarHp() const { return 12 + level_ / 12; }
+
+  void paintGodArena() {
+    const uint16_t ink = godInk();
+    for (int i = 0; i < 6; ++i) {
+      const int x = 18 + i * 56;
+      fillRect(x, 40, 6, kShipY - 44, ink);
+      fillRect(x - 6, 40, 18, 5, ink);
+    }
+    drawCircle(kPanelWidth / 2, 150, 78, ink);
+    drawCircle(kPanelWidth / 2, 150, 60, ink);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink);
+    char line[24];
+    snprintf(line, sizeof line, "%s DOMAIN", godName());
+    drawString(line, kPanelWidth / 2, 150);
+  }
+
+  void buildGodArena() {
+    unit_n_ = 0;
+    boss_ = false;
+    mini_ = false;
+    raid_ = false;
+    barrier_n_ = 0;
+    sky_on_ = false;
+    boss_layers_ = 0;
+    boss_layer_max_ = 0;
+    god_ = static_cast<uint8_t>(godForLevel(level_));
+    god_wave_ = 0;
+    god_bar_ = 3;
+    god_phase_ = 0;
+    god_entrance_ = false;
+    god_hp_ = 0;
+    god_hp_max_ = 1;
+    drop_px_ = 8;
+    foe_gap_ = 30;
+    step_px_ = 2;
+    buildTerrain();
+    spawnGodWave();
+  }
+
+  // Four waves of goons, each led by a mini boss.
+  void spawnGodWave() {
+    unit_n_ = 0;
+    boss_ = false;
+    mini_ = false;
+    const int wave = god_wave_;
+    const int cols = 4 + wave;
+    const int rows = 2 + (wave >= 2 ? 1 : 0);
+    const int pitch_x = 30;
+    const int pitch_y = 22;
+    for (int row = 0; row < rows; ++row) {
+      for (int col = 0; col < cols; ++col) {
+        int kind = (row == 0) ? 1 : 0;
+        const uint32_t roll = nextRng() % 100;
+        if (roll < 12) kind = 4;
+        else if (roll < 20) kind = 5;
+        addUnit(col * pitch_x, row * pitch_y, kind);
+      }
+    }
+    const int mini_w = 30;
+    addUnit((cols * pitch_x - mini_w) / 2, -6, 6);
+    origin_x_ = (kPanelWidth - cols * pitch_x) / 2;
+    origin_y_ = 40;
+    form_dir_ = 1;
+    step_px_ = 2 + wave;
+    foe_cool_ = 0;
+    clearFoe();
+  }
+
+  void beginGodSplash() {
+    mode_ = Mode::Splash;
+    splash_at_ = millis() + 1000;
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    setTextDatum(lgfx::middle_center);
+    setFont(&fonts::Font6);
+    if (textWidth(godName()) > kPanelWidth - 24) setFont(&fonts::Font4);
+    setTextColor(godInk());
+    drawString(godName(), kPanelWidth / 2, 190);
+    setFont(&fonts::Font2);
+    setTextColor(ink.muted);
+    drawString("DESCENDS", kPanelWidth / 2, 250);
+  }
+
+  void startGodFight() {
+    unit_n_ = 0;
+    boss_ = true;
+    mini_ = false;
+    raid_ = false;
+    god_entrance_ = true;
+    god_bar_ = 3;
+    god_phase_ = 0;
+    god_hp_max_ = godBarHp();
+    god_hp_ = god_hp_max_;
+    boss_max_ = 1;
+    boss_hp_ = 1;
+    boss_layers_ = 0;
+    boss_layer_max_ = 0;
+    boss_style_ = 5;
+    laser_live_ = false;
+    clearFoe();
+    clearBolts();
+    const int boss_ox = (kPanelWidth - kBossW) / 2;
+    addUnit(boss_ox, 4, 2);
+    // Two themed escorts flank the god and keep firing while it fights.
+    addUnit(boss_ox - 52, 14, 7);
+    addUnit(boss_ox + kBossW + 34, 14, 7);
+    origin_x_ = 0;
+    origin_y_ = 34;
+    form_dir_ = 1;
+    step_px_ = 2;
+    mode_ = Mode::Play;
+    paintLevel();
+    noteUnlock("GOD");
+  }
+
+
   int unitW(const Unit& unit) const {
     if (unit.kind == 2) return kBossW;
     if (unit.kind == 3) return kDroneW;
     if (unit.kind == 5) return kAlienW + 4;
     if (unit.kind == 6) return kMiniW;
+    if (unit.kind == 7) return kAllyW;
     return kAlienW;
   }
   int unitH(const Unit& unit) const {
@@ -928,6 +1102,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (unit.kind == 3) return kDroneH;
     if (unit.kind == 5) return kAlienH + 2;
     if (unit.kind == 6) return kMiniH;
+    if (unit.kind == 7) return kAllyH;
     return kAlienH;
   }
 
@@ -973,7 +1148,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (kind == 6) {
       // Mini boss: squat, armoured, with its own small bar.
-      const uint16_t plate = ink.accent;
+      const uint16_t plate = god_ != 0 ? godInk() : ink.accent;
       fillRect(x + 4, y + 4, kMiniW - 8, kMiniH - 8, ink.top);
       fillRect(x, y + 8, 5, 6, plate);
       fillRect(x + kMiniW - 5, y + 8, 5, 6, plate);
@@ -984,6 +1159,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       int left = boss_hp_ < 0 ? 0 : boss_hp_;
       if (left > pool) left = pool;
       fillRect(x + 4, y + kMiniH - 3, (kMiniW - 8) * left / pool, 2, plate);
+      return;
+    }
+    if (kind == 7) {
+      // God ally: small winged escort in the god's colour.
+      const uint16_t plate = godInk();
+      fillRect(x + 4, y + 4, 10, 7, plate);
+      fillRect(x, y + 2, 4, 4, plate);
+      fillRect(x + kAllyW - 4, y + 2, 4, 4, plate);
+      fillRect(x + 7, y + 6, 4, 3, eye);
       return;
     }
     if (kind == 3) {
@@ -1067,6 +1251,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     char line[40];
     if (hud_msg_ticks_ > 0) {
       snprintf(line, sizeof line, "%s", hud_msg_);
+    } else if (god_ != 0) {
+      if (god_entrance_) snprintf(line, sizeof line, "%s", godName());
+      else snprintf(line, sizeof line, "%s %d/4", godName(), god_wave_ + 1);
     } else if (mini_) {
       snprintf(line, sizeof line, "MINI %d %d", level_, score_);
     } else if (boss_) {
@@ -1089,11 +1276,30 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     drawString(line, 8, 12);
     drawHearts();
-    if (boss_) drawBossBar();
+    if (boss_ || god_ != 0) drawBossBar();
   }
 
   void drawBossBar() {
     const Palette ink = palette();
+    if (god_ != 0 && god_entrance_) {
+      // Three health bars, one per fighting style.
+      const int w = 96;
+      for (int bar = 0; bar < 3; ++bar) {
+        const int x = 8 + bar * (w + 4);
+        fillRect(x, 26, w, 8, ink.button);
+        const bool live = bar < god_bar_;
+        if (live) {
+          int pool = god_hp_max_ > 0 ? god_hp_max_ : 1;
+          int left = (bar == god_bar_ - 1) ? god_hp_ : pool;
+          if (left < 0) left = 0;
+          if (left > pool) left = pool;
+          const int fill = (w - 4) * left / pool;
+          if (fill > 0) fillRect(x + 2, 28, fill, 4, godInk());
+        }
+        drawRect(x, 26, w, 8, live ? godInk() : ink.button);
+      }
+      return;
+    }
     int pool = boss_layers_ > 0 ? boss_layer_max_ : boss_max_;
     int left = boss_layers_ > 0 ? boss_shield_ : boss_hp_;
     if (pool < 1) pool = 1;
@@ -1121,6 +1327,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     units_[unit_n_].ox = static_cast<int16_t>(ox);
     units_[unit_n_].oy = static_cast<int16_t>(oy);
     units_[unit_n_].kind = static_cast<uint8_t>(kind);
+    units_[unit_n_].hp = static_cast<uint8_t>(kind == 7 ? 2 : 1);
     units_[unit_n_].alive = true;
     unit_n_ += 1;
   }
@@ -1239,6 +1446,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     boss_ = (level_ % 5) == 0;
     mini_ = false;
     raid_ = false;
+    god_ = 0;
+    god_wave_ = 0;
+    god_entrance_ = false;
     barrier_n_ = 0;
     boss_open_ = false;
     boss_tick_ = 0;
@@ -1256,6 +1466,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (boss_) foe_gap_ -= 6;
     if (foe_gap_ < 14) foe_gap_ = 14;
     buildTerrain();
+    if (isGodLevel(level_)) {
+      buildGodArena();
+      return;
+    }
     if (!boss_ && raid_won_ && (nextRng() % 100) < 40) {
       placeMiniBoss();
       return;
@@ -1337,8 +1551,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     const Palette ink = palette();
     fillScreen(ink.bg);
     paintStars();
-    if (terrain_ == 1) paintPlanet();
-    paintScraps();
+    if (god_ != 0) paintGodArena();
+    else {
+      if (terrain_ == 1) paintPlanet();
+      paintScraps();
+    }
     if (sky_on_) drawSky();
     for (int i = 0; i < barrier_n_; ++i) {
       drawBarrier(i);
@@ -2016,7 +2233,42 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       drawHud();
       return false;
     }
+    if (unit.kind == 7) {
+      addScore(10);
+      if (unit.hp > 0) unit.hp -= 1;
+      if (unit.hp == 0) {
+        unit.alive = false;
+        return true;
+      }
+      drawAlienAt(origin_x_ + unit.ox, origin_y_ + unit.oy, unit.kind);
+      return false;
+    }
     if (unit.kind == 2) {
+      if (god_ != 0 && god_entrance_) {
+        // Three bars, three styles. Emptying a bar advances the phase.
+        addScore(10);
+        if (god_hp_ > 0) god_hp_ -= 1;
+        if (god_hp_ <= 0) {
+          if (god_bar_ > 1) {
+            god_bar_ = static_cast<uint8_t>(god_bar_ - 1);
+            god_phase_ = static_cast<uint8_t>(3 - god_bar_);
+            god_hp_max_ = godBarHp() + (3 - god_bar_) * 2;
+            god_hp_ = god_hp_max_;
+            clearFoe();
+            noteUnlock("PHASE");
+          } else {
+            unit.alive = false;
+            boss_ = false;
+            god_ = 0;
+            god_entrance_ = false;
+            maybeDrop(true);
+            return true;
+          }
+        }
+        drawAlienAt(origin_x_ + unit.ox, origin_y_ + unit.oy, unit.kind);
+        drawHud();
+        return false;
+      }
       if (anyMinion()) return false;
       if (boss_style_ == 2 && !boss_open_) return false;
       if (boss_layers_ > 0) {
@@ -2303,6 +2555,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   uint16_t foeInk(uint8_t kind) const {
     if (kind == 2) return color565(255, 168, 56);
     if (kind == 1) return color565(255, 140, 96);
+    if (god_ != 0) return godInk();
     return color565(255, 72, 64);
   }
 
@@ -2370,6 +2623,29 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     return hit;
   }
 
+  void fireGodVolley() {
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive || units_[i].kind != 2) continue;
+      const int x = origin_x_ + units_[i].ox + kBossW / 2;
+      const int y = origin_y_ + units_[i].oy + kBossH;
+      if (god_phase_ == 0) {
+        const int dx = player_x_ + kShipW / 2 - x;
+        spawnFoe(x, y, dx < -10 ? -1 : (dx > 10 ? 1 : 0), 1);
+      } else if (god_phase_ == 1) {
+        spawnFoe(x - 12, y, -2, 1);
+        spawnFoe(x, y, 0, 1);
+        spawnFoe(x + 12, y, 2, 1);
+      } else {
+        spawnFoe(x - 16, y, -3, 1);
+        spawnFoe(x - 8, y, -1, 1);
+        spawnFoe(x, y, 0, 2);
+        spawnFoe(x + 8, y, 1, 1);
+        spawnFoe(x + 16, y, 3, 1);
+      }
+      break;
+    }
+  }
+
   bool stepFoe() {
     bool lost = false;
     for (int i = 0; i < kFoeBolts; ++i) {
@@ -2402,6 +2678,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     foe_cool_ += 1;
     if (foe_cool_ < foe_gap_) return lost;
     foe_cool_ = 0;
+    if (god_ != 0 && god_entrance_ && bossAlive()) {
+      fireGodVolley();
+      return lost;
+    }
     if (boss_ && boss_style_ == 3 && bossAlive()) {
       for (int i = 0; i < unit_n_; ++i) {
         if (!units_[i].alive || units_[i].kind != 2) continue;
@@ -2447,6 +2727,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         spawnFoe(mx, my, 0, 1);
         spawnFoe(mx - 12, my, -1, 0);
         spawnFoe(mx + 12, my, 1, 0);
+      } else if (units_[i].kind == 7) {
+        spawnFoe(mx, my, 0, 1);
       } else {
         spawnFoe(mx, my, 0);
       }
@@ -2589,12 +2871,23 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         startLevel();
         return;
       }
+      if (god_ != 0) {
+        // The four goon waves each end with a mini boss. Then the god drops in.
+        god_wave_ = static_cast<uint8_t>(god_wave_ + 1);
+        if (god_wave_ < 4) {
+          spawnGodWave();
+          noteUnlock("WAVE");
+        } else {
+          beginGodSplash();
+        }
+        return;
+      }
       if (mini_) {
         mini_ = false;
         beginAdvance();
         return;
       }
-      if (boss_ && !raid_ && (nextRng() % 5) == 0) {
+      if (boss_ && !raid_ && !isGodLevel(level_) && (nextRng() % 5) == 0) {
         beginRaid(true);
         return;
       }
@@ -2638,6 +2931,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool mini_ = false;
   bool raid_ = false;
   bool raid_won_ = false;
+  bool god_entrance_ = false;
   Mode mode_ = Mode::Demo;
   uint8_t theme_ = 0;
   int origin_x_ = 0;
@@ -2657,6 +2951,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int invuln_ = 0;
   int foe_cool_ = 0;
   int foe_gap_ = 40;
+  int god_hp_ = 0;
+  int god_hp_max_ = 1;
   Bolt bolts_[kBolts];
   Scrap scraps_[kScraps];
   int scrap_n_ = 0;
@@ -2685,6 +2981,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   uint8_t boss_layers_ = 0;
   uint8_t boss_layer_max_ = 0;
   uint8_t sky_kind_ = 0;
+  uint8_t god_ = 0;
+  uint8_t god_wave_ = 0;
+  uint8_t god_bar_ = 3;
+  uint8_t god_phase_ = 0;
   uint16_t camp_ = 0;
   bool buddy_ = false;
   bool laser_live_ = false;
@@ -2705,6 +3005,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   uint32_t rng_ = 1;
   uint32_t step_at_ = 0;
   uint32_t advance_at_ = 0;
+  uint32_t splash_at_ = 0;
   Unit units_[kMaxUnits] = {};
   Barrier barriers_[kMaxBarriers] = {};
   Star stars_[kStars] = {};
