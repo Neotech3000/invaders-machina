@@ -85,8 +85,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     const CatFace& face = cat_frame(kCatIdle);
     cat_w_ = face.width;
     cat_h_ = face.height;
+    rng_ = esp_random();
+    if (rng_ == 0) rng_ = 1;
     fillScreen(palette().bg);
     visible_ = false;
+    Serial.printf("FRAME walk_ms=%lu game_ms=%lu\n", static_cast<unsigned long>(kWalkMs),
+                  static_cast<unsigned long>(kStepMs));
+    Serial.flush();
     return true;
   }
 
@@ -141,7 +146,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     if (mode_ == Mode::Wander) {
-      if (rose && on && std::strcmp(where, "PLAY") == 0) {
+      // Any sample inside the drawn PLAY key opens home. Empty glass is not
+      // that key, so it only draws the cat over.
+      if (on && std::strcmp(where, "PLAY") == 0) {
         beginHome();
         return;
       }
@@ -232,8 +239,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr uint32_t kMouthEveryMs = 7600;
   static constexpr uint32_t kMouthAtMs = 2200;
   static constexpr uint32_t kMouthHoldMs = 380;
-  static constexpr uint32_t kWalkMs = 16;
-  static constexpr uint32_t kStepMs = 32;
+  static constexpr uint32_t kWalkMs = 8;
+  static constexpr uint32_t kStepMs = 16;
   static constexpr int kLevels = 100;
   static constexpr int kMaxUnits = 24;
   static constexpr int kStars = 42;
@@ -249,7 +256,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kBossH = 30;
   static constexpr int kShotW = 3;
   static constexpr int kShotH = 8;
-  static constexpr int kShipStep = 9;
+  static constexpr int kShipStep = 5;
 
   bool bake(lgfx::LGFX_Sprite& sprite, CatFrame which) {
     const CatFace& face = cat_frame(which);
@@ -278,11 +285,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
               color565(18, 78, 42),
               color565(210, 210, 220)};
     }
-    return {color565(244, 236, 214), color565(32, 26, 18), color565(96, 74, 52),
-            color565(22, 116, 48),    color565(186, 96, 12), color565(16, 118, 40),
-            color565(14, 92, 32),     color565(20, 128, 46), color565(176, 84, 8),
-            color565(36, 92, 176),    color565(232, 220, 196), color565(198, 216, 176),
-            color565(86, 68, 48)};
+    return {color565(248, 242, 226), color565(28, 22, 16),  color565(90, 68, 48),
+            color565(16, 110, 42),    color565(196, 92, 8),  color565(12, 112, 36),
+            color565(10, 84, 28),     color565(18, 122, 40), color565(186, 78, 6),
+            color565(28, 78, 168),    color565(255, 252, 244), color565(186, 214, 168),
+            color565(70, 54, 36)};
   }
 
   Box playBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
@@ -443,8 +450,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (blink_pos >= kBlinkAtMs && blink_pos < kBlinkAtMs + kBlinkHoldMs) {
       return kCatBlink;
     }
-    if (mood_ == Mood::React ||
-        (mouth_pos >= kMouthAtMs && mouth_pos < kMouthAtMs + kMouthHoldMs)) {
+    if (mood_ == Mood::React) {
+      return kCatMouth;
+    }
+    if (glance_face_ != 0 && static_cast<int32_t>(now - glance_face_until_) < 0) {
+      return glance_face_ == 2 ? kCatMouth : kCatBlink;
+    }
+    if (mouth_pos >= kMouthAtMs && mouth_pos < kMouthAtMs + kMouthHoldMs) {
       return kCatMouth;
     }
     return kCatIdle;
@@ -503,17 +515,61 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     cat_x_ = 40;
     cat_y_ = 70;
     vx_ = 1;
-    vy_ = 1;
+    vy_ = 0;
+    speed_ = 1;
+    slow_ = false;
+    glance_step_ = false;
+    glance_face_ = 0;
     walk_tick_ = 0;
     shown_at_ = millis();
     step_at_ = 0;
-    pause_at_ = shown_at_ + 3600;
+    pickHeading(shown_at_, 1, 1);
     const Palette ink = palette();
     fillScreen(ink.bg);
     paintStars();
     drawKey("PLAY", playBox(), false);
     logRegions();
     fadeIn();
+  }
+
+  void pickHeading(uint32_t now, int bias_x, int bias_y) {
+    static const int kDir[8][2] = {{1, 0}, {1, 1}, {0, 1}, {-1, 1},
+                                   {-1, 0}, {-1, -1}, {0, -1}, {1, -1}};
+    int hx = 1;
+    int hy = 0;
+    for (int attempt = 0; attempt < 6; ++attempt) {
+      const int i = static_cast<int>(nextRng() % 8);
+      hx = kDir[i][0];
+      hy = kDir[i][1];
+      if (bias_x > 0 && hx < 0) continue;
+      if (bias_x < 0 && hx > 0) continue;
+      if (bias_y > 0 && hy < 0) continue;
+      if (bias_y < 0 && hy > 0) continue;
+      if (hx == vx_ && hy == vy_ && attempt < 5) continue;
+      break;
+    }
+    if (bias_x > 0 && hx < 0) hx = 1;
+    if (bias_x < 0 && hx > 0) hx = -1;
+    if (bias_y > 0 && hy < 0) hy = 1;
+    if (bias_y < 0 && hy > 0) hy = -1;
+    if (hx == 0 && hy == 0) hx = bias_x != 0 ? bias_x : 1;
+    vx_ = hx;
+    vy_ = hy;
+    const uint32_t roll = nextRng() % 5;
+    speed_ = roll == 0 ? 2 : 1;
+    slow_ = roll >= 3;
+    heading_until_ = now + 700 + (nextRng() % 1700);
+  }
+
+  void startGlance(uint32_t now) {
+    mood_ = Mood::Pause;
+    mood_until_ = now + 460 + (nextRng() % 480);
+    glance_dx_ = (nextRng() & 1) != 0 ? 6 : -6;
+    glance_dy_ = static_cast<int>(nextRng() % 3) - 1;
+    glance_step_ = true;
+    glance_face_ = (nextRng() % 4) == 0 ? 2 : 1;
+    glance_face_until_ = now + (glance_face_ == 2 ? 220 : 150);
+    heading_until_ = mood_until_ + 400 + (nextRng() % 900);
   }
 
   void notice(int x, int y, uint32_t now) {
@@ -531,50 +587,65 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void stepWalk(uint32_t now) {
     walk_tick_ += 1;
+    if (heading_until_ == 0) {
+      pickHeading(now, 0, 0);
+    }
     if (mood_ == Mood::Notice && static_cast<int32_t>(now - mood_until_) >= 0) {
       mood_ = Mood::Approach;
     } else if (mood_ == Mood::React && static_cast<int32_t>(now - mood_until_) >= 0) {
       mood_ = Mood::Roam;
-      vx_ = lure_x_ >= cat_x_ ? 1 : -1;
-      vy_ = (walk_tick_ & 4) != 0 ? 1 : -1;
-      pause_at_ = now + 3200;
+      glance_face_ = 0;
+      pickHeading(now, lure_x_ >= cat_x_ ? 1 : -1, 0);
     } else if (mood_ == Mood::Pause && static_cast<int32_t>(now - mood_until_) >= 0) {
       mood_ = Mood::Roam;
-    } else if (mood_ == Mood::Roam && static_cast<int32_t>(now - pause_at_) >= 0) {
-      mood_ = Mood::Pause;
-      mood_until_ = now + 320;
-      pause_at_ = now + 4200;
-    }
-
-    int dx = 0;
-    int dy = 0;
-    if (mood_ == Mood::Approach) {
-      dx = lure_x_ > cat_x_ ? 1 : (lure_x_ < cat_x_ ? -1 : 0);
-      if ((walk_tick_ & 1) == 0) {
-        dy = lure_y_ > cat_y_ ? 1 : (lure_y_ < cat_y_ ? -1 : 0);
+      glance_face_ = 0;
+      pickHeading(now, 0, 0);
+    } else if (mood_ == Mood::Roam && static_cast<int32_t>(now - heading_until_) >= 0) {
+      if ((nextRng() % 3) == 0) {
+        startGlance(now);
+      } else {
+        pickHeading(now, 0, 0);
       }
-      if (dx == 0 && dy == 0) {
-        mood_ = Mood::React;
-        mood_until_ = now + 240;
-      }
-    } else if (mood_ == Mood::Roam) {
-      dx = vx_;
-      dy = (walk_tick_ & 1) == 0 ? vy_ : 0;
     }
 
     const int max_x = kPanelWidth - cat_w_;
     const int max_y = playBox().y - cat_h_ - 8;
+    int dx = 0;
+    int dy = 0;
+    if (mood_ == Mood::Approach) {
+      const int ax = lure_x_ - cat_x_;
+      const int ay = lure_y_ - cat_y_;
+      const int reach = (ax > 36 || ax < -36 || ay > 36 || ay < -36) ? 2 : 1;
+      if (ax > 0) dx = ax > reach ? reach : ax;
+      else if (ax < 0) dx = ax < -reach ? -reach : ax;
+      if (ay > 0) dy = ay > reach ? reach : ay;
+      else if (ay < 0) dy = ay < -reach ? -reach : ay;
+      if (dx == 0 && dy == 0) {
+        mood_ = Mood::React;
+        mood_until_ = now + 240;
+        glance_face_ = 0;
+      }
+    } else if (mood_ == Mood::Pause) {
+      if (glance_step_) {
+        dx = glance_dx_;
+        dy = glance_dy_;
+        glance_step_ = false;
+      }
+    } else if (mood_ == Mood::Roam && !(slow_ && (walk_tick_ & 1) != 0)) {
+      dx = vx_ * speed_;
+      dy = vy_ * speed_;
+    }
+
     int nx = cat_x_ + dx;
     int ny = cat_y_ + dy;
-    if (mood_ == Mood::Roam) {
-      if (nx < 0 || nx > max_x) {
-        vx_ = -vx_;
-        nx = cat_x_ + vx_;
-      }
-      if (ny < 8 || ny > max_y) {
-        vy_ = -vy_;
-        ny = cat_y_ + ((walk_tick_ & 1) == 0 ? vy_ : 0);
-      }
+    if (mood_ == Mood::Roam && (nx < 0 || ny < 8 || nx > max_x || ny > max_y)) {
+      const int bias_x = cat_x_ < 16 ? 1 : (cat_x_ > max_x - 16 ? -1 : 0);
+      const int bias_y = cat_y_ < 24 ? 1 : (cat_y_ > max_y - 16 ? -1 : 0);
+      pickHeading(now, bias_x, bias_y);
+      dx = vx_ * speed_;
+      dy = vy_ * speed_;
+      nx = cat_x_ + dx;
+      ny = cat_y_ + dy;
     }
     if (nx < 0) nx = 0;
     if (ny < 8) ny = 8;
@@ -611,7 +682,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawString("pick a card", kPanelWidth / 2, 76);
     drawCard("INVADERS", "100 levels", invadersBox());
     drawCard("CALENDAR", "today", calendarBox());
-    drawCard(theme_ == 0 ? "DARK NEON" : "LIGHT", "theme", themeBox());
+    drawCard(theme_ == 0 ? "DARK NEON" : "LIGHT", "tap to switch", themeBox());
     drawKey("WALK", walkBox(), false);
     fadeIn();
   }
@@ -951,14 +1022,18 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (right <= 0) return;
     const int old_x = origin_x_;
     const int old_y = origin_y_;
-    if (form_dir_ > 0 && right + step_px_ >= kPanelWidth - 4) {
+    // Game ticks are 16 ms. step_px_ is the distance that used to land every
+    // 32 ms, so each tick moves about half of it and the picture updates twice
+    // as often without doubling the march.
+    const int step = step_px_ > 1 ? (step_px_ + 1) / 2 : step_px_;
+    if (form_dir_ > 0 && right + step >= kPanelWidth - 4) {
       form_dir_ = -1;
       origin_y_ += drop_px_;
-    } else if (form_dir_ < 0 && left - step_px_ <= 4) {
+    } else if (form_dir_ < 0 && left - step <= 4) {
       form_dir_ = 1;
       origin_y_ += drop_px_;
     } else {
-      origin_x_ += form_dir_ * step_px_;
+      origin_x_ += form_dir_ * step;
     }
     for (int i = 0; i < unit_n_; ++i) {
       if (!units_[i].alive) continue;
@@ -1002,7 +1077,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     } else if (shot_) {
       const int ox = shot_x_;
       const int oy = shot_y_;
-      const int ny = shot_y_ - 14;
+      const int ny = shot_y_ - 7;
       const bool struck = ny < 26 || hitBarrier(shot_x_, ny) || hitUnit(shot_x_, ny);
       if (struck) {
         repair(ox, oy, kShotW, kShotH);
@@ -1060,9 +1135,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int cat_y_ = 0;
   int vx_ = 1;
   int vy_ = 1;
+  int speed_ = 1;
+  int glance_dx_ = 0;
+  int glance_dy_ = 0;
+  int glance_face_ = 0;
   int lure_x_ = 0;
   int lure_y_ = 0;
   int walk_tick_ = 0;
+  bool slow_ = false;
+  bool glance_step_ = false;
   int origin_x_ = 0;
   int origin_y_ = 0;
   int form_dir_ = 1;
@@ -1084,6 +1165,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   uint32_t advance_at_ = 0;
   uint32_t mood_until_ = 0;
   uint32_t pause_at_ = 0;
+  uint32_t heading_until_ = 0;
+  uint32_t glance_face_until_ = 0;
   Unit units_[kMaxUnits] = {};
   Barrier barriers_[kMaxBarriers] = {};
   Star stars_[kStars] = {};
