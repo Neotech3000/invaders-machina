@@ -4,8 +4,8 @@
 #include "hardware/board.h"
 #include "transport/serial_link.h"
 
-// 115200 is the unconfirmed serial-monitor placeholder. The protocol
-// port is the only UART, so this image writes NDJSON and nothing else.
+// 115200 is the unconfirmed serial-monitor placeholder. After a short
+// touch-sample window at boot, this image writes NDJSON and nothing else.
 
 static constexpr uint32_t kMonitorBaudPlaceholder = 115200;
 
