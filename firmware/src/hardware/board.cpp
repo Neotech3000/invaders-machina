@@ -85,6 +85,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     touch_begin();
     prefs_.begin("jitters", false);
     theme_ = prefs_.getUChar("theme", 0) & 3;
+    loadGear();
     makeStars();
     sprite_ok_ = bake(idle_sprite_, kCatIdle) && bake(blink_sprite_, kCatBlink) &&
                  bake(mouth_sprite_, kCatMouth);
@@ -167,10 +168,14 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     const bool rose = down && !touch_down_;
     touch_down_ = down;
 
-    if ((mode_ == Mode::Play || mode_ == Mode::Tetris || mode_ == Mode::Snake ||
-         mode_ == Mode::Advance) &&
-        rose && on && std::strcmp(where, "BACK") == 0) {
+    if ((mode_ == Mode::Tetris || mode_ == Mode::Snake) && rose && on &&
+        std::strcmp(where, "BACK") == 0) {
       beginHome();
+      return;
+    }
+    if ((mode_ == Mode::Play || mode_ == Mode::Advance) && rose && on &&
+        std::strcmp(where, "BACK") == 0) {
+      beginPause();
       return;
     }
     if (mode_ == Mode::Advance) {
@@ -217,8 +222,36 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         theme_ = static_cast<uint8_t>((theme_ + 1) & 3);
         prefs_.putUChar("theme", theme_);
         beginHome();
+      } else if (std::strcmp(where, "CUSTOM") == 0) {
+        beginCustom(false);
       } else if (std::strcmp(where, "WALK") == 0) {
         beginWander();
+      }
+      return;
+    }
+    if (mode_ == Mode::Pause) {
+      if (!rose || !on) return;
+      if (std::strcmp(where, "RESUME") == 0) resumePlay();
+      else if (std::strcmp(where, "CUSTOM") == 0) beginCustom(true);
+      else if (std::strcmp(where, "HOME") == 0) beginHome();
+      return;
+    }
+    if (mode_ == Mode::Custom) {
+      if (!rose || !on) return;
+      if (std::strcmp(where, "COLOR") == 0) {
+        laser_color_ = static_cast<uint8_t>((laser_color_ + 1) % 6);
+        saveGear();
+        paintCustom();
+      } else if (std::strcmp(where, "CANNON") == 0) {
+        equipGun(0);
+      } else if (std::strcmp(where, "SHOTGUN") == 0) {
+        equipGun(1);
+      } else if (std::strcmp(where, "ASSAULT") == 0) {
+        equipGun(2);
+      } else if (std::strcmp(where, "BEAM") == 0) {
+        equipGun(3);
+      } else if (std::strcmp(where, "BACK") == 0) {
+        leaveCustom();
       }
       return;
     }
@@ -254,7 +287,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
  private:
   enum class Mode : uint8_t {
-    Wander, Home, Calendar, Play, Advance, Over, Away, Tetris, Snake, Care
+    Wander, Home, Calendar, Play, Advance, Over, Away, Tetris, Snake, Care, Pause, Custom
   };
   enum class Presence : uint8_t { Solo, Linked, Leaving, Away };
   // Cece (a neko-like cat) wanders, notices a pointer, eases toward it, then
@@ -297,6 +330,22 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   struct Star {
     int16_t x;
     int16_t y;
+    uint8_t layer;
+  };
+  struct Bolt {
+    int16_t x = 0;
+    int16_t y = 0;
+    int8_t vx = 0;
+    int8_t vy = -8;
+    uint8_t w = 3;
+    uint8_t h = 8;
+    bool on = false;
+  };
+  struct Scrap {
+    int16_t x = 0;
+    int16_t y = 0;
+    uint8_t w = 8;
+    uint8_t h = 6;
   };
   struct Pal {
     int16_t x = 0;
@@ -324,8 +373,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr uint32_t kMouthHoldMs = 380;
   static constexpr uint32_t kWalkMs = 8;
   static constexpr uint32_t kStepMs = 16;
-  static constexpr int kLevels = 100;
-  static constexpr int kMaxUnits = 24;
+  static constexpr int kLevels = 300;
+  static constexpr int kMaxUnits = 40;
+  static constexpr int kBolts = 6;
+  static constexpr int kScraps = 6;
+  static constexpr int kDroneW = 16;
+  static constexpr int kDroneH = 12;
   static constexpr int kStars = 42;
   static constexpr int kMaxBarriers = 3;
   static constexpr int kBarCols = 10;
@@ -373,6 +426,74 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     sprite.fillScreen(friend_key_);
     sprite.drawPng(face.png, face.length, 0, 0, 0, 0, 0, 0, 1.0f, 1.0f);
     return true;
+  }
+
+  void loadGear() {
+    gun_unlock_ = prefs_.getUChar("guns", 0) & 7;
+    gun_equip_ = prefs_.getUChar("gun", 0) & 3;
+    laser_color_ = static_cast<uint8_t>(prefs_.getUChar("laser", 0) % 6);
+    if (gun_equip_ > 0 && (gun_unlock_ & (1u << (gun_equip_ - 1))) == 0) gun_equip_ = 0;
+  }
+
+  void saveGear() {
+    prefs_.putUChar("guns", gun_unlock_);
+    prefs_.putUChar("gun", gun_equip_);
+    prefs_.putUChar("laser", laser_color_);
+  }
+
+  const char* laserName() const {
+    switch (laser_color_ % 6) {
+      case 1:
+        return "GOLD";
+      case 2:
+        return "GREEN";
+      case 3:
+        return "CYAN";
+      case 4:
+        return "WHITE";
+      case 5:
+        return "MAGENTA";
+      default:
+        return "RED";
+    }
+  }
+
+  uint16_t laserColor() const {
+    switch (laser_color_ % 6) {
+      case 1:
+        return color565(255, 210, 48);
+      case 2:
+        return color565(48, 230, 96);
+      case 3:
+        return color565(80, 210, 255);
+      case 4:
+        return color565(255, 255, 255);
+      case 5:
+        return color565(255, 80, 220);
+      default:
+        return color565(255, 64, 56);
+    }
+  }
+
+  bool gunUnlocked(int gun) const {
+    if (gun <= 0) return true;
+    return (gun_unlock_ & (1u << (gun - 1))) != 0;
+  }
+
+  const char* gunState(int gun) const {
+    if (gun == gun_equip_) return "equipped";
+    if (gunUnlocked(gun)) return "tap to equip";
+    return "locked";
+  }
+
+  void equipGun(int gun) {
+    if (!gunUnlocked(gun)) {
+      paintCustom();
+      return;
+    }
+    gun_equip_ = static_cast<uint8_t>(gun);
+    saveGear();
+    paintCustom();
   }
 
   const char* themeName() const {
@@ -432,6 +553,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Box calendarBox() const { return {16, 196, 288, 46}; }
   Box themeBox() const { return {16, 248, 288, 44}; }
   Box careBox() const { return {16, 304, 288, 44}; }
+  Box customBox() const { return {16, 358, 288, 44}; }
+  Box colorBox() const { return {16, 72, 288, 44}; }
+  Box cannonBox() const { return {16, 126, 288, 42}; }
+  Box shotBox() const { return {16, 174, 288, 42}; }
+  Box assaultBox() const { return {16, 222, 288, 42}; }
+  Box beamBox() const { return {16, 270, 288, 42}; }
+  Box pauseResumeBox() const { return {32, 176, 256, 46}; }
+  Box pauseCustomBox() const { return {32, 232, 256, 46}; }
+  Box pauseHomeBox() const { return {32, 288, 256, 46}; }
   Box feedBox() const { return {16, 340, 136, 52}; }
   Box cleanBox() const { return {168, 340, 136, 52}; }
   Box walkBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
@@ -457,6 +587,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (contains(calendarBox(), x, y)) return "CALENDAR";
       if (contains(themeBox(), x, y)) return "THEME";
       if (contains(careBox(), x, y)) return "CARE";
+      if (contains(customBox(), x, y)) return "CUSTOM";
       if (contains(walkBox(), x, y)) return "WALK";
       return "none";
     }
@@ -493,6 +624,21 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (contains(homeBox(), x, y)) return "HOME";
       return "none";
     }
+    if (mode_ == Mode::Pause) {
+      if (contains(pauseResumeBox(), x, y)) return "RESUME";
+      if (contains(pauseCustomBox(), x, y)) return "CUSTOM";
+      if (contains(pauseHomeBox(), x, y)) return "HOME";
+      return "none";
+    }
+    if (mode_ == Mode::Custom) {
+      if (contains(colorBox(), x, y)) return "COLOR";
+      if (contains(cannonBox(), x, y)) return "CANNON";
+      if (contains(shotBox(), x, y)) return "SHOTGUN";
+      if (contains(assaultBox(), x, y)) return "ASSAULT";
+      if (contains(beamBox(), x, y)) return "BEAM";
+      if (contains(homeBox(), x, y)) return "BACK";
+      return "none";
+    }
     return "none";
   }
 
@@ -502,12 +648,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     regions_logged_ = true;
     const Box boxes[] = {playBox(),   invadersBox(), tetrisBox(), snakeBox(), calendarBox(),
-                         themeBox(), careBox(),     feedBox(),   cleanBox(), walkBox(),
-                         homeBox(),  leftBox(),     fireBox(),   rightBox(), backBox()};
-    const char* names[] = {"PLAY", "INVADERS", "TETRIS", "SNAKE", "CALENDAR", "THEME",
-                           "CARE", "FEED",     "PET",    "WALK",   "HOME",     "LEFT",
-                           "FIRE", "RIGHT",    "BACK"};
-    for (int i = 0; i < 15; ++i) {
+                         themeBox(), careBox(),     customBox(), feedBox(),  cleanBox(),
+                         walkBox(),  homeBox(),     leftBox(),   fireBox(),  rightBox(),
+                         backBox()};
+    const char* names[] = {"PLAY", "INVADERS", "TETRIS", "SNAKE",   "CALENDAR", "THEME",
+                           "CARE", "CUSTOM",   "FEED",   "PET",     "WALK",     "HOME",
+                           "LEFT", "FIRE",     "RIGHT",  "BACK"};
+    for (int i = 0; i < 16; ++i) {
       Serial.printf("TOUCH region %s %d %d %d %d\n", names[i], boxes[i].x, boxes[i].y, boxes[i].w,
                     boxes[i].h);
     }
@@ -526,6 +673,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       stars_[i].x = static_cast<int16_t>(s % kPanelWidth);
       s = s * 1664525u + 1013904223u;
       stars_[i].y = static_cast<int16_t>(28 + (s % 360));
+      stars_[i].layer = static_cast<uint8_t>(i & 1);
     }
   }
 
@@ -545,9 +693,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void paintStars() {
-    const uint16_t ink = palette().star;
+    const Palette ink = palette();
     for (int i = 0; i < kStars; ++i) {
-      drawPixel(stars_[i].x, stars_[i].y, ink);
+      drawPixel(stars_[i].x, stars_[i].y, stars_[i].layer ? ink.star : ink.muted);
     }
   }
 
@@ -591,7 +739,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         drawPixel(stars_[i].x, stars_[i].y, ink);
       }
     }
-    if (y + h > 404 && y < kButtonY && mode_ == Mode::Play) {
+    if (terrain_ == 1 && y + h > 404 && y < kButtonY && mode_ == Mode::Play) {
       paintPlanet();
     }
   }
@@ -1139,12 +1287,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
     drawString("JITTERS", kPanelWidth / 2, 20);
-    drawCard("INVADERS", "100 levels", invadersBox());
+    drawCard("INVADERS MACHINA", "300 levels", invadersBox());
     drawCard("TETRIS", "stack", tetrisBox());
     drawCard("SNAKE", "classic", snakeBox());
     drawCard("CALENDAR", "today", calendarBox());
     drawCard(themeName(), "tap to switch", themeBox());
     drawCard("CARE", "feed and mood", careBox());
+    drawCard("CUSTOM", "ship and guns", customBox());
     drawKey("WALK", walkBox(), false);
     fadeIn();
   }
@@ -1165,24 +1314,59 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     fadeIn();
   }
 
-  int unitW(const Unit& unit) const { return unit.kind == 2 ? kBossW : kAlienW; }
-  int unitH(const Unit& unit) const { return unit.kind == 2 ? kBossH : kAlienH; }
+  int unitW(const Unit& unit) const {
+    if (unit.kind == 2) return kBossW;
+    if (unit.kind == 3) return kDroneW;
+    return kAlienW;
+  }
+  int unitH(const Unit& unit) const {
+    if (unit.kind == 2) return kBossH;
+    if (unit.kind == 3) return kDroneH;
+    return kAlienH;
+  }
+
+  bool dronesAlive() const {
+    for (int i = 0; i < unit_n_; ++i) {
+      if (units_[i].alive && units_[i].kind == 3) return true;
+    }
+    return false;
+  }
 
   void drawAlienAt(int x, int y, uint8_t kind) {
     const Palette ink = palette();
     const uint16_t body = kind == 0 ? ink.low : ink.top;
     const uint16_t eye = ink.bg;
+    if (kind == 3) {
+      fillRect(x + 2, y + 3, 12, 6, ink.top);
+      fillRect(x, y + 5, 4, 3, ink.accent);
+      fillRect(x + 12, y + 5, 4, 3, ink.accent);
+      fillRect(x + 6, y + 5, 2, 2, eye);
+      return;
+    }
     if (kind == 2) {
       fillRect(x + 8, y + 4, 28, 16, body);
       fillRect(x + 4, y, 6, 8, body);
       fillRect(x + 34, y, 6, 8, body);
-      fillRect(x + 14, y + 8, 4, 4, eye);
-      fillRect(x + 26, y + 8, 4, 4, eye);
+      if (boss_style_ == 2 && boss_open_) {
+        fillRect(x + 12, y + 7, 6, 6, laserColor());
+        fillRect(x + 26, y + 7, 6, 6, laserColor());
+      } else if (boss_style_ == 2) {
+        fillRect(x + 12, y + 9, 8, 3, ink.muted);
+        fillRect(x + 26, y + 9, 8, 3, ink.muted);
+      } else {
+        fillRect(x + 14, y + 8, 4, 4, eye);
+        fillRect(x + 26, y + 8, 4, 4, eye);
+      }
       fillRect(x + 6, y + 20, 8, 6, body);
       fillRect(x + 30, y + 20, 8, 6, body);
-      int inner = boss_max_ > 0 ? (kBossW - 8) * boss_hp_ / boss_max_ : 4;
+      if (boss_style_ == 0 && boss_shield_ > 0) {
+        drawRect(x + 1, y + 1, kBossW - 2, kBossH - 2, ink.accent);
+      }
+      int pool = boss_style_ == 0 && boss_shield_ > 0 ? boss_shield_max_ : boss_max_;
+      int left = boss_style_ == 0 && boss_shield_ > 0 ? boss_shield_ : boss_hp_;
+      int inner = pool > 0 ? (kBossW - 8) * left / pool : 4;
       if (inner < 4) inner = 4;
-      fillRect(x + 4, y + kBossH - 4, inner, 3, ink.shot);
+      fillRect(x + 4, y + kBossH - 4, inner, 3, boss_shield_ > 0 ? ink.accent : ink.shot);
       return;
     }
     if (kind == 1) {
@@ -1227,10 +1411,19 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setTextDatum(lgfx::middle_left);
     setTextColor(ink.ink);
     char line[40];
-    if (boss_) {
-      snprintf(line, sizeof line, "BOSS %d  %d  x%d", level_, score_, lives_);
+    if (hud_msg_ticks_ > 0) {
+      snprintf(line, sizeof line, "%s", hud_msg_);
+    } else if (boss_) {
+      const char* tag = "CORE";
+      if (boss_style_ == 0 && boss_shield_ > 0) tag = "SHIELD";
+      else if (boss_style_ == 1 && dronesAlive()) tag = "DRONES";
+      else if (boss_style_ == 2) tag = boss_open_ ? "OPEN" : "SHUT";
+      snprintf(line, sizeof line, "%s %d %d x%d", tag, level_, score_, lives_);
     } else {
-      snprintf(line, sizeof line, "LV %d  %d  x%d", level_, score_, lives_);
+      snprintf(line, sizeof line, "MACHINA %d %d x%d", level_, score_, lives_);
+    }
+    if (textWidth(line) > backBox().x - 16) {
+      snprintf(line, sizeof line, "M %d %d x%d", level_, score_, lives_);
     }
     drawString(line, 8, 12);
   }
@@ -1254,33 +1447,67 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void buildLevel() {
     unit_n_ = 0;
-    boss_ = (level_ % 10) == 0;
+    boss_ = (level_ % 5) == 0;
     barrier_n_ = 0;
-    const int tier = (level_ - 1) / 10;
-    drop_px_ = 10 + tier;
-    if (drop_px_ > 16) drop_px_ = 16;
+    boss_open_ = false;
+    boss_tick_ = 0;
+    boss_shield_ = 0;
+    boss_shield_max_ = 0;
+    const int tier = (level_ - 1) / 20;
+    drop_px_ = 8 + tier;
+    if (drop_px_ > 20) drop_px_ = 20;
+    foe_gap_ = 42 - level_ / 20;
+    if (boss_) foe_gap_ -= 6;
+    if (foe_gap_ < 14) foe_gap_ = 14;
+    buildTerrain();
     if (boss_) {
-      boss_max_ = 4 + level_ / 10;
-      boss_hp_ = boss_max_;
+      boss_style_ = static_cast<uint8_t>(((level_ / 5) - 1) % 3);
+      int core = 4 + level_ / 15;
+      if (boss_style_ == 1) core = 5 + level_ / 12;
+      if (boss_style_ == 2) core = 4 + level_ / 12;
+      if (core > 28) core = 28;
+      if (boss_style_ == 0) {
+        int shield = 2 + level_ / 30;
+        if (shield > 10) shield = 10;
+        boss_shield_max_ = static_cast<uint8_t>(shield);
+        boss_shield_ = boss_shield_max_;
+      }
+      boss_max_ = core;
+      boss_hp_ = core;
       addUnit(0, 0, 2);
-      step_px_ = 2 + static_cast<int>(nextRng() % 2) + tier / 2;
+      if (boss_style_ == 1) {
+        addUnit(-48, 6, 3);
+        addUnit(kBossW + 8, 6, 3);
+      }
+      step_px_ = 2 + level_ / 80 + static_cast<int>(nextRng() % 2);
       if (step_px_ > 5) step_px_ = 5;
-      origin_x_ = (kPanelWidth - kBossW) / 2;
-      origin_y_ = 48;
+      int min_x = 0;
+      int max_x = kBossW;
+      if (boss_style_ == 1) {
+        min_x = -48;
+        max_x = kBossW + 8 + kDroneW;
+      }
+      origin_x_ = (kPanelWidth - (max_x - min_x)) / 2 - min_x;
+      origin_y_ = 52;
       form_dir_ = 1;
+      armDrop();
       return;
     }
     const int shape = static_cast<int>(nextRng() % 5);
-    int cols = 4 + static_cast<int>(nextRng() % 4);
-    int rows = 2;
-    if (level_ > 25) rows += static_cast<int>(nextRng() % 2);
-    if (level_ > 55) rows += 1;
-    if (rows > 4) rows = 4;
+    int cols = 4 + static_cast<int>(nextRng() % 3);
+    if (level_ > 80) cols += 1;
+    if (level_ > 180) cols += static_cast<int>(nextRng() % 2);
+    if (cols > 7) cols = 7;
+    int rows = 2 + static_cast<int>(nextRng() % 2);
+    if (level_ > 40) rows += 1;
+    if (level_ > 120 && (nextRng() & 1) != 0) rows += 1;
+    if (level_ > 220) rows += 1;
+    if (rows > 5) rows = 5;
     const int pitch_x = 30;
     const int pitch_y = 22;
     const int yellow_rows = 1 + static_cast<int>(nextRng() % rows);
-    step_px_ = 2 + level_ / 14 + static_cast<int>(nextRng() % 3);
-    if (step_px_ > 6) step_px_ = 6;
+    step_px_ = 2 + level_ / 50 + static_cast<int>(nextRng() % 3);
+    if (step_px_ > 7) step_px_ = 7;
     for (int row = 0; row < rows; ++row) {
       for (int col = 0; col < cols; ++col) {
         int ox = col * pitch_x;
@@ -1314,7 +1541,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     origin_x_ = (kPanelWidth - (max_x - min_x)) / 2 - min_x;
     origin_y_ = 34;
     form_dir_ = 1;
-    barrier_n_ = static_cast<int>(nextRng() % 4);
+    if (level_ < 40) barrier_n_ = 2 + static_cast<int>(nextRng() % 2);
+    else if (level_ < 140) barrier_n_ = static_cast<int>(nextRng() % 4);
+    else barrier_n_ = static_cast<int>(nextRng() % 3);
     if (barrier_n_ > kMaxBarriers) barrier_n_ = kMaxBarriers;
     const int slot = barrier_n_ > 0 ? (kPanelWidth - barrier_n_ * 36) / (barrier_n_ + 1) : 0;
     for (int i = 0; i < barrier_n_; ++i) {
@@ -1328,13 +1557,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         barriers_[i].col[col] = h;
       }
     }
+    armDrop();
   }
 
   void paintLevel() {
     const Palette ink = palette();
     fillScreen(ink.bg);
     paintStars();
-    paintPlanet();
+    if (terrain_ == 1) paintPlanet();
+    paintScraps();
     for (int i = 0; i < barrier_n_; ++i) {
       drawBarrier(i);
     }
@@ -1343,6 +1574,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       drawAlienAt(origin_x_ + units_[i].ox, origin_y_ + units_[i].oy, units_[i].kind);
     }
     drawShipAt(player_x_);
+    if (drop_on_) drawDrop();
     drawHud();
     drawBack(false);
     drawGameKeys(nullptr);
@@ -1353,6 +1585,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     shot_ = false;
     foe_shot_ = false;
     held_ = nullptr;
+    beam_on_ = false;
+    gun_cool_ = 0;
+    clearBolts();
     player_x_ = (kPanelWidth - kShipW) / 2;
     buildLevel();
     paintLevel();
@@ -1365,6 +1600,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     lives_ = 3;
     foe_shot_ = false;
     foe_cool_ = 0;
+    hud_msg_ticks_ = 0;
     rng_ = esp_random();
     if (rng_ == 0) rng_ = 1;
     startLevel();
@@ -1372,23 +1608,40 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void beginAdvance() {
+    if (beam_on_) {
+      eraseBeam();
+      beam_on_ = false;
+    }
+    for (int i = 0; i < kBolts; ++i) {
+      if (!bolts_[i].on) continue;
+      repair(bolts_[i].x, bolts_[i].y, bolts_[i].w, bolts_[i].h);
+    }
     mode_ = Mode::Advance;
     shot_ = false;
-    advance_at_ = millis() + 700;
+    clearBolts();
+    advance_at_ = millis() + 900;
     const Palette ink = palette();
-    fillRect(36, 168, kPanelWidth - 72, 48, ink.bg);
-    drawRect(36, 168, kPanelWidth - 72, 48, ink.accent);
+    fillRect(16, 140, kPanelWidth - 32, 100, ink.bg);
+    drawRect(16, 140, kPanelWidth - 32, 100, ink.accent);
     setFont(&fonts::Font2);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
-    char line[24];
+    drawString("INVADERS MACHINA", kPanelWidth / 2, 164);
+    char line[28];
     const int next = level_ + 1;
-    if (next % 10 == 0) {
+    if (next % 5 == 0) {
+      const int style = ((next / 5) - 1) % 3;
+      const char* gimmick = "BREAK SHIELD";
+      if (style == 1) gimmick = "DROP DRONES";
+      if (style == 2) gimmick = "HIT WHEN OPEN";
       snprintf(line, sizeof line, "BOSS %d", next);
+      drawString(line, kPanelWidth / 2, 188);
+      setTextColor(ink.accent);
+      drawString(gimmick, kPanelWidth / 2, 212);
     } else {
       snprintf(line, sizeof line, "LEVEL %d", next);
+      drawString(line, kPanelWidth / 2, 198);
     }
-    drawString(line, kPanelWidth / 2, 192);
   }
 
   void showOver(const char* title) {
@@ -1396,16 +1649,19 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     mode_ = Mode::Over;
     shot_ = false;
     foe_shot_ = false;
+    beam_on_ = false;
     const Palette ink = palette();
     fillScreen(ink.bg);
     setFont(&fonts::Font2);
     setTextDatum(lgfx::middle_center);
+    setTextColor(ink.muted);
+    drawString("INVADERS MACHINA", kPanelWidth / 2, 150);
     setTextColor(ink.ink);
-    drawString(title, kPanelWidth / 2, 180);
+    drawString(title, kPanelWidth / 2, 186);
     char line[24];
     snprintf(line, sizeof line, "LV %d   %d", level_, score_);
     setTextColor(ink.muted);
-    drawString(line, kPanelWidth / 2, 214);
+    drawString(line, kPanelWidth / 2, 220);
     drawKey("HOME", homeBox(), false);
     fadeIn();
   }
@@ -1416,6 +1672,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     lives_ -= 1;
     foe_shot_ = false;
     shot_ = false;
+    beam_on_ = false;
+    clearBolts();
     if (lives_ <= 0) {
       endRound(false);
       return;
@@ -1442,12 +1700,388 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawHud();
   }
 
-  bool hitBarrier(int sx, int sy) {
+  void drawScrap(const Scrap& scrap) {
+    const Palette ink = palette();
+    if (terrain_ == 0) {
+      fillRect(scrap.x, scrap.y, scrap.w, scrap.h, ink.barrier);
+      if (scrap.w > 5 && scrap.h > 3) {
+        fillRect(scrap.x + 2, scrap.y + 2, scrap.w / 2, scrap.h / 2, ink.muted);
+      }
+      return;
+    }
+    if (terrain_ == 1) {
+      fillRect(scrap.x, scrap.y, scrap.w, 2, ink.planet);
+      return;
+    }
+    if (terrain_ == 2) {
+      fillRect(0, scrap.y, kPanelWidth, 2, ink.planet);
+      return;
+    }
+    fillRect(scrap.x, scrap.y, scrap.w, 2, ink.top);
+  }
+
+  void paintScraps() {
+    for (int i = 0; i < scrap_n_; ++i) drawScrap(scraps_[i]);
+  }
+
+  void buildTerrain() {
+    terrain_ = static_cast<uint8_t>(level_ % 4);
+    scrap_n_ = 0;
+    const int count = terrain_ == 0 ? 5 : terrain_ == 3 ? 6 : 3;
+    for (int i = 0; i < count && scrap_n_ < kScraps; ++i) {
+      Scrap& scrap = scraps_[scrap_n_];
+      scrap.x = static_cast<int16_t>(nextRng() % (kPanelWidth - 48));
+      scrap.y = static_cast<int16_t>(48 + (nextRng() % 170));
+      if (terrain_ == 0) {
+        scrap.w = static_cast<uint8_t>(10 + (nextRng() % 10));
+        scrap.h = static_cast<uint8_t>(6 + (nextRng() % 6));
+      } else if (terrain_ == 1) {
+        scrap.w = static_cast<uint8_t>(36 + (nextRng() % 48));
+        scrap.h = 2;
+      } else if (terrain_ == 2) {
+        scrap.x = 0;
+        scrap.y = static_cast<int16_t>(64 + i * 58);
+        scrap.w = 8;
+        scrap.h = 2;
+      } else {
+        scrap.w = static_cast<uint8_t>(6 + (nextRng() % 12));
+        scrap.h = 2;
+      }
+      scrap_n_ += 1;
+    }
+  }
+
+  bool starBlocked(int x, int y) const {
+    if (y < 28 || y >= kShipY) return true;
+    for (int i = 0; i < barrier_n_; ++i) {
+      if (!barriers_[i].on) continue;
+      if (x >= barriers_[i].x && x < barriers_[i].x + kBarCols * 3 && y >= barriers_[i].y &&
+          y < barriers_[i].y + 21) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void stepSpace() {
+    space_tick_ += 1;
+    const Palette ink = palette();
+    for (int i = 0; i < kStars; ++i) {
+      Star& star = stars_[i];
+      const int speed = star.layer ? 2 : 1;
+      if (star.layer == 0 && (space_tick_ & 1) != 0) continue;
+      const int ox = star.x;
+      const int oy = star.y;
+      if (!starBlocked(ox, oy)) drawPixel(ox, oy, ink.bg);
+      int ny = oy + speed;
+      int nx = ox;
+      if (ny >= kShipY - 2) {
+        ny = 28 + static_cast<int>(nextRng() % 24);
+        nx = static_cast<int>(nextRng() % kPanelWidth);
+      }
+      star.x = static_cast<int16_t>(nx);
+      star.y = static_cast<int16_t>(ny);
+      if (!starBlocked(nx, ny)) drawPixel(nx, ny, star.layer ? ink.star : ink.muted);
+    }
+    const bool move_small = (space_tick_ & 1) == 0;
+    for (int i = 0; i < scrap_n_; ++i) {
+      if (terrain_ == 2) {
+        if (i != ((space_tick_ / 2) % scrap_n_)) continue;
+      } else if (!move_small) {
+        continue;
+      }
+      Scrap& scrap = scraps_[i];
+      int ox = scrap.x;
+      int ow = scrap.w;
+      int oh = scrap.h > 0 ? scrap.h : 2;
+      if (terrain_ == 2) {
+        ox = 0;
+        ow = kPanelWidth;
+        oh = 2;
+      }
+      repair(ox, scrap.y, ow, oh);
+      int ny = scrap.y + 1;
+      if (ny > 248) ny = 42 + static_cast<int>(nextRng() % 28);
+      scrap.y = static_cast<int16_t>(ny);
+      drawScrap(scrap);
+    }
+  }
+
+  void armDrop() {
+    drop_on_ = false;
+    int which = 0;
+    if ((gun_unlock_ & 1) == 0) which = 1;
+    else if ((gun_unlock_ & 2) == 0) which = 2;
+    else if ((gun_unlock_ & 4) == 0) which = 3;
+    const bool spawn = which != 0 ? (boss_ || (nextRng() % 3) != 0) : ((nextRng() % 4) == 0);
+    if (!spawn) return;
+    drop_on_ = true;
+    drop_which_ = static_cast<uint8_t>(which);
+    drop_x_ = static_cast<int>(16 + (nextRng() % (kPanelWidth - 48)));
+    drop_y_ = 36;
+  }
+
+  void drawDrop() {
+    uint16_t color = color565(255, 220, 80);
+    if (drop_which_ == 1) color = color565(255, 150, 40);
+    else if (drop_which_ == 2) color = color565(80, 255, 120);
+    else if (drop_which_ == 3) color = color565(80, 200, 255);
+    fillRect(drop_x_, drop_y_, 14, 14, color);
+    fillRect(drop_x_ + 4, drop_y_ + 4, 6, 6, palette().bg);
+  }
+
+  void noteUnlock(const char* name) {
+    snprintf(hud_msg_, sizeof hud_msg_, "%s", name);
+    hud_msg_ticks_ = 45;
+    drawHud();
+  }
+
+  void collectDrop() {
+    if (drop_which_ == 0) {
+      addScore(50);
+      noteUnlock("SCORE +50");
+    } else {
+      gun_unlock_ = static_cast<uint8_t>(gun_unlock_ | (1u << (drop_which_ - 1)));
+      gun_equip_ = drop_which_;
+      saveGear();
+      const char* name = "SHOTGUN";
+      if (drop_which_ == 2) name = "ASSAULT";
+      if (drop_which_ == 3) name = "BEAM";
+      noteUnlock(name);
+    }
+    drop_on_ = false;
+  }
+
+  void stepDrop() {
+    if (!drop_on_) return;
+    const int ox = drop_x_;
+    const int oy = drop_y_;
+    const int ny = drop_y_ + 3;
+    if (overlap(drop_x_, ny, 14, 14, player_x_, kShipY, kShipW, kShipH)) {
+      repair(ox, oy, 14, 14);
+      collectDrop();
+      drawShipAt(player_x_);
+      return;
+    }
+    if (ny > kShipY + 8) {
+      repair(ox, oy, 14, 14);
+      drop_on_ = false;
+      return;
+    }
+    drop_y_ = ny;
+    drawDrop();
+    uncover(ox, oy, drop_x_, drop_y_, 14, 14);
+  }
+
+  void clearBolts() {
+    for (int i = 0; i < kBolts; ++i) bolts_[i].on = false;
+  }
+
+  bool spawnBolt(int vx, int vy, int w, int h) {
+    for (int i = 0; i < kBolts; ++i) {
+      if (bolts_[i].on) continue;
+      bolts_[i].on = true;
+      bolts_[i].w = static_cast<uint8_t>(w);
+      bolts_[i].h = static_cast<uint8_t>(h);
+      bolts_[i].x = static_cast<int16_t>(player_x_ + kShipW / 2 - w / 2);
+      bolts_[i].y = static_cast<int16_t>(kShipY - h - 1);
+      bolts_[i].vx = static_cast<int8_t>(vx);
+      bolts_[i].vy = static_cast<int8_t>(vy);
+      fillRect(bolts_[i].x, bolts_[i].y, w, h, laserColor());
+      return true;
+    }
+    return false;
+  }
+
+  int fireGap() const {
+    if (gun_equip_ == 1) return 16;
+    if (gun_equip_ == 2) return 3;
+    return 7;
+  }
+
+  void tryFire() {
+    if (gun_equip_ == 3 || gun_cool_ > 0) return;
+    if (gun_equip_ == 1) {
+      int free = 0;
+      for (int i = 0; i < kBolts; ++i) {
+        if (!bolts_[i].on) free += 1;
+      }
+      if (free < 3) return;
+      spawnBolt(-2, -7, 3, 6);
+      spawnBolt(0, -8, 3, 6);
+      spawnBolt(2, -7, 3, 6);
+      gun_cool_ = 16;
+      return;
+    }
+    const int vy = gun_equip_ == 2 ? -12 : -9;
+    const int h = gun_equip_ == 2 ? 10 : 8;
+    if (spawnBolt(0, vy, 3, h)) gun_cool_ = fireGap();
+  }
+
+  void stepBolts() {
+    for (int i = 0; i < kBolts; ++i) {
+      Bolt& bolt = bolts_[i];
+      if (!bolt.on) continue;
+      const int ox = bolt.x;
+      const int oy = bolt.y;
+      const int nx = bolt.x + bolt.vx;
+      const int ny = bolt.y + bolt.vy;
+      const bool miss = ny < 26 || nx < -8 || nx > kPanelWidth;
+      const bool struck =
+          !miss && (hitBarrier(nx, ny, bolt.w, bolt.h) || hitUnitBox(nx, ny, bolt.w, bolt.h));
+      if (miss || struck) {
+        repair(ox, oy, bolt.w, bolt.h);
+        bolt.on = false;
+        continue;
+      }
+      bolt.x = static_cast<int16_t>(nx);
+      bolt.y = static_cast<int16_t>(ny);
+      fillRect(nx, ny, bolt.w, bolt.h, laserColor());
+      uncover(ox, oy, nx, ny, bolt.w, bolt.h);
+    }
+  }
+
+  bool applyHit(int index) {
+    Unit& unit = units_[index];
+    if (unit.kind == 2) {
+      if (boss_style_ == 1 && dronesAlive()) return false;
+      if (boss_style_ == 2 && !boss_open_) return false;
+      if (boss_style_ == 0 && boss_shield_ > 0) {
+        boss_shield_ = static_cast<uint8_t>(boss_shield_ - 1);
+        addScore(10);
+        return false;
+      }
+      boss_hp_ -= 1;
+      addScore(10);
+      if (boss_hp_ <= 0) {
+        unit.alive = false;
+        return true;
+      }
+      return false;
+    }
+    unit.alive = false;
+    addScore(10);
+    return true;
+  }
+
+  void eraseBeam() {
+    repair(beam_x_, 28, 3, kShipY - 28);
+    for (int i = 0; i < scrap_n_; ++i) {
+      const Scrap& scrap = scraps_[i];
+      const int sx = terrain_ == 2 ? 0 : scrap.x;
+      const int sw = terrain_ == 2 ? kPanelWidth : scrap.w;
+      const int sh = terrain_ == 2 ? 2 : scrap.h;
+      if (!overlap(beam_x_, 28, 3, kShipY - 28, sx, scrap.y, sw, sh)) continue;
+      if (terrain_ == 2) fillRect(beam_x_, scrap.y, 3, 2, palette().planet);
+      else drawScrap(scrap);
+    }
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive) continue;
+      const int ax = origin_x_ + units_[i].ox;
+      const int ay = origin_y_ + units_[i].oy;
+      if (overlap(beam_x_, 28, 3, kShipY - 28, ax, ay, unitW(units_[i]), unitH(units_[i]))) {
+        drawAlienAt(ax, ay, units_[i].kind);
+      }
+    }
+    for (int i = 0; i < barrier_n_; ++i) {
+      if (!barriers_[i].on) continue;
+      if (overlap(beam_x_, 28, 3, kShipY - 28, barriers_[i].x, barriers_[i].y, kBarCols * 3, 21)) {
+        drawBarrier(i);
+      }
+    }
+    if (drop_on_ && overlap(beam_x_, 28, 3, kShipY - 28, drop_x_, drop_y_, 14, 14)) drawDrop();
+  }
+
+  void hurtAlongBeam() {
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive) continue;
+      const int ax = origin_x_ + units_[i].ox;
+      const int ay = origin_y_ + units_[i].oy;
+      const int aw = unitW(units_[i]);
+      const int ah = unitH(units_[i]);
+      if (!overlap(beam_x_, 28, 3, kShipY - 28, ax, ay, aw, ah)) continue;
+      applyHit(i);
+      if (!units_[i].alive) repair(ax, ay, aw, ah);
+      else drawAlienAt(ax, ay, units_[i].kind);
+    }
+  }
+
+  void paintCustom() {
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.ink);
+    drawString("INVADERS MACHINA", kPanelWidth / 2, 28);
+    setTextColor(ink.muted);
+    drawString("catch a falling gun to unlock", kPanelWidth / 2, 52);
+    char color_line[24];
+    snprintf(color_line, sizeof color_line, "LASER %s", laserName());
+    drawCard(color_line, "tap to change", colorBox());
+    drawCard("CANNON", gunState(0), cannonBox());
+    drawCard("SHOTGUN", gunState(1), shotBox());
+    drawCard("ASSAULT", gunState(2), assaultBox());
+    drawCard("BEAM", gunState(3), beamBox());
+    drawKey("BACK", homeBox(), false);
+  }
+
+  void beginCustom(bool from_pause) {
+    custom_from_pause_ = from_pause;
+    fadeOut();
+    mode_ = Mode::Custom;
+    paintCustom();
+    fadeIn();
+  }
+
+  void beginPause() {
+    const bool keep_advance = mode_ == Mode::Custom && pause_advance_;
+    if (beam_on_) {
+      eraseBeam();
+      beam_on_ = false;
+    }
+    for (int i = 0; i < kBolts; ++i) {
+      if (!bolts_[i].on) continue;
+      repair(bolts_[i].x, bolts_[i].y, bolts_[i].w, bolts_[i].h);
+      bolts_[i].on = false;
+    }
+    if (mode_ == Mode::Advance) pause_advance_ = true;
+    else if (!keep_advance) pause_advance_ = false;
+    mode_ = Mode::Pause;
+    const Palette ink = palette();
+    fillRect(24, 128, 272, 230, ink.bg);
+    drawRect(24, 128, 272, 230, ink.accent);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.ink);
+    drawString("INVADERS MACHINA", kPanelWidth / 2, 152);
+    drawCard("RESUME", nullptr, pauseResumeBox());
+    drawCard("CUSTOM", "ship and guns", pauseCustomBox());
+    drawCard("HOME", nullptr, pauseHomeBox());
+  }
+
+  void leaveCustom() {
+    if (custom_from_pause_) beginPause();
+    else beginHome();
+  }
+
+  void resumePlay() {
+    if (pause_advance_) {
+      beginAdvance();
+      return;
+    }
+    mode_ = Mode::Play;
+    beam_on_ = false;
+    clearBolts();
+    foe_shot_ = false;
+    paintLevel();
+  }
+
+  bool hitBarrier(int sx, int sy, int sw, int sh) {
     for (int i = 0; i < barrier_n_; ++i) {
       if (!barriers_[i].on) continue;
       const int bw = kBarCols * 3;
       const int bh = 7 * 3;
-      if (!overlap(sx, sy, kShotW, kShotH, barriers_[i].x, barriers_[i].y, bw, bh)) {
+      if (!overlap(sx, sy, sw, sh, barriers_[i].x, barriers_[i].y, bw, bh)) {
         continue;
       }
       int col = (sx - barriers_[i].x) / 3;
@@ -1463,28 +2097,17 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     return false;
   }
 
-  bool hitUnit(int sx, int sy) {
+  bool hitUnitBox(int sx, int sy, int sw, int sh) {
     for (int i = 0; i < unit_n_; ++i) {
       if (!units_[i].alive) continue;
       const int ax = origin_x_ + units_[i].ox;
       const int ay = origin_y_ + units_[i].oy;
       const int aw = unitW(units_[i]);
       const int ah = unitH(units_[i]);
-      if (!overlap(sx, sy, kShotW, kShotH, ax, ay, aw, ah)) continue;
-      if (units_[i].kind == 2) {
-        boss_hp_ -= 1;
-        addScore(10);
-        if (boss_hp_ <= 0) {
-          units_[i].alive = false;
-          repair(ax, ay, aw, ah);
-        } else {
-          drawAlienAt(ax, ay, 2);
-        }
-        return true;
-      }
-      units_[i].alive = false;
-      repair(ax, ay, aw, ah);
-      addScore(10);
+      if (!overlap(sx, sy, sw, sh, ax, ay, aw, ah)) continue;
+      applyHit(i);
+      if (!units_[i].alive) repair(ax, ay, aw, ah);
+      else drawAlienAt(ax, ay, units_[i].kind);
       return true;
     }
     return false;
@@ -1554,32 +2177,45 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (player_x_ < 4) player_x_ = 4;
     if (player_x_ > kPanelWidth - kShipW - 4) player_x_ = kPanelWidth - kShipW - 4;
+    (void)rose;
+    const bool firing = held != nullptr && std::strcmp(held, "FIRE") == 0;
+    if (gun_cool_ > 0) gun_cool_ -= 1;
+    if (hud_msg_ticks_ > 0) {
+      hud_msg_ticks_ -= 1;
+      if (hud_msg_ticks_ == 0) drawHud();
+    }
+    const int next_beam = player_x_ + kShipW / 2 - 1;
     startWrite();
+    stepSpace();
+    if (beam_on_ && (!firing || gun_equip_ != 3 || next_beam != beam_x_)) {
+      eraseBeam();
+      beam_on_ = false;
+    }
     if (player_x_ != old_player) {
       drawShipAt(player_x_);
       uncover(old_player, kShipY, player_x_, kShipY, kShipW, kShipH);
     }
-    if (rose && held != nullptr && std::strcmp(held, "FIRE") == 0 && !shot_) {
-      shot_ = true;
-      shot_x_ = player_x_ + kShipW / 2 - kShotW / 2;
-      shot_y_ = kShipY - kShotH - 1;
-      fillRect(shot_x_, shot_y_, kShotW, kShotH, palette().shot);
-    } else if (shot_) {
-      const int ox = shot_x_;
-      const int oy = shot_y_;
-      const int ny = shot_y_ - 7;
-      const bool struck = ny < 26 || hitBarrier(shot_x_, ny) || hitUnit(shot_x_, ny);
-      if (struck) {
-        repair(ox, oy, kShotW, kShotH);
-        shot_ = false;
-      } else {
-        shot_y_ = ny;
-        fillRect(shot_x_, shot_y_, kShotW, kShotH, palette().shot);
-        uncover(ox, oy, shot_x_, shot_y_, kShotW, kShotH);
-      }
+    if (firing && gun_equip_ != 3) tryFire();
+    stepBolts();
+    stepDrop();
+    const bool was_open = boss_open_;
+    if (boss_ && boss_style_ == 2) {
+      boss_tick_ += 1;
+      boss_open_ = (boss_tick_ % 80) >= 40;
     }
     if (mode_ == Mode::Play) {
       moveFormation();
+    }
+    if (was_open != boss_open_) drawHud();
+    if (firing && gun_equip_ == 3) {
+      beam_x_ = next_beam;
+      beam_on_ = true;
+      fillRect(beam_x_, 28, 3, kShipY - 28, laserColor());
+      beam_tick_ += 1;
+      if ((beam_tick_ & 3) == 0) {
+        hurtAlongBeam();
+        fillRect(beam_x_, 28, 3, kShipY - 28, laserColor());
+      }
     }
     bool lost = false;
     if (foe_shot_) {
@@ -1588,7 +2224,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       const int ny = foe_y_ + 6;
       const bool hit_ship =
           overlap(foe_x_, ny, kShotW, kShotH, player_x_, kShipY, kShipW, kShipH);
-      const bool blocked = hitBarrier(foe_x_, ny) || ny >= kButtonY;
+      const bool blocked = hitBarrier(foe_x_, ny, kShotW, kShotH) || ny >= kButtonY;
       if (hit_ship || blocked) {
         repair(ox, oy, kShotW, kShotH);
         foe_shot_ = false;
@@ -1600,7 +2236,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
     } else if (mode_ == Mode::Play) {
       foe_cool_ += 1;
-      if (foe_cool_ >= 40) {
+      if (foe_cool_ >= foe_gap_) {
         foe_cool_ = 0;
         int alive = 0;
         for (int i = 0; i < unit_n_; ++i) {
@@ -2064,7 +2700,33 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int foe_x_ = 0;
   int foe_y_ = 0;
   int foe_cool_ = 0;
+  int foe_gap_ = 40;
   bool foe_shot_ = false;
+  Bolt bolts_[kBolts];
+  Scrap scraps_[kScraps];
+  int scrap_n_ = 0;
+  int space_tick_ = 0;
+  int gun_cool_ = 0;
+  int beam_x_ = 0;
+  int beam_tick_ = 0;
+  int drop_x_ = 0;
+  int drop_y_ = 0;
+  int boss_tick_ = 0;
+  int hud_msg_ticks_ = 0;
+  bool beam_on_ = false;
+  bool drop_on_ = false;
+  bool boss_open_ = false;
+  bool pause_advance_ = false;
+  bool custom_from_pause_ = false;
+  uint8_t terrain_ = 0;
+  uint8_t drop_which_ = 0;
+  uint8_t gun_equip_ = 0;
+  uint8_t gun_unlock_ = 0;
+  uint8_t laser_color_ = 0;
+  uint8_t boss_style_ = 0;
+  uint8_t boss_shield_ = 0;
+  uint8_t boss_shield_max_ = 0;
+  char hud_msg_[20] = {};
   int piece_ = 0;
   int rot_ = 0;
   int piece_x_ = 3;
