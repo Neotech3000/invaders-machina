@@ -28,12 +28,6 @@ struct Stats {
 
 bool in_range(int v) { return v > 100 && v < 4000; }
 
-int clamp_scale(int raw, int size) {
-  if (raw < 200) raw = 200;
-  if (raw > 3900) raw = 3900;
-  return (raw - 200) * (size - 1) / (3900 - 200);
-}
-
 int pressure_of(int z1, int z2) {
   int p = z1 + 4095 - z2;
   if (p < 0) p = 0;
@@ -153,37 +147,19 @@ bool idle_controller(const Stats& stats) {
   return stats.spread < 400 && stats.last.z1 < 300 && stats.last.z2 > 3500;
 }
 
-void candidates(const TouchRaw& raw, int xs[4], int ys[4]) {
-  const int straight_x = clamp_scale(raw.x, kPanelWidth);
-  const int straight_y = clamp_scale(raw.y, kPanelHeight);
-  const int flip_y = (kPanelHeight - 1) - straight_y;
-  const int swap_x = clamp_scale(raw.y, kPanelWidth);
-  const int swap_y = clamp_scale(raw.x, kPanelHeight);
-  const int swap_flip_y = (kPanelHeight - 1) - swap_y;
-  xs[0] = straight_x;
-  ys[0] = straight_y;
-  xs[1] = straight_x;
-  ys[1] = flip_y;
-  xs[2] = swap_x;
-  ys[2] = swap_y;
-  xs[3] = swap_x;
-  ys[3] = swap_flip_y;
+int scale_axis(int raw, int size) {
+  const int lo = 280;
+  const int hi = 3860;
+  if (raw < lo) raw = lo;
+  if (raw > hi) raw = hi;
+  return (raw - lo) * (size - 1) / (hi - lo);
 }
 
+// One mapping for the whole glass. X is mirrored so the left of the panel is
+// the left of the picture. Y grows downward. A second orientation is not tried.
 void map_screen(const TouchRaw& raw, int& sx, int& sy) {
-  int xs[4];
-  int ys[4];
-  candidates(raw, xs, ys);
-  const int bar = kPanelHeight - 72;
-  for (int i = 0; i < 4; ++i) {
-    if (ys[i] >= bar && xs[i] >= 0 && xs[i] < kPanelWidth) {
-      sx = xs[i];
-      sy = ys[i];
-      return;
-    }
-  }
-  sx = xs[0];
-  sy = ys[0];
+  sx = (kPanelWidth - 1) - scale_axis(raw.x, kPanelWidth);
+  sy = scale_axis(raw.y, kPanelHeight);
 }
 
 }  // namespace
@@ -229,7 +205,7 @@ void touch_begin() {
   Serial.printf("TOUCH split x=%d y=%d z1=%d z2=%d spread=%d analog=%d idle=%d\n", split.last.x,
                 split.last.y, split.last.z1, split.last.z2, split.spread, split.analog,
                 split_idle ? 1 : 0);
-  Serial.printf("TOUCH select bus=%s irq=%d\n", touch_wire_name(), irq);
+  Serial.printf("TOUCH select bus=%s irq=%d mirrorx=1\n", touch_wire_name(), irq);
   Serial.flush();
 }
 
@@ -245,15 +221,10 @@ bool touch_hits(const TouchRaw& raw, int x, int y, int w, int h) {
   if (w <= 0 || h <= 0) {
     return false;
   }
-  int xs[4];
-  int ys[4];
-  candidates(raw, xs, ys);
-  for (int i = 0; i < 4; ++i) {
-    if (xs[i] >= x && xs[i] < x + w && ys[i] >= y && ys[i] < y + h) {
-      return true;
-    }
-  }
-  return false;
+  int sx = 0;
+  int sy = 0;
+  map_screen(raw, sx, sy);
+  return sx >= x && sy >= y && sx < x + w && sy < y + h;
 }
 
 bool touch_read(TouchRaw& raw, int& sx, int& sy) {
@@ -281,11 +252,12 @@ void touch_log(const TouchRaw& raw, int sx, int sy, const char* button, bool on_
     return;
   }
   logged_at_ = now;
+  const char* name = (button != nullptr && button[0] != '\0') ? button : "none";
   if (on_button) {
-    Serial.printf("TOUCH tap button=%s x=%d y=%d raw=%d,%d z1=%d z2=%d bus=%s\n", button, sx, sy,
+    Serial.printf("TOUCH tap control=%s sx=%d sy=%d raw=%d,%d z1=%d z2=%d bus=%s\n", name, sx, sy,
                   raw.x, raw.y, raw.z1, raw.z2, touch_wire_name());
   } else {
-    Serial.printf("TOUCH sample bus=%s x=%d y=%d z1=%d z2=%d pressure=%d\n", touch_wire_name(), raw.x,
-                  raw.y, raw.z1, raw.z2, raw.pressure);
+    Serial.printf("TOUCH sample bus=%s sx=%d sy=%d raw=%d,%d z1=%d z2=%d control=%s\n",
+                  touch_wire_name(), sx, sy, raw.x, raw.y, raw.z1, raw.z2, name);
   }
 }

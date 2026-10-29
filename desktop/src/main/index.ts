@@ -299,6 +299,11 @@ app.whenReady().then(async () => {
     const shot = process.argv[gameAt + 1] ?? "";
     if (!picker.isDestroyed()) picker.hide();
     try {
+      await new Promise<void>((resolve) => {
+        if (catWin.webContents.isLoading()) catWin.webContents.once("did-finish-load", () => resolve());
+        else resolve();
+      });
+      catWin.setBackgroundColor("#000000");
       catWin.setContentSize(320, 480);
       await catWin.loadFile(path.join(__dirname, "index.html"), { query: { view: "invaders" } });
       placeBottomRight(catWin);
@@ -314,11 +319,18 @@ app.whenReady().then(async () => {
         tick();
       })`);
       if (seen !== "invaders") throw new Error("invaders missing");
-      const png = await catWin.capturePage();
+      await new Promise((r) => setTimeout(r, 400));
+      let png = await catWin.capturePage();
+      for (let attempt = 0; attempt < 4 && png.isEmpty(); attempt += 1) {
+        await new Promise((r) => setTimeout(r, 300));
+        png = await catWin.capturePage();
+      }
+      const bytes = png.toPNG();
+      if (bytes.length < 1000) throw new Error("empty invaders capture");
       if (shot) {
         fs.mkdirSync(path.dirname(shot), { recursive: true });
-        fs.writeFileSync(shot, png.toPNG());
-        console.log("JITTERS shot", shot);
+        fs.writeFileSync(shot, bytes);
+        console.log("JITTERS shot", shot, bytes.length);
       }
       app.exit(0);
     } catch (err) {
