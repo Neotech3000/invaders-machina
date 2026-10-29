@@ -29,12 +29,22 @@ function Picker() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    void window.jitters.listPorts().then((info) => {
-      setPorts(info.ports);
-      setBaud(info.baudLabel);
-      const preferred = info.ports.some((port) => port.id === info.preferred) ? info.preferred : "";
-      setSelected(preferred);
-    });
+    let stop = false;
+    const load = () => {
+      void window.jitters.listPorts().then((info) => {
+        if (stop) return;
+        setPorts(info.ports);
+        setBaud(info.baudLabel);
+        const preferred = info.ports.some((port) => port.id === info.preferred) ? info.preferred : "";
+        setSelected((current) => current || preferred);
+      });
+    };
+    load();
+    const timer = window.setInterval(load, 1500);
+    return () => {
+      stop = true;
+      window.clearInterval(timer);
+    };
   }, []);
 
   async function run(fn: () => Promise<Snapshot>) {
@@ -73,6 +83,7 @@ function Picker() {
         ))}
       </ul>
       <p className="status">{snap?.status ?? "Choose a port"}</p>
+      <p className="baud">The CH340 connects when it is plugged in.</p>
       {error ? <p className="error">{error}</p> : null}
       <div className="row">
         {!connected ? (

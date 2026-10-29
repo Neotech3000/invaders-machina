@@ -22,5 +22,8 @@ const char* touch_wire_name();
 // Fills raw and screen coordinates. True only while a finger is down.
 bool touch_read(TouchRaw& raw, int& sx, int& sy);
 
+// True when any axis orientation places the finger inside the rectangle.
+bool touch_hits(const TouchRaw& raw, int x, int y, int w, int h);
+
 // Plain-text samples for the first few seconds after boot, then silence.
 void touch_log(const TouchRaw& raw, int sx, int sy, const char* button, bool on_button);

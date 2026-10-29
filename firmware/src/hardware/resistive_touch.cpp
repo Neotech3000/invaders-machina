@@ -153,16 +153,28 @@ bool idle_controller(const Stats& stats) {
   return stats.spread < 400 && stats.last.z1 < 300 && stats.last.z2 > 3500;
 }
 
-void map_screen(const TouchRaw& raw, int& sx, int& sy) {
+void candidates(const TouchRaw& raw, int xs[4], int ys[4]) {
   const int straight_x = clamp_scale(raw.x, kPanelWidth);
   const int straight_y = clamp_scale(raw.y, kPanelHeight);
   const int flip_y = (kPanelHeight - 1) - straight_y;
   const int swap_x = clamp_scale(raw.y, kPanelWidth);
   const int swap_y = clamp_scale(raw.x, kPanelHeight);
   const int swap_flip_y = (kPanelHeight - 1) - swap_y;
+  xs[0] = straight_x;
+  ys[0] = straight_y;
+  xs[1] = straight_x;
+  ys[1] = flip_y;
+  xs[2] = swap_x;
+  ys[2] = swap_y;
+  xs[3] = swap_x;
+  ys[3] = swap_flip_y;
+}
+
+void map_screen(const TouchRaw& raw, int& sx, int& sy) {
+  int xs[4];
+  int ys[4];
+  candidates(raw, xs, ys);
   const int bar = kPanelHeight - 72;
-  const int xs[4] = {straight_x, straight_x, swap_x, swap_x};
-  const int ys[4] = {straight_y, flip_y, swap_y, swap_flip_y};
   for (int i = 0; i < 4; ++i) {
     if (ys[i] >= bar && xs[i] >= 0 && xs[i] < kPanelWidth) {
       sx = xs[i];
@@ -170,8 +182,8 @@ void map_screen(const TouchRaw& raw, int& sx, int& sy) {
       return;
     }
   }
-  sx = straight_x;
-  sy = straight_y;
+  sx = xs[0];
+  sy = ys[0];
 }
 
 }  // namespace
@@ -227,6 +239,21 @@ const char* touch_wire_name() {
   if (wire_ == TouchWire::Shared) return "shared";
   if (wire_ == TouchWire::Split) return "split";
   return "none";
+}
+
+bool touch_hits(const TouchRaw& raw, int x, int y, int w, int h) {
+  if (w <= 0 || h <= 0) {
+    return false;
+  }
+  int xs[4];
+  int ys[4];
+  candidates(raw, xs, ys);
+  for (int i = 0; i < 4; ++i) {
+    if (xs[i] >= x && xs[i] < x + w && ys[i] >= y && ys[i] < y + h) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool touch_read(TouchRaw& raw, int& sx, int& sy) {
