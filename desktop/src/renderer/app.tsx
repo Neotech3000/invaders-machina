@@ -177,17 +177,29 @@ function Cat() {
 }
 
 function InvadersStill() {
-  const aliens = [true, true, true, false, true, true, true, true];
+  const yellow = [0, 1, 2, 3, 4, 5];
+  const green = [0, 1, 2, 3, 4, 5];
   return (
     <main className="invaders" data-invaders="1">
-      <p className="inv-score">SCORE 20</p>
-      <div className="inv-row">
-        {aliens.map((alive, index) => (
-          <span key={index} className={alive ? "alien" : "alien gone"} />
+      <p className="inv-score">LV 12/100  80</p>
+      <div className="inv-row top">
+        {yellow.map((index) => (
+          <span key={index} className="squid" />
+        ))}
+      </div>
+      <div className="inv-row low">
+        {green.map((index) => (
+          <span key={index} className="crab" />
         ))}
       </div>
       <span className="shot" />
+      <div className="bunkers">
+        <span className="bunker" />
+        <span className="bunker chipped" />
+        <span className="bunker" />
+      </div>
       <span className="ship" />
+      <span className="planet" />
       <div className="bar">
         <span>LEFT</span>
         <span>FIRE</span>
