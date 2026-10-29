@@ -148,6 +148,14 @@ bool idle_controller(const Stats& stats) {
   return stats.spread < 400 && stats.last.z1 < 300 && stats.last.z2 > 3500;
 }
 
+// One mapping for the whole glass. Both axes are mirrored: a finger on the
+// bottom PLAY key reads a low raw Y (the boot sample was raw y=585), and the
+// left of the glass is the left of the picture. No second orientation is tried,
+// so a point outside a drawn rectangle cannot be pulled onto a button.
+void map_screen(const TouchRaw& raw, int& sx, int& sy) {
+  touch_to_screen(raw.x, raw.y, kPanelWidth, kPanelHeight, sx, sy);
+}
+
 }  // namespace
 
 void touch_begin() {
@@ -191,7 +199,7 @@ void touch_begin() {
   Serial.printf("TOUCH split x=%d y=%d z1=%d z2=%d spread=%d analog=%d idle=%d\n", split.last.x,
                 split.last.y, split.last.z1, split.last.z2, split.spread, split.analog,
                 split_idle ? 1 : 0);
-  Serial.printf("TOUCH select bus=%s irq=%d\n", touch_wire_name(), irq);
+  Serial.printf("TOUCH select bus=%s irq=%d mirrorx=1 mirrory=1\n", touch_wire_name(), irq);
   Serial.flush();
 }
 
@@ -209,8 +217,8 @@ bool touch_hits(const TouchRaw& raw, int x, int y, int w, int h) {
   }
   int sx = 0;
   int sy = 0;
-  touch_to_screen(raw.x, raw.y, kPanelWidth, kPanelHeight, sx, sy);
-  return sx >= x && sx < x + w && sy >= y && sy < y + h;
+  map_screen(raw, sx, sy);
+  return sx >= x && sy >= y && sx < x + w && sy < y + h;
 }
 
 bool touch_read(TouchRaw& raw, int& sx, int& sy) {
@@ -221,7 +229,7 @@ bool touch_read(TouchRaw& raw, int& sx, int& sy) {
     return false;
   }
   raw = read_wire(wire_);
-  touch_to_screen(raw.x, raw.y, kPanelWidth, kPanelHeight, sx, sy);
+  map_screen(raw, sx, sy);
   return analog_sample(raw) && raw.pressure > kPress;
 }
 
@@ -238,11 +246,12 @@ void touch_log(const TouchRaw& raw, int sx, int sy, const char* button, bool on_
     return;
   }
   logged_at_ = now;
+  const char* name = (button != nullptr && button[0] != '\0') ? button : "none";
   if (on_button) {
-    Serial.printf("TOUCH tap button=%s x=%d y=%d raw=%d,%d z1=%d z2=%d bus=%s\n", button, sx, sy,
+    Serial.printf("TOUCH tap control=%s sx=%d sy=%d raw=%d,%d z1=%d z2=%d bus=%s\n", name, sx, sy,
                   raw.x, raw.y, raw.z1, raw.z2, touch_wire_name());
   } else {
-    Serial.printf("TOUCH sample bus=%s x=%d y=%d z1=%d z2=%d pressure=%d\n", touch_wire_name(), raw.x,
-                  raw.y, raw.z1, raw.z2, raw.pressure);
+    Serial.printf("TOUCH sample bus=%s sx=%d sy=%d raw=%d,%d z1=%d z2=%d control=%s\n",
+                  touch_wire_name(), sx, sy, raw.x, raw.y, raw.z1, raw.z2, name);
   }
 }

@@ -47,7 +47,7 @@ function phaseHint(phase: Phase | undefined): string {
     case "connecting":
       return "The display says hello after it resets. This usually takes a moment.";
     case "linked":
-      return "Jitters is walking on the panel. Tap the cat there to pet it, or the MENU bar to open games. Bring the cat here when you want this window.";
+      return "Jitters is on the panel. PLAY opens the games. A tap on empty glass only draws the cat over. Bring the cat here when you want this window.";
     case "preparing":
       return "The panel should say the cat is heading to the laptop. This window opens when the handoff commits.";
     case "present":
@@ -324,19 +324,29 @@ function Cat() {
 }
 
 function InvadersStill() {
-  const aliens = [true, true, true, false, true, true, true, true];
+  const yellow = [0, 1, 2, 3, 4, 5];
+  const green = [0, 1, 2, 3, 4, 5];
   return (
     <main className="invaders" data-invaders="1">
-      <p className="inv-score">LV 1/100</p>
-      <p className="inv-points">SCORE 20</p>
-      <span className="link-dot" />
-      <div className="inv-row">
-        {aliens.map((alive, index) => (
-          <span key={index} className={alive ? "alien" : "alien gone"} />
+      <p className="inv-score">LV 12/100  80</p>
+      <div className="inv-row top">
+        {yellow.map((index) => (
+          <span key={index} className="squid" />
+        ))}
+      </div>
+      <div className="inv-row low">
+        {green.map((index) => (
+          <span key={index} className="crab" />
         ))}
       </div>
       <span className="shot" />
+      <div className="bunkers">
+        <span className="bunker" />
+        <span className="bunker chipped" />
+        <span className="bunker" />
+      </div>
       <span className="ship" />
+      <span className="planet" />
       <div className="bar">
         <span>LEFT</span>
         <span>FIRE</span>
