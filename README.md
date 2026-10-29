@@ -17,6 +17,7 @@ The panel boots into an attract demo where a CPU plays the game. Tap PLAY to ope
 - Hearts in the top right show lives. Losing a life makes the ship blink and keeps the level as it was.
 - Enemies: standard aliens, Assault (assault weapons), and Cannon (shells burst on impact with a 3 mm blast radius).
 - Every 5th level is a boss. Bosses can turn into a raid. After the first raid boss is beaten, each level has a 40% chance of a mini boss.
+- Every 25 levels a god appears: a themed arena, four waves of goons with mini bosses, then the god. The god has three health bars and changes fighting style as each bar empties.
 
 ## Build
 
@@ -31,7 +32,7 @@ The upload port is the QinHeng CH340 at `/dev/serial/by-id/usb-1a86_USB_Serial-i
 
 ## Layout
 
-- `firmware/src/hardware/board.cpp`: the whole game (attract, menu, levels, HUD).
+- `firmware/src/hardware/board.cpp`: the whole game (attract, menu, levels, gods, HUD).
 - `firmware/src/hardware/touch_map.h`: measured touch mapping. Do not change it without re-measuring.
 - `firmware/src/hardware/hardware_config.h`: panel pinout.
 - `firmware/test/touch_map_test.cpp`: touch mapping check.
