@@ -1,6 +1,7 @@
 #include "resistive_touch.h"
 
 #include "hardware_config.h"
+#include "touch_map.h"
 
 #include <Arduino.h>
 #include <LovyanGFX.hpp>
@@ -27,12 +28,6 @@ struct Stats {
 };
 
 bool in_range(int v) { return v > 100 && v < 4000; }
-
-int clamp_scale(int raw, int size) {
-  if (raw < 200) raw = 200;
-  if (raw > 3900) raw = 3900;
-  return (raw - 200) * (size - 1) / (3900 - 200);
-}
 
 int pressure_of(int z1, int z2) {
   int p = z1 + 4095 - z2;
@@ -153,39 +148,6 @@ bool idle_controller(const Stats& stats) {
   return stats.spread < 400 && stats.last.z1 < 300 && stats.last.z2 > 3500;
 }
 
-void candidates(const TouchRaw& raw, int xs[4], int ys[4]) {
-  const int straight_x = clamp_scale(raw.x, kPanelWidth);
-  const int straight_y = clamp_scale(raw.y, kPanelHeight);
-  const int flip_y = (kPanelHeight - 1) - straight_y;
-  const int swap_x = clamp_scale(raw.y, kPanelWidth);
-  const int swap_y = clamp_scale(raw.x, kPanelHeight);
-  const int swap_flip_y = (kPanelHeight - 1) - swap_y;
-  xs[0] = straight_x;
-  ys[0] = straight_y;
-  xs[1] = straight_x;
-  ys[1] = flip_y;
-  xs[2] = swap_x;
-  ys[2] = swap_y;
-  xs[3] = swap_x;
-  ys[3] = swap_flip_y;
-}
-
-void map_screen(const TouchRaw& raw, int& sx, int& sy) {
-  int xs[4];
-  int ys[4];
-  candidates(raw, xs, ys);
-  const int bar = kPanelHeight - 72;
-  for (int i = 0; i < 4; ++i) {
-    if (ys[i] >= bar && xs[i] >= 0 && xs[i] < kPanelWidth) {
-      sx = xs[i];
-      sy = ys[i];
-      return;
-    }
-  }
-  sx = xs[0];
-  sy = ys[0];
-}
-
 }  // namespace
 
 void touch_begin() {
@@ -245,15 +207,10 @@ bool touch_hits(const TouchRaw& raw, int x, int y, int w, int h) {
   if (w <= 0 || h <= 0) {
     return false;
   }
-  int xs[4];
-  int ys[4];
-  candidates(raw, xs, ys);
-  for (int i = 0; i < 4; ++i) {
-    if (xs[i] >= x && xs[i] < x + w && ys[i] >= y && ys[i] < y + h) {
-      return true;
-    }
-  }
-  return false;
+  int sx = 0;
+  int sy = 0;
+  touch_to_screen(raw.x, raw.y, kPanelWidth, kPanelHeight, sx, sy);
+  return sx >= x && sx < x + w && sy >= y && sy < y + h;
 }
 
 bool touch_read(TouchRaw& raw, int& sx, int& sy) {
@@ -264,7 +221,7 @@ bool touch_read(TouchRaw& raw, int& sx, int& sy) {
     return false;
   }
   raw = read_wire(wire_);
-  map_screen(raw, sx, sy);
+  touch_to_screen(raw.x, raw.y, kPanelWidth, kPanelHeight, sx, sy);
   return analog_sample(raw) && raw.pressure > kPress;
 }
 

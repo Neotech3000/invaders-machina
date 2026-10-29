@@ -208,6 +208,7 @@ app.whenReady().then(async () => {
       void current?.close();
     },
     trace: (event) => console.log("JITTERS", event),
+    changed: () => publish(),
     firstHelloMs: 8000,
   });
 

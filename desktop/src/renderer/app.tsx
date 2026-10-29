@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { JittersApi } from "../main/preload";
 import type { Snapshot } from "../handoff/desktop_handoff";
 import type { PortChoice } from "../transport/ports";
+import { controlsFor } from "./controls";
 
 declare global {
   interface Window {
@@ -100,6 +101,10 @@ function Picker() {
     };
   }, []);
 
+  useEffect(() => {
+    if (snap?.portId) setSelected(snap.portId);
+  }, [snap?.portId]);
+
   async function run(fn: () => Promise<Snapshot>) {
     setError("");
     try {
@@ -110,9 +115,10 @@ function Picker() {
   }
 
   const phase = snap?.phase ?? "disconnected";
-  const connected = phase !== "disconnected";
+  const controls = controlsFor(phase, Boolean(snap?.asking));
   const step = railStep(phase);
   const onlySim = ports.length <= 1;
+  const chosen = ports.find((port) => port.id === selected);
 
   return (
     <main className="picker">
@@ -129,13 +135,14 @@ function Picker() {
       {snap?.portId ? <p className="baud">Port {shortPort(snap.portId)}</p> : null}
       <ul>
         {ports.map((port) => (
-          <li key={port.id} className={selected === port.id ? "picked" : ""}>
+          <li key={port.id} className={selected === port.id ? "picked" : port.blocked ? "blocked" : ""}>
             <label>
               <input
                 type="radio"
                 name="port"
                 value={port.id}
                 checked={selected === port.id}
+                disabled={port.blocked}
                 onChange={() => setSelected(port.id)}
               />
               <span>
@@ -154,11 +161,11 @@ function Picker() {
       <p className="baud">{baud}</p>
       {error ? <p className="error">{error}</p> : null}
       <div className="actions">
-        {phase === "disconnected" ? (
+        {controls.connect ? (
           <button
             type="button"
             className="primary"
-            disabled={!selected}
+            disabled={!selected || Boolean(chosen?.blocked)}
             onClick={() => run(() => window.jitters.connect(selected))}
           >
             Connect
@@ -170,8 +177,13 @@ function Picker() {
           </button>
         ) : null}
         {phase === "linked" ? (
-          <button type="button" className="primary" onClick={() => run(() => window.jitters.bring())}>
-            Bring to laptop
+          <button
+            type="button"
+            className="primary"
+            disabled={!controls.bring}
+            onClick={() => run(() => window.jitters.bring())}
+          >
+            {snap?.asking ? "Asking the display…" : "Bring to laptop"}
           </button>
         ) : null}
         {phase === "preparing" ? (
@@ -195,17 +207,17 @@ function Picker() {
           </button>
         ) : null}
         <div className="row">
-          {phase === "present" ? (
+          {controls.hide ? (
             <button type="button" onClick={() => run(() => window.jitters.hide())}>
               Hide
             </button>
           ) : null}
-          {phase === "hidden_hold" ? (
+          {controls.show ? (
             <button type="button" onClick={() => run(() => window.jitters.returnToDevice())}>
               Send back
             </button>
           ) : null}
-          {connected ? (
+          {controls.disconnect ? (
             <button type="button" onClick={() => run(() => window.jitters.disconnect())}>
               Disconnect
             </button>
@@ -281,7 +293,8 @@ function Cat() {
     }, 720);
   }
 
-  const phase = snap?.phase;
+  const phase = snap?.phase ?? "disconnected";
+  const controls = controlsFor(phase, Boolean(snap?.asking));
   return (
     <main className="cat">
       <button type="button" className={happy ? "pet happy" : "pet"} onMouseDown={pet}>
@@ -298,14 +311,10 @@ function Cat() {
         <p className="where">{catWhere(phase)}</p>
         <p className="caption">{happy ? "purr" : "click to pet"}</p>
         <div className="row">
-          <button type="button" disabled={phase !== "present"} onClick={() => void window.jitters.hide()}>
+          <button type="button" disabled={!controls.hide} onClick={() => void window.jitters.hide()}>
             Hide
           </button>
-          <button
-            type="button"
-            disabled={phase !== "present" && phase !== "hidden_hold"}
-            onClick={() => void window.jitters.returnToDevice()}
-          >
+          <button type="button" disabled={!controls.sendBack} onClick={() => void window.jitters.returnToDevice()}>
             Send back
           </button>
         </div>

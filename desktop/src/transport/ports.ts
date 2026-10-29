@@ -10,12 +10,18 @@ export interface PortChoice {
   id: string;
   label: string;
   detail: string;
+  blocked: boolean;
 }
 
 /** Directory listing only. Does not open any serial device. */
 export function listPorts(): PortChoice[] {
   const ports: PortChoice[] = [
-    { id: "simulator://jitters", label: "Simulator", detail: "In-process handoff, no cable" },
+    {
+      id: "simulator://jitters",
+      label: "Simulator",
+      detail: "In-process handoff, no cable",
+      blocked: false,
+    },
   ];
   const dir = "/dev/serial/by-id";
   let names: string[] = [];
@@ -38,6 +44,7 @@ export function listPorts(): PortChoice[] {
       id,
       label: name,
       detail: blocked ? `${real} — Framework LED matrix, not the display` : real,
+      blocked,
     });
   }
   return ports;
