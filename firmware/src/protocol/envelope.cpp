@@ -100,6 +100,37 @@ bool parseEnvelope(const char* line, Envelope& out) {
     out.hasOk = true;
     out.ok = body["ok"].as<bool>();
   }
+  if (body["unix"].is<int>()) {
+    const int unixSeconds = body["unix"].as<int>();
+    if (unixSeconds >= 0) {
+      out.hasTime = true;
+      out.unixSeconds = unixSeconds;
+      out.offsetMin = body["offset"].is<int>() ? body["offset"].as<int>() : 0;
+    }
+  }
+  if (body["events"].is<JsonArray>()) {
+    JsonArray events = body["events"].as<JsonArray>();
+    for (JsonVariant item : events) {
+      if (out.eventCount >= 3 || !item.is<JsonObject>()) break;
+      JsonObject event = item.as<JsonObject>();
+      if (!event["y"].is<int>() || !event["m"].is<int>() || !event["d"].is<int>()) continue;
+      TimeEvent& slot = out.events[out.eventCount];
+      slot.year = event["y"].as<int>();
+      slot.month = event["m"].as<int>();
+      slot.day = event["d"].as<int>();
+      slot.title[0] = '\0';
+      if (event["title"].is<const char*>()) {
+        const char* title = event["title"].as<const char*>();
+        size_t n = 0;
+        while (title[n] != '\0' && n < sizeof(slot.title) - 1) {
+          slot.title[n] = title[n];
+          n += 1;
+        }
+        slot.title[n] = '\0';
+      }
+      out.eventCount += 1;
+    }
+  }
   if (body["expressions"].is<JsonArray>()) {
     JsonArray names = body["expressions"].as<JsonArray>();
     for (JsonVariant item : names) {

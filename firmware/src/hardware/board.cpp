@@ -1,6 +1,7 @@
 #include "board.h"
 
 #include "cat_faces.h"
+#include "civil_time.h"
 #include "hardware_config.h"
 #include "resistive_touch.h"
 
@@ -131,6 +132,45 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     else if (banner_) hideLeaveBanner();
   }
 
+  void clearEvents() override { noteCount_ = 0; }
+
+  void addEvent(int year, int month, int day, const char* title) override {
+    if (noteCount_ >= 3) return;
+    if (year < 1970 || year > 2099) return;
+    if (day < 1 || day > civilDaysInMonth(year, month)) return;
+    CalNote& note = notes_[noteCount_];
+    note.year = year;
+    note.month = month;
+    note.day = day;
+    note.title[0] = '\0';
+    if (title != nullptr) {
+      int n = 0;
+      while (title[n] != '\0' && n < 12) {
+        note.title[n] = title[n];
+        n += 1;
+      }
+      note.title[n] = '\0';
+    }
+    noteCount_ += 1;
+  }
+
+  void setTime(int32_t unixSeconds, int16_t offsetMin, uint32_t deviceMillis) override {
+    clockSet_ = true;
+    unixAt_ = unixSeconds;
+    offsetMin_ = offsetMin;
+    millisAt_ = deviceMillis;
+    shownSecond_ = -1;
+    if (mode_ != Mode::Calendar) return;
+    if (!viewMoved_) {
+      CivilTime now;
+      if (nowCivil(now)) {
+        viewYear_ = now.year;
+        viewMonth_ = now.month;
+      }
+    }
+    paintCalendar();
+  }
+
   bool isVisible() const override { return visible_; }
 
   void tick() override {
@@ -208,7 +248,17 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       return;
     }
-    if (mode_ == Mode::Calendar || mode_ == Mode::Over) {
+    if (mode_ == Mode::Calendar) {
+      if (rose && on) {
+        if (std::strcmp(where, "PREV") == 0) shiftMonth(-1);
+        else if (std::strcmp(where, "NEXT") == 0) shiftMonth(1);
+        else if (std::strcmp(where, "HOME") == 0) beginHome();
+      } else {
+        refreshClock();
+      }
+      return;
+    }
+    if (mode_ == Mode::Over) {
       if (rose && on && std::strcmp(where, "HOME") == 0) {
         beginHome();
       }
@@ -266,6 +316,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   struct Star {
     int16_t x;
     int16_t y;
+  };
+  struct CalNote {
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    char title[13] = {};
   };
 
   static constexpr uint32_t kBlinkEveryMs = 3400;
@@ -373,6 +429,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Box themeBox() const { return {16, 248, 288, 44}; }
   Box walkBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
   Box homeBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
+  Box prevBox() const { return {8, 4, 72, 36}; }
+  Box nextBox() const { return {240, 4, 72, 36}; }
   Box leftBox() const { return {8, kButtonY, 96, 44}; }
   Box fireBox() const { return {112, kButtonY, 96, 44}; }
   Box rightBox() const { return {216, kButtonY, 96, 44}; }
@@ -420,7 +478,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (contains(quadBox(3), x, y)) return "RIGHT";
       return "none";
     }
-    if (mode_ == Mode::Calendar || mode_ == Mode::Over) {
+    if (mode_ == Mode::Calendar) {
+      if (clockSet_) {
+        if (contains(prevBox(), x, y)) return "PREV";
+        if (contains(nextBox(), x, y)) return "NEXT";
+      }
+      if (contains(homeBox(), x, y)) return "HOME";
+      return "none";
+    }
+    if (mode_ == Mode::Over) {
       return contains(homeBox(), x, y) ? "HOME" : "none";
     }
     return "none";
@@ -834,19 +900,184 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     fadeIn();
   }
 
+  bool nowCivil(CivilTime& out) const {
+    if (!clockSet_) return false;
+    const uint32_t elapsed = millis() - millisAt_;
+    const int64_t unixSeconds = static_cast<int64_t>(unixAt_) + static_cast<int64_t>(elapsed / 1000);
+    civilFromUnix(unixSeconds, offsetMin_, out);
+    return true;
+  }
+
+  bool hasNote(int year, int month, int day) const {
+    for (int i = 0; i < noteCount_; ++i) {
+      if (notes_[i].year == year && notes_[i].month == month && notes_[i].day == day) return true;
+    }
+    return false;
+  }
+
+  const char* monthName(int month) const {
+    static const char* kNames[] = {"",        "January",   "February", "March",    "April",
+                                   "May",      "June",      "July",     "August",   "September",
+                                   "October",  "November",  "December"};
+    if (month < 1 || month > 12) return "";
+    return kNames[month];
+  }
+
+  const char* monthShort(int month) const {
+    static const char* kNames[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    if (month < 1 || month > 12) return "";
+    return kNames[month];
+  }
+
+  void shiftMonth(int delta) {
+    if (!clockSet_) return;
+    viewMoved_ = true;
+    viewMonth_ += delta;
+    while (viewMonth_ > 12) {
+      viewMonth_ -= 12;
+      viewYear_ += 1;
+    }
+    while (viewMonth_ < 1) {
+      viewMonth_ += 12;
+      viewYear_ -= 1;
+    }
+    if (viewYear_ < 1970) {
+      viewYear_ = 1970;
+      viewMonth_ = 1;
+    }
+    if (viewYear_ > 2099) {
+      viewYear_ = 2099;
+      viewMonth_ = 12;
+    }
+    paintCalendar();
+  }
+
+  void drawClockLine(const CivilTime* now) {
+    const Palette ink = palette();
+    fillRect(0, 42, kPanelWidth, 26, ink.bg);
+    setTextSize(1);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    if (now == nullptr) {
+      setTextColor(ink.muted);
+      drawString("time not set", kPanelWidth / 2, 54);
+      return;
+    }
+    char line[16];
+    snprintf(line, sizeof line, "%02d:%02d:%02d", now->hour, now->minute, now->second);
+    setTextColor(ink.ink);
+    drawString(line, kPanelWidth / 2, 54);
+    shownSecond_ = now->second;
+    shownDay_ = now->day;
+    shownMonth_ = now->month;
+  }
+
+  void paintCalendar() {
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    setTextSize(1);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    if (!clockSet_) {
+      setTextColor(ink.ink);
+      drawString("CALENDAR", kPanelWidth / 2, 120);
+      setTextColor(ink.muted);
+      drawString("Connect the laptop", kPanelWidth / 2, 160);
+      drawString("to set the time.", kPanelWidth / 2, 184);
+      drawKey("HOME", homeBox(), false);
+      return;
+    }
+    drawKey("PREV", prevBox(), false);
+    drawKey("NEXT", nextBox(), false);
+    setTextColor(ink.ink);
+    char title[24];
+    snprintf(title, sizeof title, "%s %d", monthName(viewMonth_), viewYear_);
+    drawString(title, kPanelWidth / 2, 22);
+    CivilTime now;
+    const bool haveNow = nowCivil(now);
+    drawClockLine(haveNow ? &now : nullptr);
+
+    setTextColor(ink.muted);
+    const char* dow = "SMTWTFS";
+    for (int col = 0; col < 7; ++col) {
+      char letter[2] = {dow[col], '\0'};
+      drawString(letter, 8 + col * 44 + 22, 78);
+    }
+
+    const int first = civilWeekdayOf(viewYear_, viewMonth_, 1);
+    const int dim = civilDaysInMonth(viewYear_, viewMonth_);
+    const bool thisMonth = haveNow && now.year == viewYear_ && now.month == viewMonth_;
+    for (int cell = 0; cell < 42; ++cell) {
+      const int day = cell - first + 1;
+      if (day < 1 || day > dim) continue;
+      const int col = cell % 7;
+      const int row = cell / 7;
+      const int x = 8 + col * 44;
+      const int y = 94 + row * 36;
+      const bool today = thisMonth && day == now.day;
+      if (today) {
+        fillRoundRect(x + 4, y + 2, 36, 30, 6, ink.accent);
+        setTextColor(ink.bg);
+      } else {
+        setTextColor(ink.ink);
+      }
+      char number[16];
+      snprintf(number, sizeof number, "%d", day);
+      drawString(number, x + 22, y + 14);
+      if (hasNote(viewYear_, viewMonth_, day)) {
+        fillRect(x + 19, y + 26, 6, 3, today ? ink.bg : ink.shot);
+      }
+    }
+
+    int shown = 0;
+    setTextDatum(lgfx::middle_left);
+    for (int i = 0; i < noteCount_ && shown < 2; ++i) {
+      if (notes_[i].year != viewYear_ || notes_[i].month != viewMonth_) continue;
+      char line[32];
+      snprintf(line, sizeof line, "%s %d  %s", monthShort(notes_[i].month), notes_[i].day, notes_[i].title);
+      setTextColor(ink.ink);
+      drawString(line, 16, 320 + shown * 22);
+      shown += 1;
+    }
+    if (shown == 0) {
+      setTextDatum(lgfx::middle_center);
+      setTextColor(ink.muted);
+      drawString("no events", kPanelWidth / 2, 332);
+    }
+    drawKey("HOME", homeBox(), false);
+  }
+
+  void refreshClock() {
+    if (!clockSet_ || mode_ != Mode::Calendar) return;
+    CivilTime now;
+    if (!nowCivil(now)) return;
+    if (now.second == shownSecond_ && now.day == shownDay_ && now.month == shownMonth_) return;
+    const bool dayChanged = shownDay_ != 0 && (now.day != shownDay_ || now.month != shownMonth_);
+    if (dayChanged && viewYear_ == now.year && viewMonth_ == now.month) {
+      paintCalendar();
+      return;
+    }
+    if (dayChanged && !viewMoved_) {
+      viewYear_ = now.year;
+      viewMonth_ = now.month;
+      paintCalendar();
+      return;
+    }
+    shownMonth_ = now.month;
+    drawClockLine(&now);
+  }
+
   void beginCalendar() {
     fadeOut();
     mode_ = Mode::Calendar;
-    const Palette ink = palette();
-    fillScreen(ink.bg);
-    setFont(&fonts::Font2);
-    setTextDatum(lgfx::middle_center);
-    setTextColor(ink.ink);
-    drawString("CALENDAR", kPanelWidth / 2, 86);
-    drawString(__DATE__, kPanelWidth / 2, 140);
-    setTextColor(ink.muted);
-    drawString("calendar not connected", kPanelWidth / 2, 186);
-    drawKey("HOME", homeBox(), false);
+    viewMoved_ = false;
+    CivilTime now;
+    if (nowCivil(now)) {
+      viewYear_ = now.year;
+      viewMonth_ = now.month;
+    }
+    paintCalendar();
     fadeIn();
   }
 
@@ -1702,6 +1933,18 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   uint32_t pause_at_ = 0;
   uint32_t heading_until_ = 0;
   uint32_t glance_face_until_ = 0;
+  bool clockSet_ = false;
+  bool viewMoved_ = false;
+  int32_t unixAt_ = 0;
+  int offsetMin_ = 0;
+  uint32_t millisAt_ = 0;
+  int viewYear_ = 1970;
+  int viewMonth_ = 1;
+  int shownSecond_ = -1;
+  int shownDay_ = 0;
+  int shownMonth_ = 0;
+  int noteCount_ = 0;
+  CalNote notes_[3] = {};
   uint32_t away_at_ = 0;
   Unit units_[kMaxUnits] = {};
   Barrier barriers_[kMaxBarriers] = {};
