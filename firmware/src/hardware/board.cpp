@@ -1,6 +1,7 @@
 #include "board.h"
 
 #include "cat_faces.h"
+#include "friend_faces.h"
 #include "hardware_config.h"
 #include "resistive_touch.h"
 
@@ -19,7 +20,12 @@ namespace {
 class PanelDisplay : public lgfx::LGFX_Device, public Display {
  public:
   PanelDisplay()
-      : idle_sprite_(this), blink_sprite_(this), mouth_sprite_(this) {
+      : idle_sprite_(this),
+        blink_sprite_(this),
+        mouth_sprite_(this),
+        friend_a_(this),
+        friend_b_(this),
+        friend_c_(this) {
     {
       auto cfg = bus_.config();
       cfg.spi_host = SPI2_HOST;
@@ -82,6 +88,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     makeStars();
     sprite_ok_ = bake(idle_sprite_, kCatIdle) && bake(blink_sprite_, kCatBlink) &&
                  bake(mouth_sprite_, kCatMouth);
+    friend_key_ = color565(255, 0, 255);
+    friend_ok_ = bakeFriend(friend_a_, 0) && bakeFriend(friend_b_, 1) && bakeFriend(friend_c_, 2);
+    hunger_ = 8;
+    mood_level_ = 8;
+    pal_next_ = millis() + 7000;
     const CatFace& face = cat_frame(kCatIdle);
     cat_w_ = face.width;
     cat_h_ = face.height;
@@ -89,8 +100,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (rng_ == 0) rng_ = 1;
     fillScreen(palette().bg);
     visible_ = false;
-    Serial.printf("FRAME walk_ms=%lu game_ms=%lu\n", static_cast<unsigned long>(kWalkMs),
-                  static_cast<unsigned long>(kStepMs));
+    Serial.printf("FRAME walk_ms=%lu game_ms=%lu friends=%d\n", static_cast<unsigned long>(kWalkMs),
+                  static_cast<unsigned long>(kStepMs), friend_ok_ ? friend_face_count() : 0);
     Serial.flush();
     return true;
   }
@@ -145,6 +156,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     step_at_ = now;
+    decayNeeds(now);
     int tx = 0;
     int ty = 0;
     TouchRaw raw;
@@ -199,6 +211,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         beginSnake();
       } else if (std::strcmp(where, "CALENDAR") == 0) {
         beginCalendar();
+      } else if (std::strcmp(where, "CARE") == 0) {
+        beginCare();
       } else if (std::strcmp(where, "THEME") == 0) {
         theme_ = static_cast<uint8_t>((theme_ + 1) & 3);
         prefs_.putUChar("theme", theme_);
@@ -214,6 +228,21 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       return;
     }
+    if (mode_ == Mode::Care) {
+      decayNeeds(now);
+      if (needs_dirty_) paintCareMeters();
+      if (rose && on && std::strcmp(where, "FEED") == 0) {
+        hunger_ = 8;
+        if (mood_level_ < 6) mood_level_ = 6;
+        paintCareMeters();
+      } else if (rose && on && std::strcmp(where, "CARE") == 0) {
+        mood_level_ = 8;
+        paintCareMeters();
+      } else if (rose && on && std::strcmp(where, "HOME") == 0) {
+        beginHome();
+      }
+      return;
+    }
     if (mode_ == Mode::Play) {
       stepGame(down, rose, tx, ty);
     } else if (mode_ == Mode::Tetris) {
@@ -224,7 +253,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
  private:
-  enum class Mode : uint8_t { Wander, Home, Calendar, Play, Advance, Over, Away, Tetris, Snake };
+  enum class Mode : uint8_t {
+    Wander, Home, Calendar, Play, Advance, Over, Away, Tetris, Snake, Care
+  };
   enum class Presence : uint8_t { Solo, Linked, Leaving, Away };
   // Cece (a neko-like cat) wanders, notices a pointer, eases toward it, then
   // reacts briefly. These are the same beats, driven by taps on this glass.
@@ -267,6 +298,23 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     int16_t x;
     int16_t y;
   };
+  struct Pal {
+    int16_t x = 0;
+    int16_t y = 0;
+    int16_t ox = 0;
+    int16_t oy = 0;
+    int8_t vx = 1;
+    int8_t vy = 0;
+    uint8_t which = 0;
+    uint8_t phase = 0;
+    uint8_t speed = 1;
+    bool placed = false;
+    bool slow = false;
+    bool moved = false;
+    int tick = 0;
+    uint32_t turn_at = 0;
+    uint32_t leave_at = 0;
+  };
 
   static constexpr uint32_t kBlinkEveryMs = 3400;
   static constexpr uint32_t kBlinkAtMs = 1600;
@@ -303,6 +351,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kSnakeX = 64;
   static constexpr int kSnakeY = 40;
   static constexpr int kSnakeMax = 48;
+  static constexpr int kFriend = 64;
 
   bool bake(lgfx::LGFX_Sprite& sprite, CatFrame which) {
     const CatFace& face = cat_frame(which);
@@ -311,6 +360,17 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return false;
     }
     sprite.fillScreen(TFT_BLACK);
+    sprite.drawPng(face.png, face.length, 0, 0, 0, 0, 0, 0, 1.0f, 1.0f);
+    return true;
+  }
+
+  bool bakeFriend(lgfx::LGFX_Sprite& sprite, int index) {
+    const FriendFace& face = friend_face(index);
+    sprite.setColorDepth(16);
+    if (sprite.createSprite(face.width, face.height) == nullptr) {
+      return false;
+    }
+    sprite.fillScreen(friend_key_);
     sprite.drawPng(face.png, face.length, 0, 0, 0, 0, 0, 0, 1.0f, 1.0f);
     return true;
   }
@@ -371,6 +431,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Box snakeBox() const { return {16, 144, 288, 46}; }
   Box calendarBox() const { return {16, 196, 288, 46}; }
   Box themeBox() const { return {16, 248, 288, 44}; }
+  Box careBox() const { return {16, 304, 288, 44}; }
+  Box feedBox() const { return {16, 340, 136, 52}; }
+  Box cleanBox() const { return {168, 340, 136, 52}; }
   Box walkBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
   Box homeBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
   Box leftBox() const { return {8, kButtonY, 96, 44}; }
@@ -393,6 +456,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (contains(snakeBox(), x, y)) return "SNAKE";
       if (contains(calendarBox(), x, y)) return "CALENDAR";
       if (contains(themeBox(), x, y)) return "THEME";
+      if (contains(careBox(), x, y)) return "CARE";
       if (contains(walkBox(), x, y)) return "WALK";
       return "none";
     }
@@ -423,6 +487,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (mode_ == Mode::Calendar || mode_ == Mode::Over) {
       return contains(homeBox(), x, y) ? "HOME" : "none";
     }
+    if (mode_ == Mode::Care) {
+      if (contains(feedBox(), x, y)) return "FEED";
+      if (contains(cleanBox(), x, y)) return "CARE";
+      if (contains(homeBox(), x, y)) return "HOME";
+      return "none";
+    }
     return "none";
   }
 
@@ -432,11 +502,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     regions_logged_ = true;
     const Box boxes[] = {playBox(),   invadersBox(), tetrisBox(), snakeBox(), calendarBox(),
-                         themeBox(), walkBox(),     homeBox(),   leftBox(),  fireBox(),
-                         rightBox(), backBox()};
+                         themeBox(), careBox(),     feedBox(),   cleanBox(), walkBox(),
+                         homeBox(),  leftBox(),     fireBox(),   rightBox(), backBox()};
     const char* names[] = {"PLAY", "INVADERS", "TETRIS", "SNAKE", "CALENDAR", "THEME",
-                           "WALK", "HOME",     "LEFT",   "FIRE",  "RIGHT",     "BACK"};
-    for (int i = 0; i < 12; ++i) {
+                           "CARE", "FEED",     "PET",    "WALK",   "HOME",     "LEFT",
+                           "FIRE", "RIGHT",    "BACK"};
+    for (int i = 0; i < 15; ++i) {
       Serial.printf("TOUCH region %s %d %d %d %d\n", names[i], boxes[i].x, boxes[i].y, boxes[i].w,
                     boxes[i].h);
     }
@@ -618,6 +689,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     banner_ = false;
     repair(0, 0, kPanelWidth, 28);
     if (placed_ && cat_y_ < 28 + cat_h_) paintCat(cat_x_, cat_y_, frame_);
+    for (int i = 0; i < 2; ++i) {
+      const Pal& pal = pals_[i];
+      if (pal.phase != 0 && pal.placed && pal.y < 28 + kFriend) paintFriendAt(pal);
+    }
   }
 
   void drawAway(bool pulseOnly) {
@@ -667,6 +742,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     glance_step_ = false;
     glance_face_ = 0;
     walk_tick_ = 0;
+    for (int i = 0; i < 2; ++i) {
+      pals_[i].phase = 0;
+      pals_[i].placed = false;
+      pals_[i].moved = false;
+    }
     shown_at_ = millis();
     step_at_ = 0;
     pickHeading(shown_at_, 1, 1);
@@ -798,19 +878,253 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (nx > max_x) nx = max_x;
     if (ny > max_y) ny = max_y;
     const CatFrame next = faceAt(now);
-    if (placed_ && nx == cat_x_ && ny == cat_y_ && next == frame_) {
+    const bool cat_changed = !placed_ || nx != cat_x_ || ny != cat_y_ || next != frame_;
+    const bool pals_changed = stepFriends(now);
+    if (!cat_changed && !pals_changed) {
       return;
     }
     startWrite();
-    paintCat(nx, ny, next);
-    if (placed_) {
-      uncover(cat_x_, cat_y_, nx, ny, cat_w_, cat_h_);
+    if (cat_changed) {
+      paintCat(nx, ny, next);
+      if (placed_) uncover(cat_x_, cat_y_, nx, ny, cat_w_, cat_h_);
     }
+    for (int i = 0; i < 2; ++i) {
+      Pal& pal = pals_[i];
+      if (pal.phase == 0) {
+        if (pal.placed) {
+          repair(pal.ox, pal.oy, kFriend, kFriend);
+          pal.placed = false;
+        }
+        continue;
+      }
+      if (!pal.moved && pal.placed) continue;
+      paintFriendAt(pal);
+      if (pal.placed) uncover(pal.ox, pal.oy, pal.x, pal.y, kFriend, kFriend);
+      pal.placed = true;
+      pal.moved = false;
+    }
+    for (int i = 0; i < 2; ++i) {
+      Pal& pal = pals_[i];
+      if (pal.phase == 0 || !pal.placed) continue;
+      bool clipped = false;
+      if (cat_changed && placed_ &&
+          (overlap(pal.x, pal.y, kFriend, kFriend, cat_x_, cat_y_, cat_w_, cat_h_) ||
+           overlap(pal.x, pal.y, kFriend, kFriend, nx, ny, cat_w_, cat_h_))) {
+        clipped = true;
+      }
+      const Pal& other = pals_[1 - i];
+      if (other.phase != 0 && other.placed &&
+          overlap(pal.x, pal.y, kFriend, kFriend, other.ox, other.oy, kFriend, kFriend)) {
+        clipped = true;
+      }
+      if (clipped) paintFriendAt(pal);
+    }
+    bool cover_cat = false;
+    for (int i = 0; i < 2; ++i) {
+      const Pal& pal = pals_[i];
+      const bool touch_now = pal.phase != 0 && pal.placed &&
+                             overlap(pal.x, pal.y, kFriend, kFriend, nx, ny, cat_w_, cat_h_);
+      const bool touch_old =
+          overlap(pal.ox, pal.oy, kFriend, kFriend, nx, ny, cat_w_, cat_h_);
+      if (touch_now || touch_old) cover_cat = true;
+    }
+    if (cover_cat) paintCat(nx, ny, next);
     endWrite();
     cat_x_ = nx;
     cat_y_ = ny;
     frame_ = next;
     placed_ = true;
+  }
+
+  void paintFriendAt(const Pal& pal) {
+    if (!friend_ok_) return;
+    lgfx::LGFX_Sprite* sprite = &friend_a_;
+    if (pal.which == 1) sprite = &friend_b_;
+    else if (pal.which == 2) sprite = &friend_c_;
+    sprite->pushSprite(pal.x, pal.y, friend_key_);
+  }
+
+  void aimPal(Pal& pal, int bias_x, int bias_y) {
+    static const int kDir[8][2] = {{1, 0}, {1, 1}, {0, 1}, {-1, 1},
+                                   {-1, 0}, {-1, -1}, {0, -1}, {1, -1}};
+    int hx = 1;
+    int hy = 0;
+    for (int attempt = 0; attempt < 6; ++attempt) {
+      const int i = static_cast<int>(nextRng() % 8);
+      hx = kDir[i][0];
+      hy = kDir[i][1];
+      if (bias_x > 0 && hx < 0) continue;
+      if (bias_x < 0 && hx > 0) continue;
+      if (bias_y > 0 && hy < 0) continue;
+      if (bias_y < 0 && hy > 0) continue;
+      if (hx == pal.vx && hy == pal.vy && attempt < 5) continue;
+      break;
+    }
+    if (bias_x > 0 && hx < 0) hx = 1;
+    if (bias_x < 0 && hx > 0) hx = -1;
+    if (bias_y > 0 && hy < 0) hy = 1;
+    if (bias_y < 0 && hy > 0) hy = -1;
+    if (hx == 0 && hy == 0) hx = bias_x != 0 ? bias_x : 1;
+    pal.vx = static_cast<int8_t>(hx);
+    pal.vy = static_cast<int8_t>(hy);
+    const uint32_t roll = nextRng() % 5;
+    pal.speed = roll == 0 ? 2 : 1;
+    pal.slow = roll >= 3;
+  }
+
+  void armPal(Pal& pal, uint32_t now, int which, bool from_left) {
+    const int max_y = playBox().y - kFriend - 8;
+    int span = max_y - 24;
+    if (span < 1) span = 1;
+    pal.which = static_cast<uint8_t>(which);
+    pal.phase = 1;
+    pal.x = from_left ? static_cast<int16_t>(-kFriend) : static_cast<int16_t>(kPanelWidth);
+    pal.y = static_cast<int16_t>(24 + (nextRng() % static_cast<uint32_t>(span)));
+    pal.ox = pal.x;
+    pal.oy = pal.y;
+    pal.placed = false;
+    pal.moved = true;
+    pal.vx = from_left ? 1 : -1;
+    pal.vy = 0;
+    pal.speed = 1;
+    pal.slow = false;
+    pal.tick = 0;
+    pal.turn_at = now + 500;
+    pal.leave_at = now + 5200 + (nextRng() % 4800);
+  }
+
+  void stepPal(Pal& pal, uint32_t now) {
+    if (pal.phase == 0) {
+      pal.moved = false;
+      return;
+    }
+    const int max_x = kPanelWidth - kFriend;
+    const int max_y = playBox().y - kFriend - 8;
+    pal.tick += 1;
+    if (pal.phase == 1 && static_cast<int32_t>(now - pal.leave_at) >= 0) {
+      pal.phase = 2;
+      pal.vx = (pal.x + kFriend / 2) < (kPanelWidth / 2) ? -1 : 1;
+      pal.vy = 0;
+      pal.speed = 2;
+      pal.slow = false;
+    } else if (pal.phase == 1 && static_cast<int32_t>(now - pal.turn_at) >= 0) {
+      if ((nextRng() % 4) == 0) {
+        pal.vx = 0;
+        pal.vy = 0;
+        pal.turn_at = now + 320 + (nextRng() % 420);
+      } else {
+        const int bias_x = pal.x < 12 ? 1 : (pal.x > max_x - 12 ? -1 : 0);
+        const int bias_y = pal.y < 20 ? 1 : (pal.y > max_y - 12 ? -1 : 0);
+        aimPal(pal, bias_x, bias_y);
+        pal.turn_at = now + 480 + (nextRng() % 1200);
+      }
+    }
+    int dx = 0;
+    int dy = 0;
+    if (!(pal.slow && (pal.tick & 1) != 0)) {
+      dx = pal.vx * static_cast<int>(pal.speed);
+      dy = pal.vy * static_cast<int>(pal.speed);
+    }
+    int nx = pal.x + dx;
+    int ny = pal.y + dy;
+    if (pal.phase == 1) {
+      if (nx < 0 || nx > max_x || ny < 8 || ny > max_y) {
+        const int bias_x = pal.x < 16 ? 1 : (pal.x > max_x - 16 ? -1 : 0);
+        const int bias_y = pal.y < 24 ? 1 : (pal.y > max_y - 16 ? -1 : 0);
+        aimPal(pal, bias_x, bias_y);
+        nx = pal.x + pal.vx * static_cast<int>(pal.speed);
+        ny = pal.y + pal.vy * static_cast<int>(pal.speed);
+      }
+      if (nx < 0) nx = 0;
+      if (ny < 8) ny = 8;
+      if (nx > max_x) nx = max_x;
+      if (ny > max_y) ny = max_y;
+    }
+    pal.ox = pal.x;
+    pal.oy = pal.y;
+    pal.x = static_cast<int16_t>(nx);
+    pal.y = static_cast<int16_t>(ny);
+    pal.moved = !pal.placed || pal.x != pal.ox || pal.y != pal.oy;
+    if (pal.phase == 2 && (pal.x <= -kFriend || pal.x >= kPanelWidth)) {
+      pal.phase = 0;
+      pal.moved = pal.placed;
+    }
+  }
+
+  bool stepFriends(uint32_t now) {
+    if (!friend_ok_) return false;
+    const bool was_out = pals_[0].phase != 0 || pals_[1].phase != 0;
+    if (!was_out && (pal_next_ == 0 || static_cast<int32_t>(now - pal_next_) >= 0)) {
+      const bool from_left = (nextRng() & 1) != 0;
+      const int which = static_cast<int>(nextRng() % 3);
+      armPal(pals_[0], now, which, from_left);
+      if ((nextRng() % 3) == 0) {
+        const int other = (which + 1 + static_cast<int>(nextRng() % 2)) % 3;
+        armPal(pals_[1], now, other, !from_left);
+      }
+      pal_next_ = now + 18000 + (nextRng() % 8000);
+    }
+    bool any = false;
+    for (int i = 0; i < 2; ++i) {
+      stepPal(pals_[i], now);
+      if (pals_[i].moved || (pals_[i].phase == 0 && pals_[i].placed)) any = true;
+    }
+    const bool still = pals_[0].phase != 0 || pals_[1].phase != 0;
+    if (was_out && !still) pal_next_ = now + 14000 + (nextRng() % 16000);
+    return any;
+  }
+
+  void decayNeeds(uint32_t now) {
+    if (need_at_ == 0) {
+      need_at_ = now + 12000;
+      return;
+    }
+    if (static_cast<int32_t>(now - need_at_) < 0) return;
+    need_at_ = now + 10000 + (nextRng() % 2000);
+    if (hunger_ > 0) hunger_ = static_cast<uint8_t>(hunger_ - 1);
+    if (hunger_ == 0 || (nextRng() & 1) == 0) {
+      if (mood_level_ > 0) mood_level_ = static_cast<uint8_t>(mood_level_ - 1);
+    }
+    needs_dirty_ = true;
+  }
+
+  void paintCareMeters() {
+    needs_dirty_ = false;
+    const Palette ink = palette();
+    fillRect(0, 56, kPanelWidth, 270, ink.bg);
+    setFont(&fonts::Font4);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.ink);
+    const char* look = ":)";
+    if (hunger_ == 0 || mood_level_ <= 2) look = ":(";
+    else if (mood_level_ <= 5) look = ":|";
+    drawString(look, kPanelWidth / 2, 110);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_left);
+    setTextColor(ink.ink);
+    drawString("HUNGER", 20, 176);
+    drawString("MOOD", 20, 236);
+    for (int i = 0; i < 8; ++i) {
+      fillRect(20 + i * 36, 192, 30, 18, i < hunger_ ? ink.accent : ink.button);
+      fillRect(20 + i * 36, 252, 30, 18, i < mood_level_ ? ink.top : ink.button);
+    }
+  }
+
+  void beginCare() {
+    fadeOut();
+    mode_ = Mode::Care;
+    needs_dirty_ = false;
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.ink);
+    drawString("CARE", kPanelWidth / 2, 28);
+    paintCareMeters();
+    drawKey("FEED", feedBox(), false);
+    drawKey("CARE", cleanBox(), false);
+    drawKey("HOME", homeBox(), false);
+    fadeIn();
   }
 
   void beginHome() {
@@ -830,6 +1144,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawCard("SNAKE", "classic", snakeBox());
     drawCard("CALENDAR", "today", calendarBox());
     drawCard(themeName(), "tap to switch", themeBox());
+    drawCard("CARE", "feed and mood", careBox());
     drawKey("WALK", walkBox(), false);
     fadeIn();
   }
@@ -1332,22 +1647,42 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void pieceCells(int kind, int rot, int ox, int oy, int* xs, int* ys) const {
-    static const int8_t kShape[7][4][2] = {
-        {{0, 0}, {1, 0}, {2, 0}, {3, 0}}, {{0, 0}, {0, 1}, {1, 1}, {2, 1}},
-        {{2, 0}, {0, 1}, {1, 1}, {2, 1}}, {{0, 0}, {1, 0}, {0, 1}, {1, 1}},
-        {{1, 0}, {2, 0}, {0, 1}, {1, 1}}, {{1, 0}, {0, 1}, {1, 1}, {2, 1}},
-        {{0, 0}, {1, 0}, {1, 1}, {2, 1}},
+    // Local cells stay inside 0..3 so a spawn or turn cannot hide a block above the well.
+    static const int8_t kRot[7][4][4][2] = {
+        {{{0, 1}, {1, 1}, {2, 1}, {3, 1}},
+         {{2, 0}, {2, 1}, {2, 2}, {2, 3}},
+         {{0, 2}, {1, 2}, {2, 2}, {3, 2}},
+         {{1, 0}, {1, 1}, {1, 2}, {1, 3}}},
+        {{{0, 0}, {0, 1}, {1, 1}, {2, 1}},
+         {{1, 0}, {2, 0}, {1, 1}, {1, 2}},
+         {{0, 1}, {1, 1}, {2, 1}, {2, 2}},
+         {{1, 0}, {1, 1}, {0, 2}, {1, 2}}},
+        {{{2, 0}, {0, 1}, {1, 1}, {2, 1}},
+         {{1, 0}, {1, 1}, {1, 2}, {2, 2}},
+         {{0, 1}, {1, 1}, {2, 1}, {0, 2}},
+         {{0, 0}, {1, 0}, {1, 1}, {1, 2}}},
+        {{{1, 0}, {2, 0}, {1, 1}, {2, 1}},
+         {{1, 0}, {2, 0}, {1, 1}, {2, 1}},
+         {{1, 0}, {2, 0}, {1, 1}, {2, 1}},
+         {{1, 0}, {2, 0}, {1, 1}, {2, 1}}},
+        {{{1, 0}, {2, 0}, {0, 1}, {1, 1}},
+         {{1, 0}, {1, 1}, {2, 1}, {2, 2}},
+         {{1, 1}, {2, 1}, {0, 2}, {1, 2}},
+         {{0, 0}, {0, 1}, {1, 1}, {1, 2}}},
+        {{{1, 0}, {0, 1}, {1, 1}, {2, 1}},
+         {{1, 0}, {1, 1}, {2, 1}, {1, 2}},
+         {{0, 1}, {1, 1}, {2, 1}, {1, 2}},
+         {{1, 0}, {0, 1}, {1, 1}, {1, 2}}},
+        {{{0, 0}, {1, 0}, {1, 1}, {2, 1}},
+         {{2, 0}, {1, 1}, {2, 1}, {1, 2}},
+         {{0, 1}, {1, 1}, {1, 2}, {2, 2}},
+         {{1, 0}, {0, 1}, {1, 1}, {0, 2}}},
     };
+    const int use = kind >= 0 && kind < 7 ? kind : 0;
+    const int turn = rot & 3;
     for (int i = 0; i < 4; ++i) {
-      int x = kShape[kind][i][0] - 1;
-      int y = kShape[kind][i][1];
-      for (int turn = 0; turn < rot; ++turn) {
-        const int nx = -y;
-        y = x;
-        x = nx;
-      }
-      xs[i] = ox + x;
-      ys[i] = oy + y;
+      xs[i] = ox + kRot[use][turn][i][0];
+      ys[i] = oy + kRot[use][turn][i][1];
     }
   }
 
@@ -1356,8 +1691,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     int ys[4];
     pieceCells(kind, rot, ox, oy, xs, ys);
     for (int i = 0; i < 4; ++i) {
-      if (xs[i] < 0 || xs[i] >= kCols || ys[i] >= kRows) return false;
-      if (ys[i] >= 0 && well_[ys[i] * kCols + xs[i]] != 0) return false;
+      if (xs[i] < 0 || xs[i] >= kCols || ys[i] < 0 || ys[i] >= kRows) return false;
+      if (well_[ys[i] * kCols + xs[i]] != 0) return false;
     }
     return true;
   }
@@ -1409,7 +1744,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   void spawnPiece() {
     piece_ = static_cast<int>(nextRng() % 7);
     rot_ = 0;
-    piece_x_ = 4;
+    piece_x_ = 3;
     piece_y_ = 0;
     fall_ = 0;
     if (!pieceFits(piece_, rot_, piece_x_, piece_y_)) {
@@ -1428,25 +1763,46 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       well_[ys[i] * kCols + xs[i]] = static_cast<uint8_t>(piece_ + 1);
     }
     int cleared = 0;
+    uint8_t packed[kCols * kRows];
+    memset(packed, 0, sizeof packed);
+    int write = kRows - 1;
     for (int y = kRows - 1; y >= 0; --y) {
       bool full = true;
       for (int x = 0; x < kCols; ++x) {
-        if (well_[y * kCols + x] == 0) full = false;
+        if (well_[y * kCols + x] == 0) {
+          full = false;
+          break;
+        }
       }
-      if (!full) continue;
-      cleared += 1;
-      if (y > 0) {
-        memmove(&well_[kCols], well_, static_cast<size_t>(y) * kCols);
+      if (full) {
+        cleared += 1;
+        continue;
       }
-      memset(well_, 0, kCols);
-      y += 1;
+      memcpy(&packed[write * kCols], &well_[y * kCols], kCols);
+      if (write == 0) break;
+      write -= 1;
     }
+    memcpy(well_, packed, sizeof packed);
     if (cleared > 0) {
       score_ += cleared * 10;
       if (score_ > 99999) score_ = 99999;
-      paintWell();
     }
-    if (mode_ == Mode::Tetris) spawnPiece();
+    if (mode_ == Mode::Tetris) {
+      paintWell();
+      drawScore();
+      spawnPiece();
+    }
+  }
+
+  void drawScore() {
+    const Palette ink = palette();
+    fillRect(4, 2, 200, 28, ink.bg);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_left);
+    setTextColor(ink.ink);
+    char line[20];
+    snprintf(line, sizeof line, "SCORE %d", score_);
+    drawString(line, 8, 16);
   }
 
   void beginTetris() {
@@ -1462,8 +1818,33 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     paintWell();
     drawBack(false);
     drawQuad("LEFT", "ROT", "DROP", "RIGHT", nullptr);
+    tetris_hold_ = 0;
+    drawScore();
     spawnPiece();
     fadeIn();
+  }
+
+  bool turnPiece() {
+    const int next = (rot_ + 1) & 3;
+    static const int kKick[5] = {0, -1, 1, -2, 2};
+    for (int i = 0; i < 5; ++i) {
+      const int nx = piece_x_ + kKick[i];
+      if (!pieceFits(piece_, next, nx, piece_y_)) continue;
+      paintPiece(0);
+      piece_x_ = nx;
+      rot_ = next;
+      paintPiece(piece_ + 1);
+      return true;
+    }
+    return false;
+  }
+
+  bool nudgePiece(int dir) {
+    if (!pieceFits(piece_, rot_, piece_x_ + dir, piece_y_)) return false;
+    paintPiece(0);
+    piece_x_ += dir;
+    paintPiece(piece_ + 1);
+    return true;
   }
 
   void stepTetris(bool down, bool rose, int tx, int ty) {
@@ -1476,27 +1857,27 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (held != held_) {
       drawQuad("LEFT", "ROT", "DROP", "RIGHT", held);
       held_ = held;
+      tetris_hold_ = 0;
     }
-    if (rose && held != nullptr && std::strcmp(held, "LEFT") == 0 &&
-        pieceFits(piece_, rot_, piece_x_ - 1, piece_y_)) {
-      paintPiece(0);
-      piece_x_ -= 1;
-      paintPiece(piece_ + 1);
-    } else if (rose && held != nullptr && std::strcmp(held, "RIGHT") == 0 &&
-               pieceFits(piece_, rot_, piece_x_ + 1, piece_y_)) {
-      paintPiece(0);
-      piece_x_ += 1;
-      paintPiece(piece_ + 1);
-    } else if (rose && held != nullptr && std::strcmp(held, "ROT") == 0 &&
-               pieceFits(piece_, (rot_ + 1) & 3, piece_x_, piece_y_)) {
-      paintPiece(0);
-      rot_ = (rot_ + 1) & 3;
-      paintPiece(piece_ + 1);
+    const bool sideways = held != nullptr &&
+                          (std::strcmp(held, "LEFT") == 0 || std::strcmp(held, "RIGHT") == 0);
+    if (sideways) {
+      const int dir = std::strcmp(held, "LEFT") == 0 ? -1 : 1;
+      if (rose || tetris_hold_ >= 4) {
+        nudgePiece(dir);
+        tetris_hold_ = 0;
+      } else {
+        tetris_hold_ += 1;
+      }
+    } else if (rose && held != nullptr && std::strcmp(held, "ROT") == 0) {
+      turnPiece();
     } else if (rose && held != nullptr && std::strcmp(held, "DROP") == 0) {
       paintPiece(0);
       while (pieceFits(piece_, rot_, piece_x_, piece_y_ + 1)) piece_y_ += 1;
       lockPiece();
       return;
+    } else {
+      tetris_hold_ = 0;
     }
     fall_ += 1;
     if (fall_ < 28 || mode_ != Mode::Tetris) return;
@@ -1628,10 +2009,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   lgfx::LGFX_Sprite idle_sprite_;
   lgfx::LGFX_Sprite blink_sprite_;
   lgfx::LGFX_Sprite mouth_sprite_;
+  lgfx::LGFX_Sprite friend_a_;
+  lgfx::LGFX_Sprite friend_b_;
+  lgfx::LGFX_Sprite friend_c_;
   Preferences prefs_;
   bool ready_ = false;
   bool visible_ = false;
   bool sprite_ok_ = false;
+  bool friend_ok_ = false;
+  bool needs_dirty_ = false;
   bool placed_ = false;
   bool touch_down_ = false;
   bool shot_ = false;
@@ -1681,9 +2067,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool foe_shot_ = false;
   int piece_ = 0;
   int rot_ = 0;
-  int piece_x_ = 4;
+  int piece_x_ = 3;
   int piece_y_ = 0;
   int fall_ = 0;
+  int tetris_hold_ = 0;
+  uint16_t friend_key_ = 0;
+  uint8_t hunger_ = 8;
+  uint8_t mood_level_ = 8;
   int snake_len_ = 0;
   int snake_dir_ = 2;
   int snake_next_ = 2;
@@ -1703,6 +2093,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   uint32_t heading_until_ = 0;
   uint32_t glance_face_until_ = 0;
   uint32_t away_at_ = 0;
+  uint32_t pal_next_ = 0;
+  uint32_t need_at_ = 0;
+  Pal pals_[2];
   Unit units_[kMaxUnits] = {};
   Barrier barriers_[kMaxBarriers] = {};
   Star stars_[kStars] = {};
