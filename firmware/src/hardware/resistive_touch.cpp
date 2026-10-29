@@ -155,11 +155,13 @@ int scale_axis(int raw, int size) {
   return (raw - lo) * (size - 1) / (hi - lo);
 }
 
-// One mapping for the whole glass. X is mirrored so the left of the panel is
-// the left of the picture. Y grows downward. A second orientation is not tried.
+// One mapping for the whole glass. Both axes are mirrored: a finger on the
+// bottom PLAY key reads a low raw Y (the boot sample was raw y=585), and the
+// left of the glass is the left of the picture. No second orientation is tried,
+// so a point outside a drawn rectangle cannot be pulled onto a button.
 void map_screen(const TouchRaw& raw, int& sx, int& sy) {
   sx = (kPanelWidth - 1) - scale_axis(raw.x, kPanelWidth);
-  sy = scale_axis(raw.y, kPanelHeight);
+  sy = (kPanelHeight - 1) - scale_axis(raw.y, kPanelHeight);
 }
 
 }  // namespace
@@ -205,7 +207,7 @@ void touch_begin() {
   Serial.printf("TOUCH split x=%d y=%d z1=%d z2=%d spread=%d analog=%d idle=%d\n", split.last.x,
                 split.last.y, split.last.z1, split.last.z2, split.spread, split.analog,
                 split_idle ? 1 : 0);
-  Serial.printf("TOUCH select bus=%s irq=%d mirrorx=1\n", touch_wire_name(), irq);
+  Serial.printf("TOUCH select bus=%s irq=%d mirrorx=1 mirrory=1\n", touch_wire_name(), irq);
   Serial.flush();
 }
 
