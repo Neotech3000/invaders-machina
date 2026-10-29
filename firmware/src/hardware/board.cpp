@@ -2,6 +2,7 @@
 
 #include "cat_faces.h"
 #include "hardware_config.h"
+#include "resistive_touch.h"
 
 #include <Arduino.h>
 #include <LovyanGFX.hpp>
@@ -51,7 +52,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       cfg.invert = kPanelInvert;
       cfg.rgb_order = kPanelRgbOrder;
       cfg.dlen_16bit = false;
-      cfg.bus_shared = true;
+      cfg.bus_shared = false;
       panel_.config(cfg);
     }
     {
@@ -63,24 +64,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       light_.config(cfg);
       panel_.setLight(&light_);
     }
-    {
-      auto cfg = touch_.config();
-      cfg.x_min = kTouchXMin;
-      cfg.x_max = kTouchXMax;
-      cfg.y_min = kTouchYMin;
-      cfg.y_max = kTouchYMax;
-      cfg.pin_int = kPinTouchIrq;
-      cfg.bus_shared = true;
-      cfg.offset_rotation = 0;
-      cfg.spi_host = SPI2_HOST;
-      cfg.freq = kTouchHz;
-      cfg.pin_sclk = kPinSclk;
-      cfg.pin_mosi = kPinMosi;
-      cfg.pin_miso = kPinMiso;
-      cfg.pin_cs = kPinTouchCs;
-      touch_.config(cfg);
-      panel_.setTouch(&touch_);
-    }
     setPanel(&panel_);
   }
 
@@ -91,6 +74,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     setRotation(kPanelRotation);
     setBrightness(255);
+    touch_begin();
     sprite_ok_ = bake(idle_sprite_, kCatIdle) && bake(blink_sprite_, kCatBlink) &&
                  bake(mouth_sprite_, kCatMouth);
     const CatFace& face = cat_frame(kCatIdle);
@@ -134,7 +118,20 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     step_at_ = now;
     int tx = 0;
     int ty = 0;
-    const bool down = readTouch(tx, ty);
+    TouchRaw raw;
+    const bool down = touch_read(raw, tx, ty);
+    const char* button = "none";
+    if (down && inBar(ty)) {
+      if (mode_ == Mode::Wander) {
+        button = "PLAY";
+      } else if (mode_ == Mode::Over) {
+        button = "WALK";
+      } else {
+        const int slot = barSlot(tx);
+        button = slot == 0 ? "LEFT" : slot == 1 ? "FIRE" : "RIGHT";
+      }
+    }
+    touch_log(raw, tx, ty, button, down && inBar(ty));
     const bool rose = down && !touch_down_;
     touch_down_ = down;
     if (mode_ == Mode::Wander) {
@@ -182,20 +179,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     sprite.fillScreen(TFT_BLACK);
     sprite.drawPng(face.png, face.length, 0, 0, 0, 0, 0, 0, 1.0f, 1.0f);
-    return true;
-  }
-
-  bool readTouch(int& x, int& y) {
-    int32_t tx = 0;
-    int32_t ty = 0;
-    if (getTouch(&tx, &ty) == 0) {
-      return false;
-    }
-    if (tx < 0 || ty < 0 || tx >= kPanelWidth || ty >= kPanelHeight) {
-      return false;
-    }
-    x = static_cast<int>(tx);
-    y = static_cast<int>(ty);
     return true;
   }
 
@@ -530,7 +513,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   lgfx::Bus_SPI bus_;
   lgfx::Panel_ST7796 panel_;
   lgfx::Light_PWM light_;
-  lgfx::Touch_XPT2046 touch_;
   lgfx::LGFX_Sprite idle_sprite_;
   lgfx::LGFX_Sprite blink_sprite_;
   lgfx::LGFX_Sprite mouth_sprite_;
