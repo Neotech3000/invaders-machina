@@ -5,11 +5,7 @@
 class Display {
  public:
   virtual ~Display() = default;
-  virtual void show(const char* expression) = 0;
-  virtual void hide() = 0;
-  virtual bool isVisible() const = 0;
-  // Advance the local face, the walk, or invaders. Must return quickly so the link keeps polling.
+  // Advance the attract demo, the menu, or the fight. Must return quickly so
+  // the touch sampler stays responsive.
   virtual void tick() {}
-  // "solo", "linked", "leaving", or "away". The panel uses this for the status line.
-  virtual void setPresence(const char* presence) { (void)presence; }
 };
