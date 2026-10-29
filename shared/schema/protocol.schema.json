@@ -23,6 +23,7 @@
         "handoff.return",
         "handoff.shown",
         "session.end",
+        "time.sync",
         "error"
       ]
     },

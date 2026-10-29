@@ -6,6 +6,13 @@
 // One NDJSON envelope. Fixed buffers so the device does not allocate
 // per line. payload strings are copied out of the JSON.
 
+struct TimeEvent {
+  int year = 0;
+  int month = 0;
+  int day = 0;
+  char title[13] = {};
+};
+
 struct Envelope {
   int v = 0;
   char type[32] = {};
@@ -22,6 +29,11 @@ struct Envelope {
   bool ok = false;
   bool hasExpression = false;
   bool exprIdle = false;
+  bool hasTime = false;
+  int32_t unixSeconds = 0;
+  int offsetMin = 0;
+  int eventCount = 0;
+  TimeEvent events[3] = {};
 };
 
 // Returns false when the line is not one JSON object with v, type, and id.

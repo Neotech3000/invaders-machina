@@ -272,6 +272,23 @@ void DeviceHandoff::onLine(const char* line) {
     return;
   }
 
+  if (isType(msg, "time.sync")) {
+    if (!msg.hasTime) {
+      sendError(msg.id, "bad_time", "missing unix");
+      return;
+    }
+    int offset = msg.offsetMin;
+    if (offset > 14 * 60) offset = 14 * 60;
+    if (offset < -14 * 60) offset = -14 * 60;
+    display_.clearEvents();
+    for (int i = 0; i < msg.eventCount; ++i) {
+      const TimeEvent& event = msg.events[i];
+      display_.addEvent(event.year, event.month, event.day, event.title);
+    }
+    display_.setTime(msg.unixSeconds, static_cast<int16_t>(offset), millis());
+    return;
+  }
+
   if (isType(msg, "session.end")) {
     linkDown();
     return;

@@ -1,3 +1,4 @@
+import { timeSyncPayload } from "../calendar/time_sync";
 import { encode, expressions, isExpr, parseLine, timeouts, type Envelope, type Expr } from "../protocol/schema";
 
 export type Phase =
@@ -249,6 +250,8 @@ export class DesktopHandoff {
         this.status = "Cat is on the display";
         this.armPing();
         this.armSilence();
+        this.sendTime();
+        this.armTime();
       }
       return;
     }
@@ -388,6 +391,19 @@ export class DesktopHandoff {
 
   private arm(key: string, ms: number, fn: () => void) {
     this.opt.clock.set(key, ms, fn);
+  }
+
+  private sendTime() {
+    if (this.phase === "disconnected" || this.phase === "connecting") return;
+    this.send("time.sync", { ...timeSyncPayload(new Date()) });
+  }
+
+  private armTime() {
+    this.arm("time", 60000, () => {
+      if (this.phase === "disconnected" || this.phase === "connecting") return;
+      this.sendTime();
+      this.armTime();
+    });
   }
 
   private armPing() {
