@@ -1,6 +1,7 @@
 #include "resistive_touch.h"
 
 #include "hardware_config.h"
+#include "touch_map.h"
 
 #include <Arduino.h>
 #include <LovyanGFX.hpp>
@@ -147,21 +148,12 @@ bool idle_controller(const Stats& stats) {
   return stats.spread < 400 && stats.last.z1 < 300 && stats.last.z2 > 3500;
 }
 
-int scale_axis(int raw, int size) {
-  const int lo = 280;
-  const int hi = 3860;
-  if (raw < lo) raw = lo;
-  if (raw > hi) raw = hi;
-  return (raw - lo) * (size - 1) / (hi - lo);
-}
-
 // One mapping for the whole glass. Both axes are mirrored: a finger on the
 // bottom PLAY key reads a low raw Y (the boot sample was raw y=585), and the
 // left of the glass is the left of the picture. No second orientation is tried,
 // so a point outside a drawn rectangle cannot be pulled onto a button.
 void map_screen(const TouchRaw& raw, int& sx, int& sy) {
-  sx = (kPanelWidth - 1) - scale_axis(raw.x, kPanelWidth);
-  sy = (kPanelHeight - 1) - scale_axis(raw.y, kPanelHeight);
+  touch_to_screen(raw.x, raw.y, kPanelWidth, kPanelHeight, sx, sy);
 }
 
 }  // namespace

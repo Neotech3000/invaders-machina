@@ -106,20 +106,37 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void hide() override {
-    mode_ = Mode::Wander;
     placed_ = false;
     shot_ = false;
+    banner_ = false;
     setBrightness(255);
-    if (ready_) {
-      fillScreen(palette().bg);
-    }
     visible_ = false;
+    mode_ = Mode::Away;
+    away_drawn_ = false;
+    if (ready_) {
+      drawAway(false);
+      away_drawn_ = true;
+    }
+  }
+
+  void setPresence(const char* presence) override {
+    Presence next = Presence::Solo;
+    if (presence != nullptr && std::strcmp(presence, "linked") == 0) next = Presence::Linked;
+    else if (presence != nullptr && std::strcmp(presence, "leaving") == 0) next = Presence::Leaving;
+    else if (presence != nullptr && std::strcmp(presence, "away") == 0) next = Presence::Away;
+    if (next == presence_) return;
+    presence_ = next;
+    if (next == Presence::Away || !ready_ || !visible_ || mode_ != Mode::Wander) return;
+    if (presence_ == Presence::Leaving) showLeaveBanner();
+    else if (banner_) hideLeaveBanner();
   }
 
   bool isVisible() const override { return visible_; }
 
   void tick() override {
-    if (!visible_ || !ready_) {
+    if (!ready_) return;
+    if (!visible_) {
+      if (mode_ == Mode::Away) tickAway(millis());
       return;
     }
     const uint32_t now = millis();
@@ -146,6 +163,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     if (mode_ == Mode::Wander) {
+      // The cat is leaving for the laptop. Hold the walk so the banner stays put.
+      if (presence_ == Presence::Leaving) {
+        if (!banner_) showLeaveBanner();
+        return;
+      }
+      if (banner_) hideLeaveBanner();
       // Any sample inside the drawn PLAY key opens home. Empty glass is not
       // that key, so it only draws the cat over.
       if (on && std::strcmp(where, "PLAY") == 0) {
@@ -190,7 +213,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
  private:
-  enum class Mode : uint8_t { Wander, Home, Calendar, Play, Advance, Over };
+  enum class Mode : uint8_t { Wander, Home, Calendar, Play, Advance, Over, Away };
+  enum class Presence : uint8_t { Solo, Linked, Leaving, Away };
   // Cece (a neko-like cat) wanders, notices a pointer, eases toward it, then
   // reacts briefly. These are the same beats, driven by taps on this glass.
   enum class Mood : uint8_t { Roam, Notice, Approach, React, Pause };
@@ -505,10 +529,58 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
+  void showLeaveBanner() {
+    banner_ = true;
+    const Palette ink = palette();
+    fillRect(0, 0, kPanelWidth, 28, ink.button);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.ink);
+    drawString("To the laptop", kPanelWidth / 2, 14);
+  }
+
+  void hideLeaveBanner() {
+    if (!banner_) return;
+    banner_ = false;
+    repair(0, 0, kPanelWidth, 28);
+    if (placed_ && cat_y_ < 28 + cat_h_) paintCat(cat_x_, cat_y_, frame_);
+  }
+
+  void drawAway(bool pulseOnly) {
+    const Palette ink = palette();
+    if (!pulseOnly) {
+      fillScreen(ink.bg);
+      setFont(&fonts::Font4);
+      setTextDatum(lgfx::middle_center);
+      setTextColor(ink.ink);
+      drawString("JITTERS", kPanelWidth / 2, 150);
+      setFont(&fonts::Font2);
+      setTextColor(ink.muted);
+      drawString("is on the laptop", kPanelWidth / 2, 196);
+      drawString("Send the cat back from", kPanelWidth / 2, 230);
+      drawString("the laptop window.", kPanelWidth / 2, 254);
+    }
+    fillRoundRect(128, 320, 64, 28, 8, away_phase_ ? ink.accent : ink.button);
+  }
+
+  void tickAway(uint32_t now) {
+    if (!away_drawn_) {
+      drawAway(false);
+      away_drawn_ = true;
+      away_at_ = now;
+      return;
+    }
+    if (away_at_ != 0 && static_cast<int32_t>(now - away_at_) < 450) return;
+    away_at_ = now;
+    away_phase_ = !away_phase_;
+    drawAway(true);
+  }
+
   void beginWander() {
     fadeOut();
     mode_ = Mode::Wander;
     mood_ = Mood::Roam;
+    banner_ = false;
     shot_ = false;
     placed_ = false;
     frame_ = kCatIdle;
@@ -1125,7 +1197,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool shot_ = false;
   bool regions_logged_ = false;
   bool boss_ = false;
+  bool banner_ = false;
+  bool away_drawn_ = false;
+  bool away_phase_ = false;
   Mode mode_ = Mode::Wander;
+  Presence presence_ = Presence::Solo;
   Mood mood_ = Mood::Roam;
   CatFrame frame_ = kCatIdle;
   uint8_t theme_ = 0;
@@ -1167,6 +1243,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   uint32_t pause_at_ = 0;
   uint32_t heading_until_ = 0;
   uint32_t glance_face_until_ = 0;
+  uint32_t away_at_ = 0;
   Unit units_[kMaxUnits] = {};
   Barrier barriers_[kMaxBarriers] = {};
   Star stars_[kStars] = {};
