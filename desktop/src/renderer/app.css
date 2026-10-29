@@ -2,53 +2,138 @@ html,
 body,
 #root {
   margin: 0;
+  height: 100%;
   background: transparent;
-  color: #1a1a1a;
-  font: 14px "Noto Sans", sans-serif;
+  color: #1a120c;
+  font: 14px/1.35 "Noto Sans", sans-serif;
 }
 
 button {
   font: inherit;
   border: 0;
   border-radius: 8px;
-  padding: 6px 10px;
-  background: #1a1a1a;
-  color: #fff;
+  padding: 8px 10px;
+  background: #1a120c;
+  color: #fff8f0;
+  cursor: pointer;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(1.12);
 }
 
 button:disabled {
   opacity: 0.4;
+  cursor: default;
+}
+
+button.primary {
+  width: 100%;
+  padding: 10px 12px;
+  background: #c47a3a;
+  color: #1a120c;
+  font-weight: 700;
 }
 
 .picker {
-  width: 360px;
-  padding: 16px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100%;
+  max-height: 100%;
+  overflow: auto;
+  padding: 16px 16px 18px;
   border-radius: 16px;
-  background: rgba(255, 248, 240, 0.94);
+  background: rgba(255, 248, 240, 0.96);
 }
 
 .picker h1 {
-  margin: 0 0 4px;
-  font-size: 20px;
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.01em;
 }
 
+.tag,
 .baud,
 .status,
 .error,
+.lead,
 small {
   display: block;
   color: #5c4a3a;
+}
+
+.tag {
+  margin: 2px 0 0;
+}
+
+.lead {
+  margin: 8px 0 0;
+  color: #1a120c;
+}
+
+.status {
+  margin: 6px 0 0;
 }
 
 .error {
   color: #8a2a1a;
 }
 
+.pill {
+  display: inline-block;
+  margin: 10px 0 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #efe4d4;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pill-linked {
+  background: #e7f2e4;
+}
+
+.pill-present,
+.pill-hidden_hold {
+  background: #f3e0c8;
+}
+
+.pill-connecting,
+.pill-preparing,
+.pill-returning {
+  background: #e4e9f6;
+}
+
+.rail {
+  display: flex;
+  gap: 6px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.rail li {
+  flex: 1;
+  padding: 4px 0;
+  border-radius: 999px;
+  background: rgba(26, 18, 12, 0.06);
+  color: #5c4a3a;
+  font-size: 12px;
+  text-align: center;
+}
+
+.rail li.on {
+  background: #1a120c;
+  color: #fff8f0;
+  font-weight: 700;
+}
+
 ul {
   list-style: none;
   padding: 0;
-  margin: 12px 0;
-  max-height: 220px;
+  margin: 10px 0;
+  max-height: 148px;
   overflow: auto;
 }
 
@@ -56,43 +141,117 @@ li label {
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  padding: 6px 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+li.picked label {
+  background: rgba(196, 122, 58, 0.18);
+}
+
+li.blocked label {
+  opacity: 0.45;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .row {
   display: flex;
   gap: 8px;
-  margin-top: 8px;
+}
+
+.row button {
+  flex: 1;
 }
 
 .cat {
-  width: 160px;
+  width: 192px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
 }
 
-.stage {
-  position: relative;
+button.pet {
   width: 128px;
   height: 128px;
+  padding: 0;
+  background: transparent;
 }
 
+button.pet img,
 .cat img {
+  display: block;
   width: 128px;
   height: 128px;
   object-fit: contain;
 }
 
-.cat .row button {
-  padding: 4px 6px;
+button.pet.happy img {
+  transform: translateY(-6px);
+}
+
+button.pet:active img {
+  transform: translateY(3px) scale(0.98);
+}
+
+.plate {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 8px 8px;
+  border-radius: 12px;
+  background: rgba(255, 248, 240, 0.96);
+}
+
+.where,
+.caption {
+  margin: 0;
+  text-align: center;
   font-size: 12px;
+}
+
+.where {
+  font-weight: 700;
+  color: #1a120c;
+}
+
+.caption {
+  margin-bottom: 6px;
+  color: #5c4a3a;
+}
+
+.cat .row button {
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.chip {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 248, 240, 0.96);
+}
+
+.chip strong,
+.chip small {
+  display: block;
 }
 
 .chip button {
   background: #c47a3a;
-  color: #1a1a1a;
+  color: #1a120c;
+  font-weight: 700;
 }
 
 .invaders {

@@ -185,9 +185,9 @@ async function handoffOnce(shotPath: string) {
 }
 
 app.whenReady().then(async () => {
-  picker = makeWindow("picker", 392, 430);
-  catWin = makeWindow("cat", 176, 210);
-  chipWin = makeWindow("chip", 120, 48);
+  picker = makeWindow("picker", 400, 560);
+  catWin = makeWindow("cat", 208, 248);
+  chipWin = makeWindow("chip", 220, 72);
   picker.setPosition(48, 48);
   placeBottomRight(catWin);
   placeBottomRight(chipWin);
@@ -208,6 +208,7 @@ app.whenReady().then(async () => {
       void current?.close();
     },
     trace: (event) => console.log("JITTERS", event),
+    changed: () => publish(),
     firstHelloMs: 8000,
   });
 

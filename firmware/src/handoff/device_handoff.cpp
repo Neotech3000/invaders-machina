@@ -53,11 +53,13 @@ void DeviceHandoff::poll() {
   if (state_ == State::AwaitReady && readyArmed_ && now - readyAt_ >= kReadyMs) {
     readyArmed_ = false;
     sendAbort("timeout");
+    display_.setPresence("linked");
     state_ = State::Linked;
     return;
   }
   if (state_ == State::Away && commitArmed_ && now - commitAt_ >= kCommitMs) {
     commitArmed_ = false;
+    display_.setPresence("linked");
     display_.show(kExprIdle);
     sendAbort("timeout");
     state_ = State::Linked;
@@ -65,6 +67,7 @@ void DeviceHandoff::poll() {
   }
   if (state_ == State::ReturnShown && returnArmed_ && now - returnAt_ >= kReturnMs) {
     returnArmed_ = false;
+    display_.setPresence("away");
     display_.hide();
     sendAbort("return_timeout");
     commitArmed_ = false;
@@ -179,6 +182,7 @@ void DeviceHandoff::linkDown() {
   shownLine_[0] = '\0';
   malformed_ = 0;
   clearDedup();
+  display_.setPresence("solo");
   display_.show(kExprIdle);
   state_ = State::Local;
   sendHello();
@@ -190,6 +194,7 @@ void DeviceHandoff::enterLinked() {
   readyArmed_ = false;
   lastRx_ = millis();
   lastPing_ = millis();
+  display_.setPresence("linked");
 }
 
 void DeviceHandoff::noteMalformed() {
@@ -311,6 +316,7 @@ void DeviceHandoff::onLine(const char* line) {
       sendRaw(scratch_);
       readyArmed_ = true;
       readyAt_ = millis();
+      display_.setPresence("leaving");
       state_ = State::AwaitReady;
     }
     return;
@@ -322,17 +328,20 @@ void DeviceHandoff::onLine(const char* line) {
         sendError(msg.id, "bad_expression", "expression mismatch");
         return;
       }
-      display_.hide();
       makeId(commitId_, sizeof commitId_);
       if (!formatCommit(commitLine_, sizeof commitLine_, commitId_, accepted_)) {
+        commitLine_[0] = '\0';
+        sendError(msg.id, "bad_type", "commit failed");
         return;
       }
       rememberReplay(slot, commitLine_);
-      sendRaw(commitLine_);
       readyArmed_ = false;
       commitArmed_ = true;
       commitAt_ = millis();
       state_ = State::Away;
+      display_.setPresence("away");
+      display_.hide();
+      sendRaw(commitLine_);
       return;
     }
     if (state_ == State::Away && commitLine_[0] != '\0') {
@@ -360,6 +369,7 @@ void DeviceHandoff::onLine(const char* line) {
     if (state_ == State::AwaitReady) {
       readyArmed_ = false;
       sendAbort("rejected");
+      display_.setPresence("linked");
       state_ = State::Linked;
       return;
     }
@@ -369,17 +379,20 @@ void DeviceHandoff::onLine(const char* line) {
 
   if (isType(msg, "handoff.return")) {
     if (state_ == State::Away) {
-      display_.show(kExprIdle);
       makeId(shownId_, sizeof shownId_);
       if (!formatShown(shownLine_, sizeof shownLine_, shownId_, kExprIdle)) {
+        shownLine_[0] = '\0';
+        sendError(msg.id, "bad_type", "shown failed");
         return;
       }
       rememberReplay(slot, shownLine_);
-      sendRaw(shownLine_);
       commitArmed_ = false;
       returnArmed_ = true;
       returnAt_ = millis();
       state_ = State::ReturnShown;
+      display_.setPresence("linked");
+      display_.show(kExprIdle);
+      sendRaw(shownLine_);
       return;
     }
     if (state_ == State::ReturnShown && shownLine_[0] != '\0') {

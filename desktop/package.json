@@ -7,7 +7,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "electron .",
-    "test": "node dist/sequence.test.cjs"
+    "test": "node dist/sequence.test.cjs && node dist/edge.test.cjs"
   },
   "dependencies": {
     "ajv": "^8.17.1",
