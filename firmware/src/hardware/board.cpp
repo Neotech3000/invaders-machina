@@ -78,7 +78,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setBrightness(255);
     touch_begin();
     prefs_.begin("jitters", false);
-    theme_ = prefs_.getUChar("theme", 0) & 1;
+    theme_ = prefs_.getUChar("theme", 0) & 3;
     makeStars();
     sprite_ok_ = bake(idle_sprite_, kCatIdle) && bake(blink_sprite_, kCatBlink) &&
                  bake(mouth_sprite_, kCatMouth);
@@ -155,6 +155,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     const bool rose = down && !touch_down_;
     touch_down_ = down;
 
+    if ((mode_ == Mode::Play || mode_ == Mode::Tetris || mode_ == Mode::Snake ||
+         mode_ == Mode::Advance) &&
+        rose && on && std::strcmp(where, "BACK") == 0) {
+      beginHome();
+      return;
+    }
     if (mode_ == Mode::Advance) {
       if (static_cast<int32_t>(now - advance_at_) >= 0) {
         level_ += 1;
@@ -181,19 +187,20 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       stepWalk(now);
       return;
     }
-    if (!rose || !on) {
-      if (mode_ == Mode::Play) {
-        stepGame(down, rose, tx, ty);
-      }
-      return;
-    }
     if (mode_ == Mode::Home) {
+      if (!rose || !on) {
+        return;
+      }
       if (std::strcmp(where, "INVADERS") == 0) {
         beginGame();
+      } else if (std::strcmp(where, "TETRIS") == 0) {
+        beginTetris();
+      } else if (std::strcmp(where, "SNAKE") == 0) {
+        beginSnake();
       } else if (std::strcmp(where, "CALENDAR") == 0) {
         beginCalendar();
       } else if (std::strcmp(where, "THEME") == 0) {
-        theme_ = static_cast<uint8_t>(theme_ ^ 1);
+        theme_ = static_cast<uint8_t>((theme_ + 1) & 3);
         prefs_.putUChar("theme", theme_);
         beginHome();
       } else if (std::strcmp(where, "WALK") == 0) {
@@ -202,18 +209,22 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     if (mode_ == Mode::Calendar || mode_ == Mode::Over) {
-      if (std::strcmp(where, "HOME") == 0) {
+      if (rose && on && std::strcmp(where, "HOME") == 0) {
         beginHome();
       }
       return;
     }
     if (mode_ == Mode::Play) {
       stepGame(down, rose, tx, ty);
+    } else if (mode_ == Mode::Tetris) {
+      stepTetris(down, rose, tx, ty);
+    } else if (mode_ == Mode::Snake) {
+      stepSnake(down, rose, tx, ty);
     }
   }
 
  private:
-  enum class Mode : uint8_t { Wander, Home, Calendar, Play, Advance, Over, Away };
+  enum class Mode : uint8_t { Wander, Home, Calendar, Play, Advance, Over, Away, Tetris, Snake };
   enum class Presence : uint8_t { Solo, Linked, Leaving, Away };
   // The cat (a neko-like cat) wanders, notices a pointer, eases toward it, then
   // reacts briefly. These are the same beats, driven by taps on this glass.
@@ -281,6 +292,17 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kShotW = 3;
   static constexpr int kShotH = 8;
   static constexpr int kShipStep = 5;
+  static constexpr int kCols = 10;
+  static constexpr int kRows = 16;
+  static constexpr int kCell = 14;
+  static constexpr int kBoardX = 90;
+  static constexpr int kBoardY = 40;
+  static constexpr int kSnakeCols = 12;
+  static constexpr int kSnakeRows = 16;
+  static constexpr int kSnakeCell = 16;
+  static constexpr int kSnakeX = 64;
+  static constexpr int kSnakeY = 40;
+  static constexpr int kSnakeMax = 48;
 
   bool bake(lgfx::LGFX_Sprite& sprite, CatFrame which) {
     const CatFace& face = cat_frame(which);
@@ -293,38 +315,69 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     return true;
   }
 
-  Palette palette() const {
-    if (theme_ == 0) {
-      return {TFT_BLACK,
-              TFT_WHITE,
-              color565(150, 160, 150),
-              color565(48, 230, 86),
-              color565(255, 206, 32),
-              color565(46, 228, 72),
-              color565(36, 255, 96),
-              color565(28, 186, 64),
-              color565(255, 214, 48),
-              color565(48, 116, 255),
-              color565(10, 24, 16),
-              color565(18, 78, 42),
-              color565(210, 210, 220)};
+  const char* themeName() const {
+    switch (theme_ & 3) {
+      case 1:
+        return "LIGHT";
+      case 2:
+        return "BLUE";
+      case 3:
+        return "AMBER";
+      default:
+        return "DARK NEON";
     }
-    return {color565(248, 242, 226), color565(28, 22, 16),  color565(90, 68, 48),
-            color565(16, 110, 42),    color565(196, 92, 8),  color565(12, 112, 36),
-            color565(10, 84, 28),     color565(18, 122, 40), color565(186, 78, 6),
-            color565(28, 78, 168),    color565(255, 252, 244), color565(186, 214, 168),
-            color565(70, 54, 36)};
+  }
+
+  Palette palette() const {
+    switch (theme_ & 3) {
+      case 1:
+        return {color565(248, 242, 226), color565(28, 22, 16),   color565(90, 68, 48),
+                color565(16, 110, 42),    color565(196, 92, 8),   color565(12, 112, 36),
+                color565(10, 84, 28),     color565(18, 122, 40),  color565(186, 78, 6),
+                color565(28, 78, 168),    color565(255, 252, 244), color565(186, 214, 168),
+                color565(70, 54, 36)};
+      case 2:
+        return {color565(6, 16, 40),    color565(220, 236, 255), color565(120, 150, 190),
+                color565(80, 180, 255),  color565(255, 196, 64),  color565(64, 220, 255),
+                color565(120, 255, 220), color565(40, 140, 220),  color565(255, 220, 80),
+                color565(40, 90, 220),   color565(8, 28, 64),     color565(16, 64, 120),
+                color565(180, 200, 230)};
+      case 3:
+        return {color565(28, 14, 4),     color565(255, 236, 210), color565(190, 140, 90),
+                color565(255, 170, 40),   color565(255, 210, 60),  color565(255, 120, 40),
+                color565(255, 196, 80),   color565(180, 90, 20),   color565(255, 240, 180),
+                color565(120, 60, 20),    color565(48, 24, 8),     color565(120, 64, 16),
+                color565(255, 200, 140)};
+      default:
+        return {TFT_BLACK,
+                TFT_WHITE,
+                color565(150, 160, 150),
+                color565(48, 230, 86),
+                color565(255, 206, 32),
+                color565(46, 228, 72),
+                color565(36, 255, 96),
+                color565(28, 186, 64),
+                color565(255, 214, 48),
+                color565(48, 116, 255),
+                color565(10, 24, 16),
+                color565(18, 78, 42),
+                color565(210, 210, 220)};
+    }
   }
 
   Box playBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
-  Box invadersBox() const { return {24, 112, kPanelWidth - 48, 60}; }
-  Box calendarBox() const { return {24, 186, kPanelWidth - 48, 60}; }
-  Box themeBox() const { return {24, 260, kPanelWidth - 48, 52}; }
+  Box invadersBox() const { return {16, 40, 288, 46}; }
+  Box tetrisBox() const { return {16, 92, 288, 46}; }
+  Box snakeBox() const { return {16, 144, 288, 46}; }
+  Box calendarBox() const { return {16, 196, 288, 46}; }
+  Box themeBox() const { return {16, 248, 288, 44}; }
   Box walkBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
   Box homeBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
   Box leftBox() const { return {8, kButtonY, 96, 44}; }
   Box fireBox() const { return {112, kButtonY, 96, 44}; }
   Box rightBox() const { return {216, kButtonY, 96, 44}; }
+  Box backBox() const { return {228, 2, 88, 28}; }
+  Box quadBox(int slot) const { return {8 + slot * 78, kButtonY, 72, 44}; }
 
   bool contains(const Box& box, int x, int y) const {
     return x >= box.x && y >= box.y && x < box.x + box.w && y < box.y + box.h;
@@ -336,15 +389,35 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (mode_ == Mode::Home) {
       if (contains(invadersBox(), x, y)) return "INVADERS";
+      if (contains(tetrisBox(), x, y)) return "TETRIS";
+      if (contains(snakeBox(), x, y)) return "SNAKE";
       if (contains(calendarBox(), x, y)) return "CALENDAR";
       if (contains(themeBox(), x, y)) return "THEME";
       if (contains(walkBox(), x, y)) return "WALK";
       return "none";
     }
+    if (mode_ == Mode::Play || mode_ == Mode::Tetris || mode_ == Mode::Snake ||
+        mode_ == Mode::Advance) {
+      if (contains(backBox(), x, y)) return "BACK";
+    }
     if (mode_ == Mode::Play) {
       if (contains(leftBox(), x, y)) return "LEFT";
       if (contains(fireBox(), x, y)) return "FIRE";
       if (contains(rightBox(), x, y)) return "RIGHT";
+      return "none";
+    }
+    if (mode_ == Mode::Tetris) {
+      if (contains(quadBox(0), x, y)) return "LEFT";
+      if (contains(quadBox(1), x, y)) return "ROT";
+      if (contains(quadBox(2), x, y)) return "DROP";
+      if (contains(quadBox(3), x, y)) return "RIGHT";
+      return "none";
+    }
+    if (mode_ == Mode::Snake) {
+      if (contains(quadBox(0), x, y)) return "LEFT";
+      if (contains(quadBox(1), x, y)) return "UP";
+      if (contains(quadBox(2), x, y)) return "DOWN";
+      if (contains(quadBox(3), x, y)) return "RIGHT";
       return "none";
     }
     if (mode_ == Mode::Calendar || mode_ == Mode::Over) {
@@ -358,11 +431,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     regions_logged_ = true;
-    const Box boxes[] = {playBox(), invadersBox(), calendarBox(), themeBox(), walkBox(),
-                         homeBox(), leftBox(),     fireBox(),     rightBox()};
-    const char* names[] = {"PLAY", "INVADERS", "CALENDAR", "THEME", "WALK",
-                           "HOME", "LEFT",     "FIRE",     "RIGHT"};
-    for (int i = 0; i < 9; ++i) {
+    const Box boxes[] = {playBox(),   invadersBox(), tetrisBox(), snakeBox(), calendarBox(),
+                         themeBox(), walkBox(),     homeBox(),   leftBox(),  fireBox(),
+                         rightBox(), backBox()};
+    const char* names[] = {"PLAY", "INVADERS", "TETRIS", "SNAKE", "CALENDAR", "THEME",
+                           "WALK", "HOME",     "LEFT",   "FIRE",  "RIGHT",     "BACK"};
+    for (int i = 0; i < 12; ++i) {
       Serial.printf("TOUCH region %s %d %d %d %d\n", names[i], boxes[i].x, boxes[i].y, boxes[i].w,
                     boxes[i].h);
     }
@@ -743,18 +817,19 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     fadeOut();
     mode_ = Mode::Home;
     shot_ = false;
+    foe_shot_ = false;
     placed_ = false;
     const Palette ink = palette();
     fillScreen(ink.bg);
     setFont(&fonts::Font2);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
-    drawString("JITTERS", kPanelWidth / 2, 48);
-    setTextColor(ink.muted);
-    drawString("pick a card", kPanelWidth / 2, 76);
+    drawString("JITTERS", kPanelWidth / 2, 20);
     drawCard("INVADERS", "100 levels", invadersBox());
+    drawCard("TETRIS", "stack", tetrisBox());
+    drawCard("SNAKE", "classic", snakeBox());
     drawCard("CALENDAR", "today", calendarBox());
-    drawCard(theme_ == 0 ? "DARK NEON" : "LIGHT", "tap to switch", themeBox());
+    drawCard(themeName(), "tap to switch", themeBox());
     drawKey("WALK", walkBox(), false);
     fadeIn();
   }
@@ -832,15 +907,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void drawHud() {
     const Palette ink = palette();
-    fillRect(0, 0, kPanelWidth, 24, ink.bg);
+    fillRect(0, 0, backBox().x - 4, 24, ink.bg);
     setFont(&fonts::Font2);
     setTextDatum(lgfx::middle_left);
     setTextColor(ink.ink);
     char line[40];
     if (boss_) {
-      snprintf(line, sizeof line, "BOSS %d  HP %d  %d", level_, boss_hp_, score_);
+      snprintf(line, sizeof line, "BOSS %d  %d  x%d", level_, score_, lives_);
     } else {
-      snprintf(line, sizeof line, "LV %d/%d  %d", level_, kLevels, score_);
+      snprintf(line, sizeof line, "LV %d  %d  x%d", level_, score_, lives_);
     }
     drawString(line, 8, 12);
   }
@@ -954,12 +1029,14 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     drawShipAt(player_x_);
     drawHud();
+    drawBack(false);
     drawGameKeys(nullptr);
   }
 
   void startLevel() {
     mode_ = Mode::Play;
     shot_ = false;
+    foe_shot_ = false;
     held_ = nullptr;
     player_x_ = (kPanelWidth - kShipW) / 2;
     buildLevel();
@@ -970,6 +1047,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     fadeOut();
     score_ = 0;
     level_ = 1;
+    lives_ = 3;
+    foe_shot_ = false;
+    foe_cool_ = 0;
     rng_ = esp_random();
     if (rng_ == 0) rng_ = 1;
     startLevel();
@@ -996,22 +1076,45 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawString(line, kPanelWidth / 2, 192);
   }
 
-  void endRound(bool won) {
+  void showOver(const char* title) {
     fadeOut();
     mode_ = Mode::Over;
     shot_ = false;
+    foe_shot_ = false;
     const Palette ink = palette();
     fillScreen(ink.bg);
     setFont(&fonts::Font2);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
-    drawString(won ? "CLEARED" : "CAUGHT", kPanelWidth / 2, 180);
+    drawString(title, kPanelWidth / 2, 180);
     char line[24];
     snprintf(line, sizeof line, "LV %d   %d", level_, score_);
     setTextColor(ink.muted);
     drawString(line, kPanelWidth / 2, 214);
     drawKey("HOME", homeBox(), false);
     fadeIn();
+  }
+
+  void endRound(bool won) { showOver(won ? "CLEARED" : "CAUGHT"); }
+
+  void playerHit() {
+    lives_ -= 1;
+    foe_shot_ = false;
+    shot_ = false;
+    if (lives_ <= 0) {
+      endRound(false);
+      return;
+    }
+    startLevel();
+  }
+
+  void drawBack(bool held) { drawKey("BACK", backBox(), held); }
+
+  void drawQuad(const char* a, const char* b, const char* c, const char* d, const char* held) {
+    const char* names[4] = {a, b, c, d};
+    for (int i = 0; i < 4; ++i) {
+      drawKey(names[i], quadBox(i), held != nullptr && std::strcmp(held, names[i]) == 0);
+    }
   }
 
   bool overlap(int ax, int ay, int aw, int ah, int bx, int by, int bw, int bh) const {
@@ -1163,8 +1266,54 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (mode_ == Mode::Play) {
       moveFormation();
     }
+    bool lost = false;
+    if (foe_shot_) {
+      const int ox = foe_x_;
+      const int oy = foe_y_;
+      const int ny = foe_y_ + 6;
+      const bool hit_ship =
+          overlap(foe_x_, ny, kShotW, kShotH, player_x_, kShipY, kShipW, kShipH);
+      const bool blocked = hitBarrier(foe_x_, ny) || ny >= kButtonY;
+      if (hit_ship || blocked) {
+        repair(ox, oy, kShotW, kShotH);
+        foe_shot_ = false;
+        lost = hit_ship;
+      } else {
+        foe_y_ = ny;
+        fillRect(foe_x_, foe_y_, kShotW, kShotH, color565(255, 72, 64));
+        uncover(ox, oy, foe_x_, foe_y_, kShotW, kShotH);
+      }
+    } else if (mode_ == Mode::Play) {
+      foe_cool_ += 1;
+      if (foe_cool_ >= 40) {
+        foe_cool_ = 0;
+        int alive = 0;
+        for (int i = 0; i < unit_n_; ++i) {
+          if (units_[i].alive) alive += 1;
+        }
+        if (alive > 0) {
+          int pick = static_cast<int>(nextRng() % static_cast<uint32_t>(alive));
+          for (int i = 0; i < unit_n_; ++i) {
+            if (!units_[i].alive) continue;
+            if (pick > 0) {
+              pick -= 1;
+              continue;
+            }
+            foe_shot_ = true;
+            foe_x_ = origin_x_ + units_[i].ox + unitW(units_[i]) / 2;
+            foe_y_ = origin_y_ + units_[i].oy + unitH(units_[i]);
+            fillRect(foe_x_, foe_y_, kShotW, kShotH, color565(255, 72, 64));
+            break;
+          }
+        }
+      }
+    }
     endWrite();
     if (mode_ != Mode::Play) return;
+    if (lost) {
+      playerHit();
+      return;
+    }
     if (!anyAlive()) {
       if (level_ >= kLevels) {
         endRound(true);
@@ -1176,10 +1325,301 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     for (int i = 0; i < unit_n_; ++i) {
       if (!units_[i].alive) continue;
       if (origin_y_ + units_[i].oy + unitH(units_[i]) >= kShipY) {
-        endRound(false);
+        playerHit();
         return;
       }
     }
+  }
+
+  void pieceCells(int kind, int rot, int ox, int oy, int* xs, int* ys) const {
+    static const int8_t kShape[7][4][2] = {
+        {{0, 0}, {1, 0}, {2, 0}, {3, 0}}, {{0, 0}, {0, 1}, {1, 1}, {2, 1}},
+        {{2, 0}, {0, 1}, {1, 1}, {2, 1}}, {{0, 0}, {1, 0}, {0, 1}, {1, 1}},
+        {{1, 0}, {2, 0}, {0, 1}, {1, 1}}, {{1, 0}, {0, 1}, {1, 1}, {2, 1}},
+        {{0, 0}, {1, 0}, {1, 1}, {2, 1}},
+    };
+    for (int i = 0; i < 4; ++i) {
+      int x = kShape[kind][i][0] - 1;
+      int y = kShape[kind][i][1];
+      for (int turn = 0; turn < rot; ++turn) {
+        const int nx = -y;
+        y = x;
+        x = nx;
+      }
+      xs[i] = ox + x;
+      ys[i] = oy + y;
+    }
+  }
+
+  bool pieceFits(int kind, int rot, int ox, int oy) const {
+    int xs[4];
+    int ys[4];
+    pieceCells(kind, rot, ox, oy, xs, ys);
+    for (int i = 0; i < 4; ++i) {
+      if (xs[i] < 0 || xs[i] >= kCols || ys[i] >= kRows) return false;
+      if (ys[i] >= 0 && well_[ys[i] * kCols + xs[i]] != 0) return false;
+    }
+    return true;
+  }
+
+  uint16_t miniInk(int kind) const {
+    const Palette ink = palette();
+    switch (kind % 7) {
+      case 0:
+        return ink.accent;
+      case 1:
+        return ink.top;
+      case 2:
+        return ink.low;
+      case 3:
+        return ink.ship;
+      case 4:
+        return ink.shot;
+      case 5:
+        return ink.planet;
+      default:
+        return ink.barrier;
+    }
+  }
+
+  void paintGridCell(int gx, int gy, int kind, int origin_x, int origin_y, int cell) {
+    if (gx < 0 || gy < 0) return;
+    fillRect(origin_x + gx * cell, origin_y + gy * cell, cell - 1, cell - 1,
+             kind == 0 ? palette().bg : miniInk(kind));
+  }
+
+  void paintPiece(int kind) {
+    int xs[4];
+    int ys[4];
+    pieceCells(piece_, rot_, piece_x_, piece_y_, xs, ys);
+    for (int i = 0; i < 4; ++i) {
+      const int stored = ys[i] >= 0 ? well_[ys[i] * kCols + xs[i]] : 0;
+      paintGridCell(xs[i], ys[i], kind == 0 ? stored : kind, kBoardX, kBoardY, kCell);
+    }
+  }
+
+  void paintWell() {
+    for (int y = 0; y < kRows; ++y) {
+      for (int x = 0; x < kCols; ++x) {
+        paintGridCell(x, y, well_[y * kCols + x], kBoardX, kBoardY, kCell);
+      }
+    }
+  }
+
+  void spawnPiece() {
+    piece_ = static_cast<int>(nextRng() % 7);
+    rot_ = 0;
+    piece_x_ = 4;
+    piece_y_ = 0;
+    fall_ = 0;
+    if (!pieceFits(piece_, rot_, piece_x_, piece_y_)) {
+      showOver("FILLED");
+      return;
+    }
+    paintPiece(piece_ + 1);
+  }
+
+  void lockPiece() {
+    int xs[4];
+    int ys[4];
+    pieceCells(piece_, rot_, piece_x_, piece_y_, xs, ys);
+    for (int i = 0; i < 4; ++i) {
+      if (ys[i] < 0 || ys[i] >= kRows || xs[i] < 0 || xs[i] >= kCols) continue;
+      well_[ys[i] * kCols + xs[i]] = static_cast<uint8_t>(piece_ + 1);
+    }
+    int cleared = 0;
+    for (int y = kRows - 1; y >= 0; --y) {
+      bool full = true;
+      for (int x = 0; x < kCols; ++x) {
+        if (well_[y * kCols + x] == 0) full = false;
+      }
+      if (!full) continue;
+      cleared += 1;
+      if (y > 0) {
+        memmove(&well_[kCols], well_, static_cast<size_t>(y) * kCols);
+      }
+      memset(well_, 0, kCols);
+      y += 1;
+    }
+    if (cleared > 0) {
+      score_ += cleared * 10;
+      if (score_ > 99999) score_ = 99999;
+      paintWell();
+    }
+    if (mode_ == Mode::Tetris) spawnPiece();
+  }
+
+  void beginTetris() {
+    fadeOut();
+    mode_ = Mode::Tetris;
+    score_ = 0;
+    level_ = 1;
+    held_ = nullptr;
+    memset(well_, 0, sizeof well_);
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    drawRect(kBoardX - 2, kBoardY - 2, kCols * kCell + 3, kRows * kCell + 3, ink.accent);
+    paintWell();
+    drawBack(false);
+    drawQuad("LEFT", "ROT", "DROP", "RIGHT", nullptr);
+    spawnPiece();
+    fadeIn();
+  }
+
+  void stepTetris(bool down, bool rose, int tx, int ty) {
+    if (mode_ != Mode::Tetris) return;
+    const char* held = nullptr;
+    if (down && contains(quadBox(0), tx, ty)) held = "LEFT";
+    else if (down && contains(quadBox(1), tx, ty)) held = "ROT";
+    else if (down && contains(quadBox(2), tx, ty)) held = "DROP";
+    else if (down && contains(quadBox(3), tx, ty)) held = "RIGHT";
+    if (held != held_) {
+      drawQuad("LEFT", "ROT", "DROP", "RIGHT", held);
+      held_ = held;
+    }
+    if (rose && held != nullptr && std::strcmp(held, "LEFT") == 0 &&
+        pieceFits(piece_, rot_, piece_x_ - 1, piece_y_)) {
+      paintPiece(0);
+      piece_x_ -= 1;
+      paintPiece(piece_ + 1);
+    } else if (rose && held != nullptr && std::strcmp(held, "RIGHT") == 0 &&
+               pieceFits(piece_, rot_, piece_x_ + 1, piece_y_)) {
+      paintPiece(0);
+      piece_x_ += 1;
+      paintPiece(piece_ + 1);
+    } else if (rose && held != nullptr && std::strcmp(held, "ROT") == 0 &&
+               pieceFits(piece_, (rot_ + 1) & 3, piece_x_, piece_y_)) {
+      paintPiece(0);
+      rot_ = (rot_ + 1) & 3;
+      paintPiece(piece_ + 1);
+    } else if (rose && held != nullptr && std::strcmp(held, "DROP") == 0) {
+      paintPiece(0);
+      while (pieceFits(piece_, rot_, piece_x_, piece_y_ + 1)) piece_y_ += 1;
+      lockPiece();
+      return;
+    }
+    fall_ += 1;
+    if (fall_ < 28 || mode_ != Mode::Tetris) return;
+    fall_ = 0;
+    if (pieceFits(piece_, rot_, piece_x_, piece_y_ + 1)) {
+      paintPiece(0);
+      piece_y_ += 1;
+      paintPiece(piece_ + 1);
+      return;
+    }
+    lockPiece();
+  }
+
+  bool snakeOccupies(int x, int y, bool ignore_tail) const {
+    const int last = ignore_tail ? snake_len_ - 1 : snake_len_;
+    for (int i = 0; i < last; ++i) {
+      if (snake_x_[i] == x && snake_y_[i] == y) return true;
+    }
+    return false;
+  }
+
+  void placeFood() {
+    for (int attempt = 0; attempt < 40; ++attempt) {
+      const int x = static_cast<int>(nextRng() % kSnakeCols);
+      const int y = static_cast<int>(nextRng() % kSnakeRows);
+      if (snakeOccupies(x, y, false)) continue;
+      food_x_ = x;
+      food_y_ = y;
+      paintGridCell(food_x_, food_y_, 5, kSnakeX, kSnakeY, kSnakeCell);
+      return;
+    }
+  }
+
+  void beginSnake() {
+    fadeOut();
+    mode_ = Mode::Snake;
+    score_ = 0;
+    level_ = 1;
+    held_ = nullptr;
+    snake_len_ = 3;
+    snake_dir_ = 2;
+    snake_next_ = 2;
+    snake_tick_ = 0;
+    snake_x_[0] = 4;
+    snake_y_[0] = 8;
+    snake_x_[1] = 3;
+    snake_y_[1] = 8;
+    snake_x_[2] = 2;
+    snake_y_[2] = 8;
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    drawRect(kSnakeX - 2, kSnakeY - 2, kSnakeCols * kSnakeCell + 3, kSnakeRows * kSnakeCell + 3,
+             ink.accent);
+    for (int y = 0; y < kSnakeRows; ++y) {
+      for (int x = 0; x < kSnakeCols; ++x) {
+        paintGridCell(x, y, 0, kSnakeX, kSnakeY, kSnakeCell);
+      }
+    }
+    for (int i = 0; i < snake_len_; ++i) {
+      paintGridCell(snake_x_[i], snake_y_[i], i == 0 ? 4 : 3, kSnakeX, kSnakeY, kSnakeCell);
+    }
+    placeFood();
+    drawBack(false);
+    drawQuad("LEFT", "UP", "DOWN", "RIGHT", nullptr);
+    fadeIn();
+  }
+
+  void stepSnake(bool down, bool rose, int tx, int ty) {
+    if (mode_ != Mode::Snake) return;
+    const char* held = nullptr;
+    if (down && contains(quadBox(0), tx, ty)) held = "LEFT";
+    else if (down && contains(quadBox(1), tx, ty)) held = "UP";
+    else if (down && contains(quadBox(2), tx, ty)) held = "DOWN";
+    else if (down && contains(quadBox(3), tx, ty)) held = "RIGHT";
+    if (held != held_) {
+      drawQuad("LEFT", "UP", "DOWN", "RIGHT", held);
+      held_ = held;
+    }
+    if (rose && held != nullptr) {
+      int next = snake_dir_;
+      if (std::strcmp(held, "LEFT") == 0) next = 0;
+      else if (std::strcmp(held, "UP") == 0) next = 1;
+      else if (std::strcmp(held, "RIGHT") == 0) next = 2;
+      else if (std::strcmp(held, "DOWN") == 0) next = 3;
+      if ((next + 2) % 4 != snake_dir_) snake_next_ = next;
+    }
+    snake_tick_ += 1;
+    if (snake_tick_ < 10) return;
+    snake_tick_ = 0;
+    snake_dir_ = snake_next_;
+    int hx = snake_x_[0];
+    int hy = snake_y_[0];
+    if (snake_dir_ == 0) hx -= 1;
+    else if (snake_dir_ == 1) hy -= 1;
+    else if (snake_dir_ == 2) hx += 1;
+    else hy += 1;
+    if (hx < 0 || hy < 0 || hx >= kSnakeCols || hy >= kSnakeRows) {
+      showOver("BONK");
+      return;
+    }
+    const bool eat = hx == food_x_ && hy == food_y_;
+    if (snakeOccupies(hx, hy, !eat)) {
+      showOver("BONK");
+      return;
+    }
+    const int tail_x = snake_x_[snake_len_ - 1];
+    const int tail_y = snake_y_[snake_len_ - 1];
+    if (eat && snake_len_ < kSnakeMax) {
+      snake_len_ += 1;
+      score_ += 1;
+    }
+    for (int i = snake_len_ - 1; i > 0; --i) {
+      snake_x_[i] = snake_x_[i - 1];
+      snake_y_[i] = snake_y_[i - 1];
+    }
+    snake_x_[0] = static_cast<uint8_t>(hx);
+    snake_y_[0] = static_cast<uint8_t>(hy);
+    if (!eat) paintGridCell(tail_x, tail_y, 0, kSnakeX, kSnakeY, kSnakeCell);
+    if (snake_len_ > 1) {
+      paintGridCell(snake_x_[1], snake_y_[1], 3, kSnakeX, kSnakeY, kSnakeCell);
+    }
+    paintGridCell(hx, hy, 4, kSnakeX, kSnakeY, kSnakeCell);
+    if (eat) placeFood();
   }
 
   lgfx::Bus_SPI bus_;
@@ -1234,6 +1674,25 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int barrier_n_ = 0;
   int boss_hp_ = 1;
   int boss_max_ = 1;
+  int lives_ = 3;
+  int foe_x_ = 0;
+  int foe_y_ = 0;
+  int foe_cool_ = 0;
+  bool foe_shot_ = false;
+  int piece_ = 0;
+  int rot_ = 0;
+  int piece_x_ = 4;
+  int piece_y_ = 0;
+  int fall_ = 0;
+  int snake_len_ = 0;
+  int snake_dir_ = 2;
+  int snake_next_ = 2;
+  int snake_tick_ = 0;
+  int food_x_ = 0;
+  int food_y_ = 0;
+  uint8_t well_[kCols * kRows] = {};
+  uint8_t snake_x_[kSnakeMax] = {};
+  uint8_t snake_y_[kSnakeMax] = {};
   const char* held_ = nullptr;
   uint32_t rng_ = 1;
   uint32_t shown_at_ = 0;
