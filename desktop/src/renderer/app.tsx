@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { JittersApi } from "../main/preload";
 import type { Snapshot } from "../handoff/desktop_handoff";
@@ -11,6 +11,7 @@ declare global {
 }
 
 const view = new URLSearchParams(location.search).get("view") ?? "picker";
+type Phase = Snapshot["phase"];
 
 function useSnap(): Snapshot | null {
   const [snap, setSnap] = useState<Snapshot | null>(null);
@@ -19,6 +20,58 @@ function useSnap(): Snapshot | null {
     window.jitters.onState(setSnap);
   }, []);
   return snap;
+}
+
+function phaseLabel(phase: Phase | undefined): string {
+  switch (phase) {
+    case "connecting":
+      return "Connecting";
+    case "linked":
+      return "On the display";
+    case "preparing":
+      return "Coming over";
+    case "present":
+      return "On this laptop";
+    case "hidden_hold":
+      return "Hidden here";
+    case "returning":
+      return "Going back";
+    default:
+      return "Not connected";
+  }
+}
+
+function phaseHint(phase: Phase | undefined): string {
+  switch (phase) {
+    case "connecting":
+      return "The display says hello after it resets. This usually takes a moment.";
+    case "linked":
+      return "Jitters is walking on the panel. Tap the cat there to pet it, or the MENU bar to open games. Bring the cat here when you want this window.";
+    case "preparing":
+      return "The panel should say the cat is heading to the laptop. This window opens when the handoff commits.";
+    case "present":
+      return "Click the cat to pet it. Hide only tucks the window away. Send back when the panel should have Jitters again.";
+    case "hidden_hold":
+      return "The cat is still on the laptop. The display stays on the away screen until you send Jitters back.";
+    case "returning":
+      return "Waiting for the display to show Jitters again. The panel says back, then the cat walks.";
+    default:
+      return "Choose the yellow display. The CH340 connects on its own when it is plugged in. Disconnect stays disconnected until the cable is unplugged.";
+  }
+}
+
+function railStep(phase: Phase | undefined): number {
+  if (phase === "preparing" || phase === "returning") return 1;
+  if (phase === "present" || phase === "hidden_hold") return 2;
+  if (phase === "linked" || phase === "connecting") return 0;
+  return -1;
+}
+
+function shortPort(id: string | null | undefined): string {
+  if (!id) return "";
+  if (id.startsWith("simulator:")) return "Simulator";
+  const slash = id.lastIndexOf("/");
+  return slash >= 0 ? id.slice(slash + 1) : id;
 }
 
 function Picker() {
@@ -58,14 +111,25 @@ function Picker() {
 
   const phase = snap?.phase ?? "disconnected";
   const connected = phase !== "disconnected";
+  const step = railStep(phase);
+  const onlySim = ports.length <= 1;
 
   return (
     <main className="picker">
       <h1>Jitters</h1>
-      <p className="baud">{baud}</p>
+      <p className="tag">The cat on the yellow display</p>
+      <p className={`pill pill-${phase}`}>{phaseLabel(phase)}</p>
+      <ol className="rail">
+        <li className={step === 0 ? "on" : ""}>Display</li>
+        <li className={step === 1 ? "on" : ""}>Handoff</li>
+        <li className={step === 2 ? "on" : ""}>Laptop</li>
+      </ol>
+      <p className="lead">{phaseHint(phase)}</p>
+      <p className="status">{snap?.status ?? "Choose the display port"}</p>
+      {snap?.portId ? <p className="baud">Port {shortPort(snap.portId)}</p> : null}
       <ul>
         {ports.map((port) => (
-          <li key={port.id}>
+          <li key={port.id} className={selected === port.id ? "picked" : ""}>
             <label>
               <input
                 type="radio"
@@ -82,37 +146,77 @@ function Picker() {
           </li>
         ))}
       </ul>
-      <p className="status">{snap?.status ?? "Choose a port"}</p>
-      <p className="baud">The CH340 connects when it is plugged in.</p>
+      <p className="baud">
+        {onlySim
+          ? "Plug in the yellow display. The CH340 connects when that cable is present."
+          : "The CH340 connects when it is plugged in. Disconnect stays off until the cable is unplugged."}
+      </p>
+      <p className="baud">{baud}</p>
       {error ? <p className="error">{error}</p> : null}
-      <div className="row">
-        {!connected ? (
-          <button disabled={!selected} onClick={() => run(() => window.jitters.connect(selected))}>
+      <div className="actions">
+        {phase === "disconnected" ? (
+          <button
+            type="button"
+            className="primary"
+            disabled={!selected}
+            onClick={() => run(() => window.jitters.connect(selected))}
+          >
             Connect
           </button>
-        ) : (
-          <button onClick={() => run(() => window.jitters.disconnect())}>Disconnect</button>
-        )}
-        <button disabled={phase !== "linked"} onClick={() => run(() => window.jitters.bring())}>
-          Bring to laptop
-        </button>
-      </div>
-      <div className="row">
-        <button disabled={phase !== "present"} onClick={() => run(() => window.jitters.hide())}>
-          Hide
-        </button>
-        <button
-          disabled={phase !== "present" && phase !== "hidden_hold"}
-          onClick={() => run(() => window.jitters.returnToDevice())}
-        >
-          Return
-        </button>
+        ) : null}
+        {phase === "connecting" ? (
+          <button type="button" className="primary" disabled>
+            Connecting…
+          </button>
+        ) : null}
+        {phase === "linked" ? (
+          <button type="button" className="primary" onClick={() => run(() => window.jitters.bring())}>
+            Bring to laptop
+          </button>
+        ) : null}
+        {phase === "preparing" ? (
+          <button type="button" className="primary" disabled>
+            Coming over…
+          </button>
+        ) : null}
+        {phase === "present" ? (
+          <button type="button" className="primary" onClick={() => run(() => window.jitters.returnToDevice())}>
+            Send back to display
+          </button>
+        ) : null}
+        {phase === "hidden_hold" ? (
+          <button type="button" className="primary" onClick={() => run(() => window.jitters.unhide())}>
+            Show cat
+          </button>
+        ) : null}
+        {phase === "returning" ? (
+          <button type="button" className="primary" disabled>
+            Going back…
+          </button>
+        ) : null}
+        <div className="row">
+          {phase === "present" ? (
+            <button type="button" onClick={() => run(() => window.jitters.hide())}>
+              Hide
+            </button>
+          ) : null}
+          {phase === "hidden_hold" ? (
+            <button type="button" onClick={() => run(() => window.jitters.returnToDevice())}>
+              Send back
+            </button>
+          ) : null}
+          {connected ? (
+            <button type="button" onClick={() => run(() => window.jitters.disconnect())}>
+              Disconnect
+            </button>
+          ) : null}
+        </div>
       </div>
     </main>
   );
 }
 
-type FaceFrame = "idle" | "blink" | "mouth";
+type FaceFrame = "idle" | "blink" | "mouth" | "happy";
 
 // Matches the panel: blink every 3.4s for 140ms, mouth every 7.6s for 380ms.
 function useFaceFrame(): FaceFrame {
@@ -146,31 +250,65 @@ function useFaceFrame(): FaceFrame {
   return frame;
 }
 
+function catWhere(phase: Phase | undefined): string {
+  switch (phase) {
+    case "present":
+      return "On this laptop";
+    case "hidden_hold":
+      return "Hidden here";
+    case "returning":
+      return "Going back";
+    case "preparing":
+      return "Coming over";
+    default:
+      return "Jitters";
+  }
+}
+
 function Cat() {
   const snap = useSnap();
-  const frame = useFaceFrame();
+  const blink = useFaceFrame();
+  const until = useRef(0);
+  const [happy, setHappy] = useState(false);
+  const frame: FaceFrame = happy ? "happy" : blink;
+
+  function pet(event: React.MouseEvent) {
+    event.preventDefault();
+    until.current = performance.now() + 700;
+    setHappy(true);
+    window.setTimeout(() => {
+      if (performance.now() >= until.current) setHappy(false);
+    }, 720);
+  }
+
+  const phase = snap?.phase;
   return (
     <main className="cat">
-      <div className="stage">
+      <button type="button" className={happy ? "pet happy" : "pet"} onMouseDown={pet}>
         <img
           src={`assets/${frame}.png`}
-          alt="Jitters"
+          alt="Jitters, click to pet"
           data-frame={frame}
           width={128}
           height={128}
           draggable={false}
         />
-      </div>
-      <div className="row">
-        <button disabled={snap?.phase !== "present"} onClick={() => void window.jitters.hide()}>
-          Hide
-        </button>
-        <button
-          disabled={snap?.phase !== "present" && snap?.phase !== "hidden_hold"}
-          onClick={() => void window.jitters.returnToDevice()}
-        >
-          Return
-        </button>
+      </button>
+      <div className="plate">
+        <p className="where">{catWhere(phase)}</p>
+        <p className="caption">{happy ? "purr" : "click to pet"}</p>
+        <div className="row">
+          <button type="button" disabled={phase !== "present"} onClick={() => void window.jitters.hide()}>
+            Hide
+          </button>
+          <button
+            type="button"
+            disabled={phase !== "present" && phase !== "hidden_hold"}
+            onClick={() => void window.jitters.returnToDevice()}
+          >
+            Send back
+          </button>
+        </div>
       </div>
     </main>
   );
@@ -180,7 +318,9 @@ function InvadersStill() {
   const aliens = [true, true, true, false, true, true, true, true];
   return (
     <main className="invaders" data-invaders="1">
-      <p className="inv-score">SCORE 20</p>
+      <p className="inv-score">LV 1/100</p>
+      <p className="inv-points">SCORE 20</p>
+      <span className="link-dot" />
       <div className="inv-row">
         {aliens.map((alive, index) => (
           <span key={index} className={alive ? "alien" : "alien gone"} />
@@ -200,7 +340,13 @@ function InvadersStill() {
 function Chip() {
   return (
     <main className="chip">
-      <button onClick={() => void window.jitters.unhide()}>Show cat</button>
+      <div>
+        <strong>Hidden</strong>
+        <small>Still on the laptop</small>
+      </div>
+      <button type="button" onClick={() => void window.jitters.unhide()}>
+        Show
+      </button>
     </main>
   );
 }

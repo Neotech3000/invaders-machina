@@ -15,7 +15,7 @@ export interface PortChoice {
 /** Directory listing only. Does not open any serial device. */
 export function listPorts(): PortChoice[] {
   const ports: PortChoice[] = [
-    { id: "simulator://jitters", label: "Simulator", detail: "No board" },
+    { id: "simulator://jitters", label: "Simulator", detail: "In-process handoff, no cable" },
   ];
   const dir = "/dev/serial/by-id";
   let names: string[] = [];

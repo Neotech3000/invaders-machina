@@ -50,7 +50,7 @@ export class DesktopHandoff {
   phase: Phase = "disconnected";
   expression: Expr = "idle";
   owner: "device" | "desktop" = "device";
-  status = "Choose a port";
+  status = "Choose the display port";
   portId: string | null = null;
   private readonly seen: string[] = [];
   private readonly acks = new Map<string, string>();
@@ -128,7 +128,7 @@ export class DesktopHandoff {
   bring() {
     if (this.phase !== "linked") return;
     this.send("handoff.request", { expression: this.expression });
-    this.status = "Asking the display";
+    this.status = "Asking the display to hand Jitters over";
   }
 
   hideCat() {
@@ -136,7 +136,7 @@ export class DesktopHandoff {
     this.opt.cat.hide();
     void this.opt.chip.show(this.expression);
     this.phase = "hidden_hold";
-    this.status = "Hidden on the laptop";
+    this.status = "Hidden on the laptop. The display does not have the cat.";
   }
 
   unhide() {
@@ -154,7 +154,7 @@ export class DesktopHandoff {
       await this.opt.cat.show(this.expression);
     }
     this.phase = "returning";
-    this.status = "Sending the cat back";
+    this.status = "Sending Jitters back to the display";
     this.arm("return", timeouts.returnMs, () => {
       this.phase = "present";
       this.owner = "desktop";
@@ -271,7 +271,7 @@ export class DesktopHandoff {
   private async onAccept(expression: Expr) {
     this.phase = "preparing";
     this.readyResend = false;
-    this.status = "Opening the cat here";
+    this.status = "Opening Jitters on the laptop";
     await this.opt.cat.show(expression);
     if (this.phase !== "preparing") return;
     if (!this.opt.cat.isVisible()) {
