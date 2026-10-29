@@ -29,6 +29,8 @@ export interface Snapshot {
   chipVisible: boolean;
   status: string;
   portId: string | null;
+  /** True after Bring, until the display answers or the ask timer fires. */
+  asking: boolean;
 }
 
 export interface SessionOptions {
@@ -38,6 +40,8 @@ export interface SessionOptions {
   close: () => void;
   clock: Clock;
   trace?: (event: string) => void;
+  /** Phase changed after the caller already published, for example a failed show. */
+  changed?: () => void;
   /** Wait for the first device hello after a USB reset. Protocol helloMs still bounds the ack. */
   firstHelloMs?: number;
 }
@@ -57,6 +61,7 @@ export class DesktopHandoff {
   private seq = 1;
   private malformed = 0;
   private readyResend = false;
+  private asking = false;
   private opened = false;
   private closing = false;
 
@@ -71,6 +76,7 @@ export class DesktopHandoff {
       chipVisible: this.opt.chip.isVisible(),
       status: this.status,
       portId: this.portId,
+      asking: this.asking,
     };
   }
 
@@ -81,6 +87,7 @@ export class DesktopHandoff {
     this.owner = "device";
     this.status = "Waiting for the display";
     this.malformed = 0;
+    this.asking = false;
     this.seen.length = 0;
     this.acks.clear();
     this.arm("hello", this.opt.firstHelloMs ?? 8000, () => {
@@ -94,6 +101,7 @@ export class DesktopHandoff {
     this.opt.clock.clearAll();
     this.opt.cat.hide();
     this.opt.chip.hide();
+    this.asking = false;
     this.opened = false;
     this.phase = "disconnected";
     this.owner = "device";
@@ -104,6 +112,7 @@ export class DesktopHandoff {
   }
 
   onLine(line: string) {
+    if (this.phase === "disconnected" && !this.opened) return;
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) return;
     const msg = parseLine(trimmed);
@@ -120,38 +129,68 @@ export class DesktopHandoff {
       return;
     }
     this.seen.push(msg.id);
-    if (this.seen.length > timeouts.dedupSize) this.seen.shift();
+    if (this.seen.length > timeouts.dedupSize) {
+      const dropped = this.seen.shift();
+      if (dropped) this.acks.delete(dropped);
+    }
     this.dispatch(msg);
     this.armSilence();
   }
 
   bring() {
-    if (this.phase !== "linked") return;
-    this.send("handoff.request", { expression: this.expression });
+    if (this.phase !== "linked" || this.asking) return;
+    this.asking = true;
     this.status = "Asking the display to hand Jitters over";
+    this.arm("ask", timeouts.readyMs, () => {
+      if (this.phase !== "linked") return;
+      this.asking = false;
+      this.status = "Display did not answer. Try again.";
+    });
+    this.send("handoff.request", { expression: this.expression });
   }
 
   hideCat() {
     if (this.phase !== "present") return;
     this.opt.cat.hide();
-    void this.opt.chip.show(this.expression);
     this.phase = "hidden_hold";
     this.status = "Hidden on the laptop. The display does not have the cat.";
+    void this.opt.chip.show(this.expression).catch(() => {
+      if (this.phase !== "hidden_hold") return;
+      this.opt.chip.hide();
+      void this.opt.cat.show(this.expression);
+      this.phase = "present";
+      this.status = "Could not hide the cat";
+      this.opt.changed?.();
+    });
   }
 
   unhide() {
     if (this.phase !== "hidden_hold") return;
     this.opt.chip.hide();
-    void this.opt.cat.show(this.expression);
     this.phase = "present";
     this.status = "Cat is on the laptop";
+    void this.opt.cat.show(this.expression).catch(() => {
+      if (this.phase !== "present") return;
+      this.phase = "hidden_hold";
+      void this.opt.chip.show(this.expression);
+      this.status = "Could not show the cat";
+      this.opt.changed?.();
+    });
   }
 
   async returnToDevice() {
     if (this.phase !== "present" && this.phase !== "hidden_hold") return;
+    const fromHidden = this.phase === "hidden_hold";
     if (!this.opt.cat.isVisible()) {
       this.opt.chip.hide();
-      await this.opt.cat.show(this.expression);
+      try {
+        await this.opt.cat.show(this.expression);
+      } catch {
+        this.phase = fromHidden ? "hidden_hold" : "present";
+        if (fromHidden) void this.opt.chip.show(this.expression);
+        this.status = "Could not show the cat to send it back";
+        return;
+      }
     }
     this.phase = "returning";
     this.status = "Sending Jitters back to the display";
@@ -217,7 +256,16 @@ export class DesktopHandoff {
       this.send("pong", { ref: msg.id });
       return;
     }
-    if (msg.type === "pong" || msg.type === "error") return;
+    if (msg.type === "pong") return;
+    if (msg.type === "error") {
+      const code = String(payload.code ?? "");
+      if (this.phase === "linked" && (code === "bad_expression" || this.asking)) {
+        this.opt.clock.clear("ask");
+        this.asking = false;
+        this.status = "Display refused the handoff";
+      }
+      return;
+    }
     if (msg.type === "handoff.accept") {
       if (this.phase !== "linked") return;
       const expression = isExpr(payload.expression) ? payload.expression : this.expression;
@@ -264,15 +312,37 @@ export class DesktopHandoff {
         this.phase = "linked";
         this.owner = "device";
         this.status = "Display took the cat back";
+        return;
+      }
+      if (this.phase === "returning") {
+        this.opt.clock.clear("return");
+        this.phase = "present";
+        this.owner = "desktop";
+        this.status =
+          reason === "return_timeout"
+            ? "Display did not confirm. Try return again."
+            : "Display kept the cat";
       }
     }
   }
 
   private async onAccept(expression: Expr) {
+    this.opt.clock.clear("ask");
+    this.asking = false;
     this.phase = "preparing";
     this.readyResend = false;
     this.status = "Opening Jitters on the laptop";
-    await this.opt.cat.show(expression);
+    try {
+      await this.opt.cat.show(expression);
+    } catch {
+      if (this.phase !== "preparing") return;
+      this.opt.cat.hide();
+      this.phase = "linked";
+      this.owner = "device";
+      this.status = "Cat window did not open";
+      this.opt.changed?.();
+      return;
+    }
     if (this.phase !== "preparing") return;
     if (!this.opt.cat.isVisible()) {
       this.status = "Cat window did not become visible";
@@ -339,15 +409,17 @@ export class DesktopHandoff {
     this.opt.clock.clearAll();
     this.opt.cat.hide();
     this.opt.chip.hide();
+    this.asking = false;
     this.phase = "disconnected";
     this.owner = "device";
     this.portId = null;
+    if (reason === "silence") this.status = "Link went quiet";
+    else if (reason === "user") this.status = "Disconnected";
+    else if (reason === "malformed") this.status = "Link closed (malformed lines)";
     const wasOpen = this.opened;
     this.opened = false;
     if (wasOpen) this.opt.close();
     this.closing = false;
-    if (reason === "silence") this.status = "Link went quiet";
-    if (reason === "user") this.status = "Disconnected";
   }
 }
 

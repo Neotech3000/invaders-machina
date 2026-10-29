@@ -3,6 +3,7 @@
 #include "cat_faces.h"
 #include "hardware_config.h"
 #include "resistive_touch.h"
+#include "touch_map.h"
 
 #include <Arduino.h>
 #include <LovyanGFX.hpp>
@@ -81,7 +82,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     touch_begin();
     sprite_ok_ = bake(idle_sprite_, kCatIdle) && bake(blink_sprite_, kCatBlink) &&
                  bake(mouth_sprite_, kCatMouth);
-    happy_ok_ = bake(happy_sprite_, kCatHappy);
+    // Leave room for ArduinoJson. A failed happy sprite still pets via the PNG.
+    happy_ok_ = sprite_ok_ && ESP.getFreeHeap() > 48000 && bake(happy_sprite_, kCatHappy);
     const CatFace& face = cat_frame(kCatIdle);
     cat_w_ = face.width;
     cat_h_ = face.height;
@@ -180,21 +182,22 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (down && inBar(ty)) {
       if (mode_ == Mode::Wander) {
         button = "MENU";
-      } else if (mode_ == Mode::Home) {
+      } else {
         const int slot = barSlot(tx);
-        button = slot == 0 ? "INVADERS" : slot == 1 ? "CALENDAR" : "WALK";
-      } else if (mode_ == Mode::Calendar) {
-        const int slot = barSlot(tx);
-        button = slot == 0 ? "HOME" : slot == 2 ? "WALK" : "SOON";
-      } else if (mode_ == Mode::Over) {
-        const int slot = barSlot(tx);
-        button = slot == 0 ? "HOME" : slot == 1 ? "AGAIN" : "WALK";
-      } else if (mode_ == Mode::Play) {
-        const int slot = barSlot(tx);
-        button = slot == 0 ? "LEFT" : slot == 1 ? "FIRE" : "RIGHT";
+        if (slot < 0) {
+          button = "none";
+        } else if (mode_ == Mode::Home) {
+          button = slot == 0 ? "INVADERS" : slot == 1 ? "CALENDAR" : "WALK";
+        } else if (mode_ == Mode::Calendar) {
+          button = slot == 0 ? "HOME" : slot == 2 ? "WALK" : "SOON";
+        } else if (mode_ == Mode::Over) {
+          button = slot == 0 ? "HOME" : slot == 1 ? "AGAIN" : "WALK";
+        } else if (mode_ == Mode::Play) {
+          button = slot == 0 ? "LEFT" : slot == 1 ? "FIRE" : "RIGHT";
+        }
       }
     }
-    touch_log(raw, tx, ty, button, down && inBar(ty));
+    touch_log(raw, tx, ty, button, down && inBar(ty) && strcmp(button, "none") != 0);
     const bool rose = down && !touch_down_;
     touch_down_ = down;
     if (mode_ == Mode::Wander) {
@@ -279,15 +282,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   bool inBar(int y) const { return y >= kPanelHeight - kBarH; }
 
-  int barSlot(int x) const {
-    if (x < kPanelWidth / 3) {
-      return 0;
-    }
-    if (x < (2 * kPanelWidth) / 3) {
-      return 1;
-    }
-    return 2;
-  }
+  int barSlot(int x) const { return touch_bar_slot(x, kPanelWidth); }
 
   int playerY() const { return kPanelHeight - kBarH - 22; }
 
@@ -314,6 +309,25 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     return idle_sprite_;
   }
 
+  // Black rect clipped to the screen and kept off the bottom bar, so a sliver
+  // from the cat or a shot cannot erase MENU or the score buttons.
+  void wipe(int x, int y, int w, int h) {
+    if (w <= 0 || h <= 0) return;
+    if (x < 0) {
+      w += x;
+      x = 0;
+    }
+    if (y < 0) {
+      h += y;
+      y = 0;
+    }
+    if (x >= kPanelWidth || y >= kPanelHeight - kBarH) return;
+    if (x + w > kPanelWidth) w = kPanelWidth - x;
+    if (y + h > kPanelHeight - kBarH) h = kPanelHeight - kBarH - y;
+    if (w <= 0 || h <= 0) return;
+    fillRect(x, y, w, h, TFT_BLACK);
+  }
+
   // Erase the part of the old box that the new box does not cover. Call this
   // after the new picture is already on the panel, so the overlap never goes black.
   void uncover(int ox, int oy, int nx, int ny, int w, int h) {
@@ -321,14 +335,18 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     if (ox < nx) {
-      fillRect(ox, oy, nx - ox, h, TFT_BLACK);
+      wipe(ox, oy, nx - ox, h);
     } else if (nx < ox) {
-      fillRect(nx + w, oy, ox - nx, h, TFT_BLACK);
+      wipe(nx + w, oy, ox - nx, h);
     }
     if (oy < ny) {
-      fillRect(ox, oy, w, ny - oy, TFT_BLACK);
+      const int x0 = ox > nx ? ox : nx;
+      const int x1 = (ox + w) < (nx + w) ? (ox + w) : (nx + w);
+      if (x1 > x0) wipe(x0, oy, x1 - x0, ny - oy);
     } else if (ny < oy) {
-      fillRect(ox, ny + h, w, oy - ny, TFT_BLACK);
+      const int x0 = ox > nx ? ox : nx;
+      const int x1 = (ox + w) < (nx + w) ? (ox + w) : (nx + w);
+      if (x1 > x0) wipe(x0, ny + h, x1 - x0, oy - ny);
     }
   }
 
@@ -444,10 +462,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   void drawSlots(const char* a, const char* b, const char* c, int held, int dead = -1) {
     const char* labels[3] = {a, b, c};
     const int y = kPanelHeight - kBarH;
-    const int slot_w = kPanelWidth / 3;
     for (int i = 0; i < 3; ++i) {
-      const int x = i * slot_w;
-      const int w = (i == 2) ? kPanelWidth - x : slot_w - 4;
+      int x = 0;
+      int w = 0;
+      touch_bar_rect(i, kPanelWidth, x, w);
       const bool dim = i == dead;
       const uint16_t bg =
           dim ? color565(14, 16, 18) : (held == i) ? color565(82, 114, 176) : color565(28, 32, 40);
@@ -1009,11 +1027,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       drawGameBar(slot);
     }
     const int old_player = player_x_;
-    // The panel's horizontal axis is mirrored relative to the labels.
+    // Slot 0 is the left label. touch_to_screen already unmirrors raw X.
     if (slot == 0) {
-      player_x_ += 5;
-    } else if (slot == 2) {
       player_x_ -= 5;
+    } else if (slot == 2) {
+      player_x_ += 5;
     }
     if (player_x_ < 0) {
       player_x_ = 0;
@@ -1035,8 +1053,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       const int ox = shot_x_;
       const int oy = shot_y_;
       const int ny = shot_y_ - 10;
-      if (ny < 28 || hitAlien(shot_x_, ny)) {
-        fillRect(ox, oy, kShotW, kShotH, TFT_BLACK);
+      if (ny < kStatusH || hitAlien(shot_x_, ny)) {
+        wipe(ox, oy, kShotW, kShotH);
         shot_ = false;
         if (boss_ && alive_[0]) {
           drawBossAt(form_x_, form_y_);

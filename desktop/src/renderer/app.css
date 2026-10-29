@@ -40,6 +40,8 @@ button.primary {
   box-sizing: border-box;
   width: 100%;
   min-height: 100%;
+  max-height: 100%;
+  overflow: auto;
   padding: 16px 16px 18px;
   border-radius: 16px;
   background: rgba(255, 248, 240, 0.96);
@@ -145,6 +147,10 @@ li label {
 
 li.picked label {
   background: rgba(196, 122, 58, 0.18);
+}
+
+li.blocked label {
+  opacity: 0.45;
 }
 
 .actions {
