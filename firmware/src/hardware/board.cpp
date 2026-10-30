@@ -435,6 +435,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kMaxForged = 9;
   static constexpr int kGunSlots = kGunCount + kMaxForged;
   static constexpr int kGunMaxLv = 5;
+  static constexpr int kBoosts = 5;
   static constexpr int kAttrCount = 5;
   static constexpr int kScraps = 6;
   static constexpr int kDroneW = 16;
@@ -592,6 +593,34 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (forged_[i].valid) n += 1;
     }
     return n;
+  }
+
+  // Upgrade rows are one per owned gun, then one per forged gun, then thrusters.
+  // A forged gun never shares a level slot with another weapon.
+  int shopUpgradeCount() const {
+    int n = 1;
+    for (int g = 0; g < kGunCount; ++g) {
+      if (gunUnlocked(g)) n += 1;
+    }
+    for (int i = 0; i < kMaxForged; ++i) {
+      if (forged_[i].valid) n += 1;
+    }
+    return n;
+  }
+
+  int shopUpgradeGun(int idx) const {
+    int seen = 0;
+    for (int g = 0; g < kGunCount; ++g) {
+      if (!gunUnlocked(g)) continue;
+      if (seen == idx) return g;
+      seen += 1;
+    }
+    for (int i = 0; i < kMaxForged; ++i) {
+      if (!forged_[i].valid) continue;
+      if (seen == idx) return kGunCount + i;
+      seen += 1;
+    }
+    return -1;
   }
 
   void loadCampaign() {
@@ -786,6 +815,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int playerDamage() const {
     int dmg = 1 + forgedCount(ATTR_POWER);
     if (perk(PERK_DAMAGE)) dmg += 1;
+    if (boostOn(1)) dmg += 1;
     return dmg;
   }
 
@@ -1377,6 +1407,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   void beginMenu() {
     if (demo_) level_ = camp_level_;
     demo_ = false;
+    clearBoosts();
     saveShop();
     fadeOut();
     mode_ = Mode::Menu;
@@ -1504,7 +1535,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       case 4:
         return 2;
       default:
-        return forgeAnyValid() ? 3 : 2;
+        return shopUpgradeCount();
     }
   }
 
@@ -1520,10 +1551,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         return idx == 0 ? 0 : 90;
       case 4:
         return idx == 0 ? 10 : 15;
-      default:
-        if (idx == 0) return 50 * (gunLv(gun_equip_) + 1);
-        if (idx == 1) return 60 * (thrust_ + 1);
-        return 50 * (gunLv(activeForgeGun()) + 1);
+      default: {
+        const int gun = shopUpgradeGun(idx);
+        if (gun < 0) return 60 * (thrust_ + 1);
+        return 50 * (gunLv(gun) + 1);
+      }
     }
   }
 
@@ -1540,6 +1572,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (shop_tab_ == 1) return ship_model_ == idx;
     if (shop_tab_ == 2) return laser_color_ == idx;
     if (shop_tab_ == 3) return gun_equip_ == shopGunAt(idx);
+    if (shop_tab_ == 5) {
+      const int gun = shopUpgradeGun(idx);
+      return gun >= 0 && gun == gun_equip_;
+    }
     return false;
   }
 
@@ -1555,10 +1591,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         return gunToken(shopGunAt(idx));
       case 4:
         return idx == 0 ? "SHIELD" : "SPARE HEART";
-      default:
-        if (idx == 0) return "GUN POWER";
-        if (idx == 1) return "THRUSTERS";
-        return gunToken(activeForgeGun());
+      default: {
+        const int gun = shopUpgradeGun(idx);
+        if (gun < 0) return "THRUSTERS";
+        return gunToken(gun);
+      }
     }
   }
 
@@ -1573,17 +1610,14 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       snprintf(buf, n, "$%d x%d", shopPrice(tab, idx), idx == 0 ? shield_ : spare_);
       return;
     }
-    if (idx == 0) {
-      if (gunLv(gun_equip_) >= kGunMaxLv) snprintf(buf, n, "MAX");
-      else snprintf(buf, n, "LV%d $%d", gunLv(gun_equip_), shopPrice(tab, idx));
-    } else if (idx == 1) {
+    const int gun = shopUpgradeGun(idx);
+    if (gun < 0) {
       if (thrust_ >= 2) snprintf(buf, n, "MAX");
       else snprintf(buf, n, "LV%d $%d", static_cast<int>(thrust_), shopPrice(tab, idx));
-    } else {
-      const int forged = activeForgeGun();
-      if (!forgeAnyValid() || gunLv(forged) >= kGunMaxLv) snprintf(buf, n, "MAX");
-      else snprintf(buf, n, "LV%d $%d", gunLv(forged), shopPrice(tab, idx));
+      return;
     }
+    if (gunLv(gun) >= kGunMaxLv) snprintf(buf, n, "MAX");
+    else snprintf(buf, n, "LV%d $%d", gunLv(gun), shopPrice(tab, idx));
   }
 
   bool pay(int price) {
@@ -1650,17 +1684,14 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       paintShop();
       return;
     }
-    if (idx == 0 && gunLv(gun_equip_) >= kGunMaxLv) {
-      shop_msg_ = "MAXED";
-      paintShop();
-      return;
-    }
-    if (idx == 1 && thrust_ >= 2) {
-      shop_msg_ = "MAXED";
-      paintShop();
-      return;
-    }
-    if (idx == 2 && (!forgeAnyValid() || gunLv(activeForgeGun()) >= kGunMaxLv)) {
+    const int gun = shopUpgradeGun(idx);
+    if (gun < 0) {
+      if (thrust_ >= 2) {
+        shop_msg_ = "MAXED";
+        paintShop();
+        return;
+      }
+    } else if (gunLv(gun) >= kGunMaxLv) {
       shop_msg_ = "MAXED";
       paintShop();
       return;
@@ -1669,17 +1700,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       paintShop();
       return;
     }
-    if (idx == 0) {
-      gun_lv_[gun_equip_] = static_cast<uint8_t>(gunLv(gun_equip_) + 1);
-      saveGear();
-    } else if (idx == 1) {
+    if (gun < 0) {
       thrust_ = static_cast<uint8_t>(thrust_ + 1);
       ship_step_ = kShipStep + thrust_ + (perk(PERK_SPEED) ? 1 : 0);
     } else {
-      const int forged = activeForgeGun();
-      gun_lv_[forged] = static_cast<uint8_t>(gunLv(forged) + 1);
-      gun_equip_ = static_cast<uint8_t>(forged);
-      forge_focus_ = forged - kGunCount;
+      gun_lv_[gun] = static_cast<uint8_t>(gunLv(gun) + 1);
       saveGear();
     }
     shop_msg_ = "UPGRADED";
@@ -2185,6 +2210,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void beginCampaign() {
     demo_ = false;
+    clearBoosts();
     fadeOut();
     score_ = 0;
     lives_ = 3;
@@ -2618,11 +2644,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setTextDatum(lgfx::middle_left);
     setTextColor(ink.ink);
     char line[40];
+    char boosts[28];
+    boostHud(boosts, sizeof boosts);
     if (hud_msg_ticks_ > 0) {
       snprintf(line, sizeof line, "%s", hud_msg_);
     } else if (god_ != 0) {
       if (god_entrance_) snprintf(line, sizeof line, "%s", godName());
+      else if (boosts[0] != '\0') snprintf(line, sizeof line, "%s %d/4", boosts, god_wave_ + 1);
       else snprintf(line, sizeof line, "%s %d/4", godName(), god_wave_ + 1);
+    } else if (boosts[0] != '\0') {
+      snprintf(line, sizeof line, "%s %d %d", boosts, level_, score_);
     } else if (mini_) {
       snprintf(line, sizeof line, "MINI %d %d", level_, score_);
     } else if (boss_) {
@@ -2640,7 +2671,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     const int slots = heartSlots();
     if (textWidth(line) > kPanelWidth - 70 - slots * 14) {
-      snprintf(line, sizeof line, "M %d %d", level_, score_);
+      if (boosts[0] != '\0' && hud_msg_ticks_ == 0) {
+        snprintf(line, sizeof line, "%s", boosts);
+      } else {
+        snprintf(line, sizeof line, "M %d %d", level_, score_);
+      }
     }
     drawString(line, 8, 12);
     drawHearts();
@@ -3083,6 +3118,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void endRound(bool won) {
+    clearBoosts();
     if (won) showOver("CLEARED", nullptr);
     else showOver("YOU DIED", hit_by_);
   }
@@ -3117,7 +3153,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       startLevel();
       return;
     }
-    if (invuln_ > 0) return;
+    if (invuln_ > 0 || boostOn(3)) return;
     const int inv = perk(PERK_INVULN) ? 100 : 80;
     clearFoe();
     shot_ = false;
@@ -3327,6 +3363,56 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     spawnDropAt(which, static_cast<int>(16 + (nextRng() % (kPanelWidth - 48))), 40);
   }
 
+  const char* boostName(int i) const {
+    static const char* names[kBoosts] = {"RUSH", "FURY", "WIDE", "VEIL", "SALVO"};
+    if (i < 0 || i >= kBoosts) return "";
+    return names[i];
+  }
+
+  bool boostOn(int i) const { return i >= 0 && i < kBoosts && boost_ticks_[i] > 0; }
+
+  void clearBoosts() {
+    for (int i = 0; i < kBoosts; ++i) boost_ticks_[i] = 0;
+  }
+
+  void boostHud(char* buf, int n) const {
+    if (n < 1) return;
+    buf[0] = '\0';
+    int used = 0;
+    for (int i = 0; i < kBoosts; ++i) {
+      if (!boostOn(i)) continue;
+      const char* name = boostName(i);
+      const int len = static_cast<int>(std::strlen(name));
+      if (used + (used > 0 ? 1 : 0) + len >= n) break;
+      if (used > 0) buf[used++] = ' ';
+      for (int c = 0; c < len; ++c) buf[used++] = name[c];
+      buf[used] = '\0';
+    }
+  }
+
+  void stepBoosts() {
+    bool ended = false;
+    for (int i = 0; i < kBoosts; ++i) {
+      if (boost_ticks_[i] == 0) continue;
+      boost_ticks_[i] = static_cast<uint16_t>(boost_ticks_[i] - 1);
+      if (boost_ticks_[i] == 0) ended = true;
+    }
+    if (ended && hud_msg_ticks_ == 0) drawHud();
+  }
+
+  bool rollTempBoost(bool placed, int x, int y) {
+    static const uint8_t kRate[kBoosts] = {8, 12, 5, 3, 15};
+    const int start = static_cast<int>(nextRng() % kBoosts);
+    for (int n = 0; n < kBoosts; ++n) {
+      const int i = (start + n) % kBoosts;
+      if ((nextRng() % 100) >= kRate[i]) continue;
+      if (placed) spawnDropAt(12 + i, x, y);
+      else spawnDrop(12 + i);
+      return true;
+    }
+    return false;
+  }
+
   void maybeMiniDrop(int x, int y) {
     if (drop_on_) return;
     if ((nextRng() % 100) < 5) {
@@ -3338,6 +3424,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       spawnDropAt(which, x, y);
       return;
     }
+    if (rollTempBoost(true, x, y)) return;
     const uint32_t roll = nextRng() % 100;
     const uint32_t heart = 35 + (perk(PERK_HEAL) ? 15 : 0);
     if (roll < heart) spawnDropAt(9, x, y);
@@ -3353,6 +3440,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         return;
       }
     }
+    if (rollTempBoost(false, 0, 0)) return;
     const uint32_t roll = nextRng() % 100;
     const uint32_t heart = 5 + (perk(PERK_HEAL) ? 10 : 0);
     if (roll < heart) spawnDrop(9);
@@ -3364,7 +3452,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (drop_which_ == 9) color = color565(255, 64, 96);
     else if (drop_which_ == 10) color = color565(255, 210, 48);
     else if (drop_which_ == 11) color = color565(96, 200, 255);
-    else if (drop_which_ >= 1 && drop_which_ <= 8) {
+    else if (drop_which_ >= 12 && drop_which_ < 12 + kBoosts) {
+      static const uint8_t kR[kBoosts] = {255, 255, 80, 230, 255};
+      static const uint8_t kG[kBoosts] = {140, 60, 220, 230, 80};
+      static const uint8_t kB[kBoosts] = {32, 48, 255, 255, 220};
+      const int i = drop_which_ - 12;
+      color = color565(kR[i], kG[i], kB[i]);
+    } else if (drop_which_ >= 1 && drop_which_ <= 8) {
       static const uint8_t kR[8] = {255, 80, 80, 255, 80, 255, 255, 180};
       static const uint8_t kG[8] = {150, 255, 120, 80, 180, 80, 140, 80};
       static const uint8_t kB[8] = {40, 120, 255, 255, 255, 255, 40, 255};
@@ -3406,6 +3500,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         saveShop();
       }
       noteUnlock("SHIELD");
+    } else if (drop_which_ >= 12 && drop_which_ < 12 + kBoosts) {
+      const int i = drop_which_ - 12;
+      static const uint16_t kLen[kBoosts] = {500, 500, 500, 250, 500};
+      boost_ticks_[i] = kLen[i];
+      noteUnlock(boostName(i));
     }
     drop_on_ = false;
   }
@@ -3485,6 +3584,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (perk(PERK_COOL)) cool -= 20;
     cool -= 10 * forgedCount(ATTR_RAPID);
     if (perk(PERK_RAPID)) cool -= 10;
+    if (boostOn(0)) cool -= 20;
     if (cool < 30) cool = 30;
     return cool;
   }
@@ -3516,6 +3616,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   bool spawnBoltAt(int cx, int y, int vx, int vy, int w, int h, int tag) {
     if (perk(PERK_WIDE)) w += 1;
+    if (boostOn(2)) w += 2;
     if (equippedForged() != nullptr) {
       w += forgedCount(ATTR_WIDE);
       const int pwr = forgedCount(ATTR_POWER);
@@ -3568,6 +3669,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     else gap = 7 - lv > 2 ? 7 - lv : 2;
     gap -= 2 * forgedCount(ATTR_RAPID);
     if (perk(PERK_RAPID)) gap -= 1;
+    if (boostOn(0)) gap -= 2;
     return gap < 2 ? 2 : gap;
   }
 
@@ -3578,7 +3680,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       spawnBoltAt(cx - 8, kShipY - 8, -2, -8 - lv, 3, 6, 0);
       spawnBoltAt(cx + 8, kShipY - 8, 2, -8 - lv, 3, 6, 0);
     }
-    if (perk(PERK_SALVO)) {
+    if (perk(PERK_SALVO) || boostOn(4)) {
       spawnBoltAt(cx - 6, kShipY - 8, -1, -8 - lv, 3, 6, 0);
       spawnBoltAt(cx + 6, kShipY - 8, 1, -8 - lv, 3, 6, 0);
     }
@@ -4441,6 +4543,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (player_x_ > kPanelWidth - kShipW - 4) player_x_ = kPanelWidth - kShipW - 4;
     (void)rose;
     if (invuln_ > 0) invuln_ -= 1;
+    stepBoosts();
     const bool firing = held != nullptr && std::strcmp(held, "FIRE") == 0;
     if (gun_cool_ > 0) gun_cool_ -= 1;
     if (hud_msg_ticks_ > 0) {
@@ -4601,6 +4704,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int drop_y_ = 0;
   int boss_tick_ = 0;
   int hud_msg_ticks_ = 0;
+  uint16_t boost_ticks_[kBoosts] = {};
   bool beam_on_ = false;
   bool drop_on_ = false;
   bool boss_open_ = false;
