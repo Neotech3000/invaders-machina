@@ -5878,6 +5878,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Star stars_[kStars] = {};
 };
 
+// C++11 requires a namespace-scope definition when a static constexpr array
+// is used from a function the compiler emits out of line.
+constexpr uint16_t PanelDisplay::kThemePrice[];
+constexpr uint16_t PanelDisplay::kShipPrice[];
+
 PanelDisplay* panel_display = nullptr;
 
 }  // namespace

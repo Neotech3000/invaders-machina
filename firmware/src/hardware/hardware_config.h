@@ -2,9 +2,8 @@
 
 #include <cstdint>
 
-// Panel values confirmed after the image that drew "idle" on this board.
-// Chip: ESP32-D0WD-V3, 4MB flash, no PSRAM. Driver: ST7796 on SPI2.
-// Do not replace this pinout.
+// ESP32-3248S035 class panel. Chip: ESP32-D0WD-V3, 4MB flash, no PSRAM.
+// Driver: ST7796 on SPI2. Do not replace this pinout.
 //
 // PlatformIO board id remains esp32dev (ESP32 Dev Module).
 
@@ -21,13 +20,13 @@ static constexpr int kPinBl = 27;
 static constexpr bool kBacklightActiveLow = false;  // active high
 static constexpr int kPanelRotation = 0;
 static constexpr bool kPanelInvert = false;
-static constexpr bool kPanelRgbOrder = false;  // BGR, as in the image that drew idle
+static constexpr bool kPanelRgbOrder = false;  // BGR byte order on this ST7796 module
 static constexpr int kSpiHostIsSpi2 = 1;
 static constexpr uint32_t kSpiWriteHz = 20000000;
 
-// This board's XPT2046 shares the panel SPI bus: CLK 14, MOSI 13, MISO 12,
-// CS 33. IRQ is GPIO 36 and is only reported. A separate bus on CLK 25,
-// MOSI 32, MISO 39 was measured and stays at zero, so it is not kept.
+// The XPT2046 shares the panel SPI bus: CLK 14, MOSI 13, MISO 12, CS 33.
+// IRQ is GPIO 36 and is only reported. The alternate pins CLK 25, MOSI 32,
+// and MISO 39 do not return samples on this module, so they are not used.
 static constexpr int kPinTouchCs = 33;
 static constexpr int kPinTouchIrq = 36;
 static constexpr int kPinTouchSplitClk = 25;
