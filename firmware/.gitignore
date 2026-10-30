@@ -1,2 +1,4 @@
 .pio/
 .vscode/
+platformio.local.ini
+port.local
