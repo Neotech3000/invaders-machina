@@ -1434,6 +1434,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (thrust_ > 2) thrust_ = 2;
     forge_power_ = prefs_.getUInt("fpw", 0);
     forge_up_ = prefs_.getUInt("fup", 0);
+    for (int i = 0; i < kBoosts; ++i) boost_armed_[i] = 0;
+    uint16_t armed[kBoosts] = {};
+    if (prefs_.getBytes("bst", armed, sizeof armed) == sizeof armed) {
+      for (int i = 0; i < kBoosts; ++i) {
+        if (armed[i] == boostLen(i)) boost_armed_[i] = armed[i];
+      }
+    }
     ship_step_ = kShipStep + thrust_ + (perk(PERK_SPEED) ? 1 : 0);
     if (!themeOwned(theme_)) theme_ = 0;
     if (!shipOwned(ship_model_)) ship_model_ = 0;
@@ -1451,6 +1458,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     prefs_.putUChar("thrust", thrust_);
     prefs_.putUInt("fpw", forge_power_);
     prefs_.putUInt("fup", forge_up_);
+    prefs_.putBytes("bst", boost_armed_, sizeof boost_armed_);
   }
 
   void drawCoin(int x, int y) {
@@ -1533,7 +1541,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       case 3:
         return shopGunCount();
       case 4:
-        return 2;
+        return 2 + kBoosts;
       default:
         return shopUpgradeCount();
     }
@@ -1550,7 +1558,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       case 3:
         return idx == 0 ? 0 : 90;
       case 4:
-        return idx == 0 ? 10 : 15;
+        if (idx <= 0) return 10;
+        if (idx == 1) return 15;
+        return boostPrice(idx - 2);
       default: {
         const int gun = shopUpgradeGun(idx);
         if (gun < 0) return 60 * (thrust_ + 1);
@@ -1572,6 +1582,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (shop_tab_ == 1) return ship_model_ == idx;
     if (shop_tab_ == 2) return laser_color_ == idx;
     if (shop_tab_ == 3) return gun_equip_ == shopGunAt(idx);
+    if (shop_tab_ == 4 && idx >= 2) return boost_armed_[idx - 2] > 0;
     if (shop_tab_ == 5) {
       const int gun = shopUpgradeGun(idx);
       return gun >= 0 && gun == gun_equip_;
@@ -1590,7 +1601,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       case 3:
         return gunToken(shopGunAt(idx));
       case 4:
-        return idx == 0 ? "SHIELD" : "SPARE HEART";
+        if (idx <= 0) return "SHIELD";
+        if (idx == 1) return "SPARE HEART";
+        return boostName(idx - 2);
       default: {
         const int gun = shopUpgradeGun(idx);
         if (gun < 0) return "THRUSTERS";
@@ -1607,6 +1620,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     if (tab == 4) {
+      if (idx >= 2) {
+        if (boost_armed_[idx - 2] > 0) snprintf(buf, n, "READY");
+        else snprintf(buf, n, "$%d", shopPrice(tab, idx));
+        return;
+      }
       snprintf(buf, n, "$%d x%d", shopPrice(tab, idx), idx == 0 ? shield_ : spare_);
       return;
     }
@@ -1674,10 +1692,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         paintShop();
         return;
       }
-      if (idx == 0) {
+      if (idx <= 0) {
         if (shield_ < shieldCap()) shield_ = static_cast<uint8_t>(shield_ + 1);
-      } else if (spare_ < 9) {
-        spare_ = static_cast<uint8_t>(spare_ + 1);
+      } else if (idx == 1) {
+        if (spare_ < 9) spare_ = static_cast<uint8_t>(spare_ + 1);
+      } else {
+        const int boost = idx - 2;
+        boost_armed_[boost] = boostLen(boost);
       }
       shop_msg_ = "BOUGHT";
       saveShop();
@@ -2211,6 +2232,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   void beginCampaign() {
     demo_ = false;
     clearBoosts();
+    for (int i = 0; i < kBoosts; ++i) {
+      if (boost_armed_[i] == 0) continue;
+      boost_ticks_[i] = boost_armed_[i];
+      boost_armed_[i] = 0;
+    }
+    saveShop();
     fadeOut();
     score_ = 0;
     lives_ = 3;
@@ -3363,6 +3390,18 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     spawnDropAt(which, static_cast<int>(16 + (nextRng() % (kPanelWidth - 48))), 40);
   }
 
+  uint16_t boostLen(int i) const {
+    static const uint16_t kLen[kBoosts] = {500, 500, 500, 250, 500};
+    if (i < 0 || i >= kBoosts) return 0;
+    return kLen[i];
+  }
+
+  int boostPrice(int i) const {
+    static const int kPrice[kBoosts] = {20, 25, 15, 40, 20};
+    if (i < 0 || i >= kBoosts) return 0;
+    return kPrice[i];
+  }
+
   const char* boostName(int i) const {
     static const char* names[kBoosts] = {"RUSH", "FURY", "WIDE", "VEIL", "SALVO"};
     if (i < 0 || i >= kBoosts) return "";
@@ -3502,8 +3541,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       noteUnlock("SHIELD");
     } else if (drop_which_ >= 12 && drop_which_ < 12 + kBoosts) {
       const int i = drop_which_ - 12;
-      static const uint16_t kLen[kBoosts] = {500, 500, 500, 250, 500};
-      boost_ticks_[i] = kLen[i];
+      boost_ticks_[i] = boostLen(i);
       noteUnlock(boostName(i));
     }
     drop_on_ = false;
@@ -4705,6 +4743,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int boss_tick_ = 0;
   int hud_msg_ticks_ = 0;
   uint16_t boost_ticks_[kBoosts] = {};
+  uint16_t boost_armed_[kBoosts] = {};
   bool beam_on_ = false;
   bool drop_on_ = false;
   bool boss_open_ = false;
