@@ -4479,6 +4479,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Star stars_[kStars] = {};
 };
 
+constexpr uint16_t PanelDisplay::kThemePrice[];
+constexpr uint16_t PanelDisplay::kShipPrice[];
+
 PanelDisplay* panel_display = nullptr;
 
 }  // namespace
