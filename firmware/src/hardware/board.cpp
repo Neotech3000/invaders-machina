@@ -384,6 +384,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     int16_t oy;
     uint8_t kind;
     uint8_t hp;
+    uint8_t stun;
     bool alive;
   };
   struct Barrier {
@@ -470,7 +471,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kAllyH = 16;
   static constexpr int kShotW = 3;
   static constexpr int kShotH = 8;
-  static constexpr int kShipStep = 5;
+  static constexpr int kShipStep = 8;
   static constexpr int kCoins = 16;
   static constexpr int kCoinW = 11;
   static constexpr int kShopRows = 6;
@@ -1269,6 +1270,27 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void repair(int x, int y, int w, int h) {
     repairBg(x, y, w, h);
+    if (god_ != 0 && (mode_ == Mode::Play || mode_ == Mode::Advance)) {
+      int cx = x;
+      int cy = y;
+      int cw = w;
+      int ch = h;
+      if (cx < 0) {
+        cw += cx;
+        cx = 0;
+      }
+      if (cy < 0) {
+        ch += cy;
+        cy = 0;
+      }
+      if (cx + cw > kPanelWidth) cw = kPanelWidth - cx;
+      if (cy + ch > kPanelHeight) ch = kPanelHeight - cy;
+      if (cw > 0 && ch > 0 && cy < kShipY && cy + ch > 36) {
+        setClipRect(cx, cy, cw, ch);
+        paintGodArena(cy < 160 && cy + ch > 138);
+        clearClipRect();
+      }
+    }
     if (mode_ == Mode::Play || mode_ == Mode::Advance) {
       const int bx = shipClearX(player_x_);
       const int by = shipClearY();
@@ -2573,15 +2595,115 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   int godBarHp() const { return 12 + level_ / 12; }
 
-  void paintGodArena() {
+  // Pillars and the ring are scenery. They never overlap the ship as a hit.
+  void paintGodMark(uint16_t ink) {
+    const int cx = kPanelWidth / 2;
+    switch (god_) {
+      case 1:
+        drawLine(cx - 44, 98, cx - 34, 114, ink);
+        drawLine(cx - 34, 114, cx - 46, 114, ink);
+        drawLine(cx - 46, 114, cx - 32, 134, ink);
+        drawLine(cx + 44, 98, cx + 34, 114, ink);
+        drawLine(cx + 34, 114, cx + 46, 114, ink);
+        drawLine(cx + 46, 114, cx + 32, 134, ink);
+        break;
+      case 2:
+        for (int i = -1; i <= 1; ++i) {
+          drawCircle(cx + i * 28, 102, 6, ink);
+          fillCircle(cx + i * 28, 102, 2, ink);
+        }
+        break;
+      case 3:
+        for (int band = 0; band < 2; ++band) {
+          const int y = 104 + band * 18;
+          for (int x = 48; x < kPanelWidth - 56; x += 10) {
+            const bool down = ((x / 10) & 1) == 0;
+            drawLine(x, y + (down ? 0 : 5), x + 10, y + (down ? 5 : 0), ink);
+          }
+        }
+        break;
+      case 4:
+        for (int i = -1; i <= 1; ++i) {
+          const int x = cx + i * 36;
+          fillRect(x, 92, 2, 16, ink);
+          drawLine(x, 96, x - 6, 92, ink);
+          drawLine(x + 1, 100, x + 7, 96, ink);
+          drawLine(x, 104, x - 6, 100, ink);
+        }
+        break;
+      case 5:
+        drawLine(cx, 90, cx - 14, 104, ink);
+        drawLine(cx, 90, cx + 14, 104, ink);
+        drawLine(cx - 14, 104, cx - 14, 118, ink);
+        drawLine(cx + 14, 104, cx + 14, 118, ink);
+        drawLine(cx - 14, 118, cx, 132, ink);
+        drawLine(cx + 14, 118, cx, 132, ink);
+        break;
+      case 6:
+        drawLine(cx - 30, 94, cx - 8, 132, ink);
+        drawLine(cx + 30, 94, cx + 8, 132, ink);
+        break;
+      case 7:
+        for (int dx = -1; dx <= 1; ++dx) {
+          for (int dy = -1; dy <= 1; ++dy) {
+            if (dx == 0 && dy == 0) continue;
+            const int inner = (dx != 0 && dy != 0) ? 6 : 8;
+            const int outer = (dx != 0 && dy != 0) ? 14 : 18;
+            drawLine(cx + dx * inner, 108 + dy * inner, cx + dx * outer, 108 + dy * outer, ink);
+          }
+        }
+        break;
+      case 8:
+        drawCircle(cx, 108, 10, ink);
+        fillCircle(cx + 6, 106, 8, palette().bg);
+        break;
+      case 9:
+        fillCircle(cx - 5, 100, 5, ink);
+        fillCircle(cx + 5, 100, 5, ink);
+        drawLine(cx - 10, 102, cx, 118, ink);
+        drawLine(cx + 10, 102, cx, 118, ink);
+        break;
+      case 10:
+        fillRect(cx - 12, 96, 24, 5, ink);
+        fillRect(cx - 6, 101, 12, 8, ink);
+        fillRect(cx - 14, 109, 28, 4, ink);
+        break;
+      case 11:
+        drawLine(cx - 8, 108, cx - 28, 100, ink);
+        drawLine(cx - 8, 108, cx - 26, 112, ink);
+        drawLine(cx - 16, 106, cx - 28, 108, ink);
+        drawLine(cx + 8, 108, cx + 28, 100, ink);
+        drawLine(cx + 8, 108, cx + 26, 112, ink);
+        drawLine(cx + 16, 106, cx + 28, 108, ink);
+        break;
+      default:
+        fillCircle(cx, 96, 3, ink);
+        fillCircle(cx - 8, 100, 3, ink);
+        fillCircle(cx + 8, 100, 3, ink);
+        fillCircle(cx - 4, 108, 3, ink);
+        fillCircle(cx + 4, 108, 3, ink);
+        fillCircle(cx, 114, 3, ink);
+        break;
+    }
+  }
+
+  void paintGodArena(bool title = true) {
     const uint16_t ink = godInk();
-    fillRect(24, 30, kPanelWidth - 48, 3, ink);
+    for (int i = 0; i < 6; ++i) {
+      const int x = 18 + i * 56;
+      fillRect(x, 40, 6, kShipY - 44, ink);
+      fillRect(x - 6, 40, 18, 5, ink);
+    }
+    drawCircle(kPanelWidth / 2, 150, 78, ink);
+    drawCircle(kPanelWidth / 2, 150, 60, ink);
+    paintGodMark(ink);
+    if (!title) return;
     setFont(&fonts::Font2);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink);
     char line[24];
     snprintf(line, sizeof line, "%s DOMAIN", godName());
-    drawString(line, kPanelWidth / 2, 48);
+    drawString(line, kPanelWidth / 2, 150);
   }
 
   void buildGodArena() {
@@ -3005,6 +3127,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     units_[unit_n_].oy = static_cast<int16_t>(oy);
     units_[unit_n_].kind = static_cast<uint8_t>(kind);
     units_[unit_n_].hp = static_cast<uint8_t>(kind == 7 ? 2 : 1);
+    units_[unit_n_].stun = 0;
     units_[unit_n_].alive = true;
     unit_n_ += 1;
   }
@@ -3882,13 +4005,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   int beamCoolLen() const {
-    int cool = 125 - gunLv(gun_equip_) * 10;
+    int cool = 80 - gunLv(gun_equip_) * 8;
     cool -= 20 * forgedCount(ATTR_COOL);
     if (perk(PERK_COOL)) cool -= 20;
     cool -= 10 * forgedCount(ATTR_RAPID);
     if (perk(PERK_RAPID)) cool -= 10;
     if (boostOn(0)) cool -= 20;
-    if (cool < 30) cool = 30;
+    if (cool < 16) cool = 16;
     return cool;
   }
 
@@ -3962,14 +4085,14 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     const int gun = baseGun();
     const int lv = gunLv(gun_equip_);
     int gap;
-    if (gun == 1) gap = 16 - lv;
+    if (gun == 1) gap = 10 - lv;
     else if (gun == 2) gap = 3 - lv > 2 ? 3 - lv : 2;
-    else if (gun == 4) gap = 8 - lv > 2 ? 8 - lv : 2;
-    else if (gun == 5) gap = 10 - lv > 3 ? 10 - lv : 3;
-    else if (gun == 6) gap = 22 - lv * 2 > 8 ? 22 - lv * 2 : 8;
-    else if (gun == 7) gap = 20 - lv * 2 > 8 ? 20 - lv * 2 : 8;
-    else if (gun == 8) gap = 14 - lv > 6 ? 14 - lv : 6;
-    else gap = 7 - lv > 2 ? 7 - lv : 2;
+    else if (gun == 4) gap = 5 - lv > 2 ? 5 - lv : 2;
+    else if (gun == 5) gap = 6 - lv > 2 ? 6 - lv : 2;
+    else if (gun == 6) gap = 14 - lv * 2 > 5 ? 14 - lv * 2 : 5;
+    else if (gun == 7) gap = 12 - lv * 2 > 5 ? 12 - lv * 2 : 5;
+    else if (gun == 8) gap = 9 - lv > 4 ? 9 - lv : 4;
+    else gap = 4 - lv > 2 ? 4 - lv : 2;
     gap -= 2 * forgedCount(ATTR_RAPID);
     if (perk(PERK_RAPID)) gap -= 1;
     if (boostOn(0)) gap -= 2;
@@ -4501,14 +4624,22 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     } else {
       origin_x_ += form_dir_ * step;
     }
+    const int dx = origin_x_ - old_x;
+    const int dy = origin_y_ - old_y;
     for (int i = 0; i < unit_n_; ++i) {
       if (!units_[i].alive) continue;
+      const int prev_ox = units_[i].ox;
+      const int prev_oy = units_[i].oy;
+      if (units_[i].stun > 0) {
+        units_[i].ox = static_cast<int16_t>(prev_ox - dx);
+        units_[i].oy = static_cast<int16_t>(prev_oy - dy);
+      }
       const int w = unitW(units_[i]);
       const int h = unitH(units_[i]);
       const int nx = origin_x_ + units_[i].ox;
       const int ny = origin_y_ + units_[i].oy;
       drawAlienAt(nx, ny, units_[i].kind);
-      uncover(old_x + units_[i].ox, old_y + units_[i].oy, nx, ny, w, h);
+      uncover(old_x + prev_ox, old_y + prev_oy, nx, ny, w, h);
     }
     (void)bottom;
   }
@@ -4566,6 +4697,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   void drawFoe(const FoeBolt& foe) {
     if (foe.kind == 3) {
       const uint16_t ink = godInk();
+      fillRect(foe.x, foe.y, 10, 10, color565(16, 12, 20));
       fillRect(foe.x + 2, foe.y, 6, 10, ink);
       fillRect(foe.x, foe.y + 2, 10, 6, ink);
       fillRect(foe.x + 3, foe.y + 3, 4, 4, color565(255, 255, 255));
@@ -4833,13 +4965,21 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         best = i;
       }
     }
-    stun_ticks_ = 94;
-    const int zx = best >= 0 ? origin_x_ + units_[best].ox + unitW(units_[best]) / 2
-                             : player_x_ + kShipW / 2;
-    if (best >= 0) applyHit(best);
-    fillRect(zx, 30, 2, kShipY - 30, color565(255, 240, 120));
+    if (best < 0) return false;
+    const int zx = origin_x_ + units_[best].ox + unitW(units_[best]) / 2 - 2;
+    const int zw = 4;
+    const int zh = kShipY - 30;
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive) continue;
+      const int ax = origin_x_ + units_[i].ox;
+      const int ay = origin_y_ + units_[i].oy;
+      if (!overlap(zx, 30, zw, zh, ax, ay, unitW(units_[i]), unitH(units_[i]))) continue;
+      units_[i].stun = 94;
+    }
+    applyHit(best);
+    fillRect(zx, 30, zw, zh, color565(255, 240, 120));
     delay(20);
-    restoreRect(zx, 30, 2, kShipY - 30);
+    restoreRect(zx, 30, zw, zh);
     return true;
   }
 
@@ -5041,7 +5181,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void fireGodVolley() {
     for (int i = 0; i < unit_n_; ++i) {
-      if (!units_[i].alive) continue;
+      if (!units_[i].alive || units_[i].stun > 0) continue;
       if (units_[i].kind == 7) {
         if (countFoeKind(3) < 2) {
           spawnGodOrb(origin_x_ + units_[i].ox + kAllyW / 2 - 5,
@@ -5070,7 +5210,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         foe.on = false;
         continue;
       }
-      if (stun_ticks_ > 0) continue;
       if (revel_ticks_ > 0 && (space_tick_ & 15) == 0 && foe.kind != 3) {
         int nv = foe.vx + static_cast<int>(nextRng() % 3) - 1;
         if (nv > 3) nv = 3;
@@ -5146,7 +5285,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     foe_cool_ += 1;
     if (foe_cool_ < foe_gap_) return lost;
     foe_cool_ = 0;
-    if (stun_ticks_ > 0 || charm_ticks_ > 0) return lost;
+    if (charm_ticks_ > 0) return lost;
     if (god_ != 0 && god_entrance_ && bossAlive()) {
       fireGodVolley();
       return lost;
@@ -5156,7 +5295,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (boss_ && boss_style_ == 3 && bossAlive()) {
       for (int i = 0; i < unit_n_; ++i) {
-        if (!units_[i].alive || units_[i].kind != 2) continue;
+        if (!units_[i].alive || units_[i].kind != 2 || units_[i].stun > 0) continue;
         const int x = origin_x_ + units_[i].ox + kBossW / 2;
         const int y = origin_y_ + units_[i].oy + kBossH;
         spawnFoe(x - 8, y, -2);
@@ -5166,12 +5305,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     int alive = 0;
     for (int i = 0; i < unit_n_; ++i) {
-      if (units_[i].alive && units_[i].kind != 2) alive += 1;
+      if (units_[i].alive && units_[i].kind != 2 && units_[i].stun == 0) alive += 1;
     }
     if (alive == 0) {
       if (bossAlive() && boss_style_ != 3) {
         for (int i = 0; i < unit_n_; ++i) {
-          if (!units_[i].alive || units_[i].kind != 2) continue;
+          if (!units_[i].alive || units_[i].kind != 2 || units_[i].stun > 0) continue;
           spawnFoe(origin_x_ + units_[i].ox + unitW(units_[i]) / 2,
                    origin_y_ + units_[i].oy + unitH(units_[i]), 0);
           break;
@@ -5181,7 +5320,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     int pick = static_cast<int>(nextRng() % static_cast<uint32_t>(alive));
     for (int i = 0; i < unit_n_; ++i) {
-      if (!units_[i].alive || units_[i].kind == 2) continue;
+      if (!units_[i].alive || units_[i].kind == 2 || units_[i].stun > 0) continue;
       if (pick > 0) {
         pick -= 1;
         continue;
@@ -5330,7 +5469,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       boss_tick_ += 1;
       boss_open_ = (boss_tick_ % 80) >= 40;
     }
-    if (mode_ == Mode::Play && stun_ticks_ == 0) moveFormation();
+    if (mode_ == Mode::Play) moveFormation();
+    for (int i = 0; i < unit_n_; ++i) {
+      if (units_[i].stun > 0) units_[i].stun = static_cast<uint8_t>(units_[i].stun - 1);
+    }
     if (was_open != boss_open_) drawHud();
     bool lost = stepFoe();
     if (!lost && stepGodBeam()) {
