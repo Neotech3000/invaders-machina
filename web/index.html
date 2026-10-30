@@ -38,7 +38,7 @@ const MINI_W = 30, MINI_H = 20;
 const ALLY_W = 18, ALLY_H = 16;
 const BLAST_R = 20;
 const LEVELS = 300;
-const SHIP_STEP = 5;
+const SHIP_STEP = 8;
 const BUTTON_Y = 430;
 const COIN_MAX = 16;
 const COIN_CHANCE = 20;
@@ -128,6 +128,19 @@ fillRect(x, y, w, 1, c);
 fillRect(x, y + h - 1, w, 1, c);
 fillRect(x, y, 1, h, c);
 fillRect(x + w - 1, y, 1, h, c);
+}
+function drawLine(x0, y0, x1, y1, c) {
+x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+let err = dx - dy;
+for (;;) {
+px(x0, y0, c);
+if (x0 === x1 && y0 === y1) break;
+const e2 = 2 * err;
+if (e2 > -dy) { err -= dy; x0 += sx; }
+if (e2 < dx) { err += dx; y0 += sy; }
+}
 }
 function fillCircle(x0, y0, r, c) {
 for (let dy = -r; dy <= r; dy++) {
@@ -834,14 +847,32 @@ if (triggerMachine(i)) R.divCool[i] = MACHINES[i].cool;
 }
 function triggerMachine(i) {
 if (i === 0) {
-let best = null, bestY = -999;
+let best = null, bestY = -999, zx = R.px + Math.floor(SHIP_W / 2);
 for (const u of R.units) {
 if (!u.alive) continue;
-if (R.oy + u.oy > bestY) { bestY = R.oy + u.oy; best = u; }
+if (R.oy + u.oy > bestY) {
+bestY = R.oy + u.oy;
+best = u;
+const [sw] = unitSize(u);
+zx = R.ox + u.ox + Math.floor(sw / 2);
 }
-R.stun = 94;
+}
+if (!best && R.boss) zx = R.boss.x + Math.floor(BOSS_W / 2);
+else if (!best) return false;
+const rx = Math.round(zx) - 2, rw = 4, rh = SHIP_Y - 30;
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw, sh] = unitSize(u);
+if (overlapRect(rx, 30, rw, rh, R.ox + u.ox, R.oy + u.oy, sw, sh)) u.stun = 94;
+}
+if (R.boss && overlapRect(rx, 30, rw, rh, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) R.boss.stun = 94;
+for (const e of R.escorts) {
+if (overlapRect(rx, 30, rw, rh, escortX(e), ESCORT_Y, ALLY_W, ALLY_H)) e.stun = 94;
+}
 if (best) hitUnit(best);
-else if (R.boss) bossHit();
+else bossHit();
+R.zapX = rx;
+R.zapT = 6;
 return true;
 }
 if (i === 2) {
@@ -1109,14 +1140,14 @@ function fireGap() {
 const gun = baseGun();
 const lv = gunLv(save.gunEquip);
 let gap;
-if (gun === 1) gap = 16 - lv;
+if (gun === 1) gap = 10 - lv;
 else if (gun === 2) gap = Math.max(2, 3 - lv);
-else if (gun === 4) gap = Math.max(2, 8 - lv);
-else if (gun === 5) gap = Math.max(3, 10 - lv);
-else if (gun === 6) gap = Math.max(8, 22 - lv * 2);
-else if (gun === 7) gap = Math.max(8, 20 - lv * 2);
-else if (gun === 8) gap = Math.max(6, 14 - lv);
-else gap = Math.max(2, 7 - lv);
+else if (gun === 4) gap = Math.max(2, 5 - lv);
+else if (gun === 5) gap = Math.max(2, 6 - lv);
+else if (gun === 6) gap = Math.max(5, 14 - lv * 2);
+else if (gun === 7) gap = Math.max(5, 12 - lv * 2);
+else if (gun === 8) gap = Math.max(4, 9 - lv);
+else gap = Math.max(2, 4 - lv);
 gap -= 2 * forgedCount("rapid");
 if (perk(PERK.rapid)) gap -= 1;
 if (boostOn(0)) gap -= 2;
@@ -1221,13 +1252,13 @@ if (perk(PERK.twin)) len += 20;
 return len;
 }
 function beamCoolLen() {
-let cool = 125 - gunLv(save.gunEquip) * 10;
+let cool = 80 - gunLv(save.gunEquip) * 8;
 cool -= 20 * forgedCount("cool");
 if (perk(PERK.cool)) cool -= 20;
 cool -= 10 * forgedCount("rapid");
 if (perk(PERK.rapid)) cool -= 10;
 if (boostOn(0)) cool -= 20;
-return Math.max(30, cool);
+return Math.max(16, cool);
 }
 function hurtAlongBeam() {
 const bx = R.beamX, by = 36, bw = 3, bh = SHIP_Y - 36;
@@ -1480,10 +1511,18 @@ left = Math.min(left, R.ox + u.ox);
 right = Math.max(right, R.ox + u.ox + sw);
 }
 if (right <= 0) return;
+const oldX = R.ox, oldY = R.oy;
 const mv = Math.max(1, Math.ceil(R.step / 2));
 if (R.dir > 0 && right + mv >= W - 4) { R.dir = -1; R.oy += R.drop; }
 else if (R.dir < 0 && left - mv <= 4) { R.dir = 1; R.oy += R.drop; }
 else R.ox += R.dir * mv;
+const dx = R.ox - oldX, dy = R.oy - oldY;
+if (!dx && !dy) return;
+for (const u of R.units) {
+if (!u.alive || !(u.stun > 0)) continue;
+u.ox -= dx;
+u.oy -= dy;
+}
 }
 function stepFoes() {
 const foes = R.foes;
@@ -1493,7 +1532,6 @@ if (R.waveY >= 0 && overlapRect(f.x, f.y, f.w, f.h, 0, R.waveY, W, 14)) {
 foes.splice(i, 1);
 continue;
 }
-if (R.stun > 0) continue;
 if (R.revel > 0 && (R.spaceTick & 15) === 0 && f.kind !== 3) {
 f.vx = clamp(f.vx + rnd(3) - 1, -3, 3);
 }
@@ -1542,7 +1580,7 @@ function enemyShoot() {
 if (R.god && !R.godEntrance && (R.spaceTick & 1) === 0) {
 fireGodGimmick(W / 2, 40);
 }
-const live = R.units.filter(u => u.alive && u.kind !== 2);
+const live = R.units.filter(u => u.alive && u.kind !== 2 && !(u.stun > 0));
 if (live.length === 0) return;
 const u = live[rnd(live.length)];
 const [sw, sh] = unitSize(u);
@@ -1568,13 +1606,15 @@ const x = b.x + BOSS_W / 2;
 const y = b.y + BOSS_H;
 const who = R.godEntrance ? godName() : (R.raid ? "RAID BOSS" : "BOSS");
 if (R.godEntrance) {
-fireGodGimmick(x, y);
+if (!(R.boss.stun > 0)) fireGodGimmick(x, y);
 for (const e of R.escorts) {
+if (e.stun > 0) continue;
 if (countFoeKind(3) >= 2) break;
 spawnGodOrb(escortX(e) + ALLY_W / 2 - 5, ESCORT_Y + ALLY_H, 0, 2);
 }
 return;
 }
+if (R.boss.stun > 0) return;
 if (b.style === 1) {
 fireFoe(x - 8, y, 0, who, -2); fireFoe(x, y, 0, who, 0); fireFoe(x + 8, y, 0, who, 2);
 } else {
@@ -1628,6 +1668,7 @@ setScr("advance");
 }
 function stepPlay(input) {
 const entry = scr;
+if (R.zapT > 0) R.zapT -= 1;
 if (R.invuln > 0) R.invuln -= 1;
 stepBoosts();
 if (R.gunCool > 0) R.gunCool -= 1;
@@ -1646,24 +1687,29 @@ if (input.fire) fireGun();
 stepBolts();
 stepDrop();
 stepMachines();
-if (R.stun <= 0) moveFormation();
+moveFormation();
+for (const u of R.units) if (u.stun > 0) u.stun -= 1;
+for (const e of R.escorts) if (e.stun > 0) e.stun -= 1;
+if (R.boss && R.boss.stun > 0) R.boss.stun -= 1;
 if (R.boss) {
 const b = R.boss;
+if (!(b.stun > 0)) {
 b.x += b.dir * (b.style === 1 ? 2 : 1);
 const minX = R.escorts.length > 0 ? 60 : 8;
 const maxX = R.escorts.length > 0 ? W - BOSS_W - 60 : W - BOSS_W - 8;
 if (b.x < minX) { b.x = minX; b.dir = 1; }
 if (b.x > maxX) { b.x = maxX; b.dir = -1; }
+}
 b.cool -= 1;
 if (b.cool <= 0) {
-if (R.stun <= 0 && R.charm <= 0) fireBoss();
+if (R.charm <= 0) fireBoss();
 b.cool = Math.max(18, R.foeGap + 10);
 }
 }
 R.foeCool += 1;
 if (R.foeCool >= R.foeGap) {
 R.foeCool = 0;
-if (R.stun <= 0 && R.charm <= 0) enemyShoot();
+if (R.charm <= 0) enemyShoot();
 }
 stepFoes();
 R.godBeamT = 0;
@@ -2400,10 +2446,12 @@ drawAlienAt(Math.round(b.x), b.y, 2, P, { max: 1, hp: 1 });
 drawAlienAt(Math.round(b.x), b.y, 2, P, { max: b.max, hp: b.hp });
 }
 }
+if (R.zapT > 0) fillRect(R.zapX, 30, 4, SHIP_Y - 30, clr([255, 240, 120]));
 for (const f of R.foes) {
 const fx = Math.round(f.x), fy = Math.round(f.y);
 if (f.kind === 3) {
 const ink = foeInk(f);
+fillRect(fx, fy, 10, 10, clr([16, 12, 20]));
 fillRect(fx + 2, fy, 6, 10, ink);
 fillRect(fx, fy + 2, 10, 6, ink);
 fillRect(fx + 3, fy + 3, 4, 4, clr([255, 255, 255]));
@@ -2471,10 +2519,93 @@ drawKey("LEFT", BOX.left, input.left, P);
 drawKey("FIRE", BOX.fire, input.fire, P);
 drawKey("RIGHT", BOX.right, input.right, P);
 }
+function paintGodMark(ink, bg) {
+const cx = Math.floor(W / 2);
+const g = ((R.god - 1) % 12) + 1;
+if (g === 1) {
+drawLine(cx - 44, 98, cx - 34, 114, ink);
+drawLine(cx - 34, 114, cx - 46, 114, ink);
+drawLine(cx - 46, 114, cx - 32, 134, ink);
+drawLine(cx + 44, 98, cx + 34, 114, ink);
+drawLine(cx + 34, 114, cx + 46, 114, ink);
+drawLine(cx + 46, 114, cx + 32, 134, ink);
+} else if (g === 2) {
+for (const dx of [-28, 0, 28]) {
+drawCircle(cx + dx, 102, 6, ink);
+fillCircle(cx + dx, 102, 2, ink);
+}
+} else if (g === 3) {
+for (const y of [104, 122]) {
+for (let x = 48; x < W - 56; x += 10) {
+const down = ((x / 10) & 1) === 0;
+drawLine(x, y + (down ? 0 : 5), x + 10, y + (down ? 5 : 0), ink);
+}
+}
+} else if (g === 4) {
+for (const x of [cx - 36, cx, cx + 36]) {
+fillRect(x, 92, 2, 16, ink);
+drawLine(x, 96, x - 6, 92, ink);
+drawLine(x + 1, 100, x + 7, 96, ink);
+drawLine(x, 104, x - 6, 100, ink);
+}
+} else if (g === 5) {
+drawLine(cx, 90, cx - 14, 104, ink);
+drawLine(cx, 90, cx + 14, 104, ink);
+drawLine(cx - 14, 104, cx - 14, 118, ink);
+drawLine(cx + 14, 104, cx + 14, 118, ink);
+drawLine(cx - 14, 118, cx, 132, ink);
+drawLine(cx + 14, 118, cx, 132, ink);
+} else if (g === 6) {
+drawLine(cx - 30, 94, cx - 8, 132, ink);
+drawLine(cx + 30, 94, cx + 8, 132, ink);
+} else if (g === 7) {
+for (let dx = -1; dx <= 1; dx++) {
+for (let dy = -1; dy <= 1; dy++) {
+if (!dx && !dy) continue;
+const inner = dx && dy ? 6 : 8;
+const outer = dx && dy ? 14 : 18;
+drawLine(cx + dx * inner, 108 + dy * inner, cx + dx * outer, 108 + dy * outer, ink);
+}
+}
+} else if (g === 8) {
+drawCircle(cx, 108, 10, ink);
+fillCircle(cx + 6, 106, 8, bg);
+} else if (g === 9) {
+fillCircle(cx - 5, 100, 5, ink);
+fillCircle(cx + 5, 100, 5, ink);
+drawLine(cx - 10, 102, cx, 118, ink);
+drawLine(cx + 10, 102, cx, 118, ink);
+} else if (g === 10) {
+fillRect(cx - 12, 96, 24, 5, ink);
+fillRect(cx - 6, 101, 12, 8, ink);
+fillRect(cx - 14, 109, 28, 4, ink);
+} else if (g === 11) {
+drawLine(cx - 8, 108, cx - 28, 100, ink);
+drawLine(cx - 8, 108, cx - 26, 112, ink);
+drawLine(cx - 16, 106, cx - 28, 108, ink);
+drawLine(cx + 8, 108, cx + 28, 100, ink);
+drawLine(cx + 8, 108, cx + 26, 112, ink);
+drawLine(cx + 16, 106, cx + 28, 108, ink);
+} else {
+fillCircle(cx, 96, 3, ink);
+fillCircle(cx - 8, 100, 3, ink);
+fillCircle(cx + 8, 100, 3, ink);
+fillCircle(cx - 4, 108, 3, ink);
+fillCircle(cx + 4, 108, 3, ink);
+fillCircle(cx, 114, 3, ink);
+}
+}
 function paintGodArena(P) {
 const ink = godInk();
-fillRect(24, 30, W - 48, 3, ink);
-drawText(godName() + " DOMAIN", W / 2, 48, ink, "f2", "mc");
+for (let i = 0; i < 6; i++) {
+const x = 18 + i * 56;
+fillRect(x, 40, 6, SHIP_Y - 44, ink);
+fillRect(x - 6, 40, 18, 5, ink);
+}
+drawCircle(W / 2, 150, 78, ink);
+drawCircle(W / 2, 150, 60, ink);
+paintGodMark(ink, P.bg);
+drawText(godName() + " DOMAIN", W / 2, 150, ink, "f2", "mc");
 }
 function paintMenu(P) {
 FB.fill(P.bg);
