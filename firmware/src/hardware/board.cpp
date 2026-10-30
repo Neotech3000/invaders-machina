@@ -2774,7 +2774,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     unit.alive = false;
     addScore(10);
-    if ((nextRng() % 100) < 35) {
+    if ((nextRng() % 100) < 20) {
       spawnCoin(origin_x_ + unit.ox + unitW(unit) / 2 - 3, origin_y_ + unit.oy + unitH(unit) / 2 - 3);
     }
     maybeDrop(false);
