@@ -1298,6 +1298,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (x < bx + shipClearW() && x + w > bx && y < by + shipClearH() && y + h > by) {
         drawShipAt(player_x_);
       }
+      if (clone_alive_ && clone_drawn_) {
+        const int cx = shipClearX(clone_x_);
+        if (x < cx + shipClearW() && x + w > cx && y < by + shipClearH() && y + h > by) {
+          drawShipAt(clone_x_);
+        }
+      }
     }
   }
 
@@ -2469,7 +2475,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     clone_alive_ = !demo_ && divineOn(1);
     clone_drawn_ = false;
     clone_cool_ = 0;
-    clone_x_ = 16;
+    clone_x_ = clampedCloneX(player_x_);
     for (int i = 0; i < kGods; ++i) div_cool_[i] = 24;
   }
 
@@ -5050,39 +5056,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drone_drawn_ = n > 0;
   }
 
-  bool shipsTooClose(int a, int b) const {
-    int d = a - b;
-    if (d < 0) d = -d;
-    return d < kShipW + 16;
-  }
-
-  int mirrorClone(int px) const {
-    int mirror = (kPanelWidth - kShipW) - px;
-    if (mirror < 4) mirror = 4;
-    if (mirror > kPanelWidth - kShipW - 4) mirror = kPanelWidth - kShipW - 4;
-    return mirror;
-  }
-
-  // Stay on the clone's current side of the player so it never crosses the hull.
-  int placeClone(int px) const {
-    const int mirror = mirrorClone(px);
-    const bool mirror_left = mirror + kShipW / 2 <= px + kShipW / 2;
-    if (!clone_drawn_) {
-      if (!shipsTooClose(mirror, px)) return mirror;
-      return besideClone(px, px >= (kPanelWidth - kShipW) / 2);
-    }
-    const bool clone_left = clone_x_ + kShipW / 2 <= px + kShipW / 2;
-    if (!shipsTooClose(mirror, px) && mirror_left == clone_left) return mirror;
-    return besideClone(px, clone_left);
-  }
-
-  int besideClone(int px, bool left) const {
-    const int gap = kShipW + 16;
-    int x = left ? px - gap : px + gap;
+  // Mirror the player, and keep the clone inside the playfield.
+  int clampedCloneX(int px) const {
+    int x = (kPanelWidth - kShipW) - px;
     if (x < 4) x = 4;
     if (x > kPanelWidth - kShipW - 4) x = kPanelWidth - kShipW - 4;
-    if (!shipsTooClose(x, px)) return x;
-    return left ? 4 : kPanelWidth - kShipW - 4;
+    return x;
   }
 
   void eraseCloneDrawn() {
@@ -5096,7 +5075,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
-  // The clone mirrors the player and only changes when it actually moves.
+  // The clone mirrors the player. A wall clamps it to the far edge; it stays drawn and keeps firing.
   void stepClone() {
     if (demo_ || !divineOn(1)) {
       eraseCloneDrawn();
@@ -5104,32 +5083,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     if (!clone_alive_) return;
-    const int want = placeClone(player_x_);
-    if (!clone_drawn_) {
-      clone_x_ = want;
-      if (shipsTooClose(clone_x_, player_x_)) {
-        clone_x_ = player_x_ > kPanelWidth / 2 ? 4 : kPanelWidth - kShipW - 4;
-      }
-      clone_drawn_ = true;
-      drawShipAt(clone_x_);
-      return;
-    }
-    if (clone_x_ == want && !shipsTooClose(clone_x_, player_x_)) return;
-    if (shipsTooClose(clone_x_, player_x_)) {
-      const int hop = clone_x_ < player_x_ ? (kPanelWidth - kShipW - 4) : 4;
-      if (shipsTooClose(hop, player_x_) || hop == clone_x_) return;
-      eraseCloneDrawn();
-      clone_x_ = hop;
-      clone_drawn_ = true;
-      drawShipAt(clone_x_);
-      return;
-    }
-    const int pace = ship_step_ + (hermes_ticks_ > 0 ? 4 : 0);
-    int next = want > clone_x_ ? clone_x_ + pace : clone_x_ - pace;
-    if ((want > clone_x_ && next > want) || (want < clone_x_ && next < want)) next = want;
-    if (shipsTooClose(next, player_x_) || next == clone_x_) return;
+    const int want = clampedCloneX(player_x_);
+    if (clone_drawn_ && clone_x_ == want) return;
     eraseCloneDrawn();
-    clone_x_ = next;
+    clone_x_ = want;
     clone_drawn_ = true;
     drawShipAt(clone_x_);
   }

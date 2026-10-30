@@ -762,7 +762,9 @@ R.demeterBonus = 0; R.demeterT = 0;
 R.demeterUses = 0; R.athenaUses = 0; R.aegisT = 0; R.aegisHits = 0;
 R.stun = 0; R.charm = 0; R.revel = 0; R.hermes = 0; R.berserk = 0;
 R.waveY = -1; R.sunT = 0; R.sunX = 0; R.godBeamT = 0; R.godBeamX = 0; R.godWard = 0;
-R.cloneAlive = !demo && divineOn(1); R.cloneX = 16; R.cloneCool = 0;
+R.cloneAlive = !demo && divineOn(1);
+R.cloneX = clamp((W - SHIP_W) - R.px, 4, W - SHIP_W - 4);
+R.cloneCool = 0;
 R.divCool = [];
 for (let i = 0; i < 12; i++) R.divCool[i] = 24;
 }
@@ -1313,30 +1315,10 @@ if (!fireWeaponAt(R.px)) return;
 if (twin) fireWeaponAt(R.cloneX);
 R.gunCool = fireGap();
 }
-function shipsTooClose(a, b) { return Math.abs(a - b) < SHIP_W + 16; }
 function placeClone() {
 if (demo || !divineOn(1)) { R.cloneAlive = false; return; }
 if (!R.cloneAlive) return;
-const pace = SHIP_STEP + (save.thrust | 0) + (perk(PERK.speed) ? 1 : 0) + (R.hermes > 0 ? 4 : 0);
-const gap = SHIP_W + 16;
-const mirror = clamp((W - SHIP_W) - R.px, 4, W - SHIP_W - 4);
-const mirrorLeft = mirror + SHIP_W / 2 <= R.px + SHIP_W / 2;
-const cloneLeft = R.cloneX + SHIP_W / 2 <= R.px + SHIP_W / 2;
-let want = mirror;
-if (shipsTooClose(mirror, R.px) || mirrorLeft !== cloneLeft) {
-want = clamp(cloneLeft ? R.px - gap : R.px + gap, 4, W - SHIP_W - 4);
-if (shipsTooClose(want, R.px)) want = cloneLeft ? 4 : W - SHIP_W - 4;
-}
-if (R.cloneX === want && !shipsTooClose(R.cloneX, R.px)) return;
-if (shipsTooClose(R.cloneX, R.px)) {
-const hop = R.cloneX < R.px ? W - SHIP_W - 4 : 4;
-if (!shipsTooClose(hop, R.px)) R.cloneX = hop;
-return;
-}
-let next = want > R.cloneX ? R.cloneX + pace : R.cloneX - pace;
-if ((want > R.cloneX && next > want) || (want < R.cloneX && next < want)) next = want;
-if (shipsTooClose(next, R.px) || next === R.cloneX) return;
-R.cloneX = next;
+R.cloneX = clamp((W - SHIP_W) - R.px, 4, W - SHIP_W - 4);
 }
 function beamBurstLen() {
 let len = 188 + gunLv(save.gunEquip) * 12;
