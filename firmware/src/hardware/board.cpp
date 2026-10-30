@@ -75,8 +75,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setBrightness(255);
     touch_begin();
     prefs_.begin("jitters", false);
-    theme_ = prefs_.getUChar("theme", 0) & 3;
+    theme_ = prefs_.getUChar("theme", 0) & 7;
     loadGear();
+    loadShop();
     loadCampaign();
     makeStars();
     rng_ = esp_random();
@@ -138,13 +139,35 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       return;
     }
+    if (mode_ == Mode::Shop) {
+      if (!rose || !on) return;
+      if (std::strcmp(where, "BACK") == 0) {
+        beginMenu();
+      } else if (std::strcmp(where, "PAGE") == 0) {
+        const int pages = (shopCount(shop_tab_) + kShopRows - 1) / kShopRows;
+        shop_page_ = (shop_page_ + 1) % pages;
+        paintShop();
+      } else if (std::strncmp(where, "TAB", 3) == 0) {
+        shop_tab_ = where[3] - '0';
+        shop_page_ = 0;
+        shop_msg_ = "";
+        paintShop();
+      } else if (std::strncmp(where, "ROW", 3) == 0) {
+        shopAct(shop_page_ * kShopRows + (where[3] - '0'));
+      }
+      return;
+    }
     if (mode_ == Mode::Menu) {
       if (!rose || !on) return;
       if (std::strcmp(where, "PLAY") == 0) beginCampaign();
       else if (std::strcmp(where, "CHECK") == 0) beginChecks();
       else if (std::strcmp(where, "CUSTOM") == 0) beginCustom(false);
+      else if (std::strcmp(where, "SHOP") == 0) beginShop();
+      else if (std::strcmp(where, "HOME") == 0) beginDemo();
       else if (std::strcmp(where, "THEME") == 0) {
-        theme_ = static_cast<uint8_t>((theme_ + 1) & 3);
+        do {
+          theme_ = static_cast<uint8_t>((theme_ + 1) & 7);
+        } while (!themeOwned(theme_));
         prefs_.putUChar("theme", theme_);
         beginMenu();
       } else if (std::strcmp(where, "RESTART") == 0) beginConfirm();
@@ -179,7 +202,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (mode_ == Mode::Custom) {
       if (!rose || !on) return;
       if (std::strcmp(where, "COLOR") == 0) {
-        laser_color_ = static_cast<uint8_t>((laser_color_ + 1) % 12);
+        do {
+          laser_color_ = static_cast<uint8_t>((laser_color_ + 1) % 12);
+        } while (!laserOwned(laser_color_));
         saveGear();
         paintCustom();
       } else if (std::strcmp(where, "BACK") == 0) {
@@ -200,7 +225,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
  private:
   enum class Mode : uint8_t {
-    Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom, Splash
+    Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom, Splash, Shop
   };
 
   struct Box {
@@ -236,6 +261,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     int y;
     uint8_t col[10];
     bool on;
+  };
+  struct Coin {
+    int16_t x = 0;
+    int16_t y = 0;
+    bool on = false;
   };
   struct Star {
     int16_t x;
@@ -298,6 +328,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kShotW = 3;
   static constexpr int kShotH = 8;
   static constexpr int kShipStep = 5;
+  static constexpr int kCoins = 16;
+  static constexpr int kCoinW = 6;
+  static constexpr int kShopRows = 6;
+  static constexpr uint16_t kThemePrice[8] = {0, 0, 0, 0, 60, 80, 100, 120};
 
 
   void loadGear() {
@@ -336,8 +370,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     prefs_.putUChar("raidok", raid_won_ ? 1 : 0);
   }
 
-  const char* laserName() const {
-    switch (laser_color_ % 12) {
+  const char* laserName() const { return laserNameOf(laser_color_); }
+
+  const char* laserNameOf(int c) const {
+    switch (c % 12) {
       case 1:
         return "GOLD";
       case 2:
@@ -365,8 +401,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
-  uint16_t laserColor() const {
-    switch (laser_color_ % 12) {
+  uint16_t laserColor() const { return laserColorOf(laser_color_); }
+
+  uint16_t laserColorOf(int c) const {
+    switch (c % 12) {
       case 1:
         return color565(255, 210, 48);
       case 2:
@@ -452,21 +490,33 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     paintCustom();
   }
 
-  const char* themeName() const {
-    switch (theme_ & 3) {
+  const char* themeName() const { return themeNameOf(theme_); }
+
+  const char* themeNameOf(int t) const {
+    switch (t & 7) {
       case 1:
         return "LIGHT";
       case 2:
         return "BLUE";
       case 3:
         return "AMBER";
+      case 4:
+        return "MIDNIGHT";
+      case 5:
+        return "MINT";
+      case 6:
+        return "ROSE";
+      case 7:
+        return "ARCADE";
       default:
         return "DARK NEON";
     }
   }
 
-  Palette palette() const {
-    switch (theme_ & 3) {
+  Palette palette() const { return paletteOf(theme_); }
+
+  Palette paletteOf(int t) const {
+    switch (t & 7) {
       case 1:
         return {color565(248, 242, 226), color565(28, 22, 16),   color565(90, 68, 48),
                 color565(16, 110, 42),    color565(196, 92, 8),   color565(12, 112, 36),
@@ -485,6 +535,30 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
                 color565(255, 196, 80),   color565(180, 90, 20),   color565(255, 240, 180),
                 color565(120, 60, 20),    color565(48, 24, 8),     color565(120, 64, 16),
                 color565(255, 200, 140)};
+      case 4:
+        return {color565(8, 8, 28),      color565(230, 230, 255), color565(120, 120, 170),
+                color565(120, 110, 255), color565(90, 80, 220),   color565(70, 60, 190),
+                color565(160, 200, 255), color565(60, 60, 140),   color565(255, 120, 255),
+                color565(40, 40, 110),   color565(30, 28, 70),    color565(60, 56, 120),
+                color565(200, 200, 255)};
+      case 5:
+        return {color565(226, 250, 240), color565(16, 60, 48),    color565(90, 140, 120),
+                color565(20, 170, 120),  color565(40, 190, 140),  color565(30, 160, 120),
+                color565(10, 110, 90),   color565(40, 140, 110),  color565(255, 90, 120),
+                color565(160, 230, 200), color565(196, 240, 222), color565(120, 220, 180),
+                color565(120, 200, 170)};
+      case 6:
+        return {color565(40, 8, 24),     color565(255, 226, 236), color565(180, 110, 140),
+                color565(255, 80, 150),  color565(255, 110, 170), color565(230, 70, 140),
+                color565(255, 200, 220), color565(170, 40, 100),  color565(255, 240, 120),
+                color565(110, 30, 70),   color565(80, 16, 50),    color565(140, 30, 84),
+                color565(255, 190, 220)};
+      case 7:
+        return {color565(0, 0, 0),       color565(255, 255, 0),   color565(120, 120, 0),
+                color565(0, 255, 255),   color565(255, 0, 255),   color565(0, 200, 255),
+                color565(0, 255, 255),   color565(255, 0, 0),     color565(255, 255, 255),
+                color565(60, 0, 60),     color565(20, 20, 20),    color565(60, 60, 0),
+                color565(255, 255, 255)};
       default:
         return {TFT_BLACK,
                 TFT_WHITE,
@@ -503,10 +577,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   Box playBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
-  Box menuPlayBox() const { return {16, 64, 288, 58}; }
-  Box menuCheckBox() const { return {16, 134, 288, 52}; }
-  Box menuCustomBox() const { return {16, 198, 288, 52}; }
-  Box menuThemeBox() const { return {16, 262, 288, 52}; }
+  Box menuPlayBox() const { return {16, 60, 288, 48}; }
+  Box menuCheckBox() const { return {16, 116, 288, 40}; }
+  Box menuCustomBox() const { return {16, 164, 288, 40}; }
+  Box menuShopBox() const { return {16, 212, 288, 40}; }
+  Box menuThemeBox() const { return {16, 260, 288, 40}; }
+  Box menuHomeBox() const { return {16, 308, 288, 40}; }
+  Box shopTab(int t) const { return {8 + t * 63, 40, 60, 34}; }
+  Box shopRow(int r) const { return {16, 84 + r * 52, 288, 46}; }
+  Box shopPageBox() const { return {8, 396, 120, 28}; }
   Box menuRestartBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
   Box checkCell(int index) const {
     const int col = index % 4;
@@ -536,8 +615,29 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (contains(menuPlayBox(), x, y)) return "PLAY";
       if (contains(menuCheckBox(), x, y)) return "CHECK";
       if (contains(menuCustomBox(), x, y)) return "CUSTOM";
+      if (contains(menuShopBox(), x, y)) return "SHOP";
       if (contains(menuThemeBox(), x, y)) return "THEME";
+      if (contains(menuHomeBox(), x, y)) return "HOME";
       if (contains(menuRestartBox(), x, y)) return "RESTART";
+      return "none";
+    }
+    if (mode_ == Mode::Shop) {
+      if (contains(homeBox(), x, y)) return "BACK";
+      if (contains(shopPageBox(), x, y)) return "PAGE";
+      for (int t = 0; t < 5; ++t) {
+        if (contains(shopTab(t), x, y)) {
+          static char tab_token[8];
+          snprintf(tab_token, sizeof tab_token, "TAB%d", t);
+          return tab_token;
+        }
+      }
+      for (int r = 0; r < kShopRows; ++r) {
+        if (contains(shopRow(r), x, y)) {
+          static char row_token[8];
+          snprintf(row_token, sizeof row_token, "ROW%d", r);
+          return row_token;
+        }
+      }
       return "none";
     }
     if (mode_ == Mode::Check) {
@@ -805,10 +905,19 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setFont(&fonts::Font2);
     setTextColor(ink.accent);
     drawString("MACHINA", kPanelWidth / 2, 48);
+    setTextDatum(lgfx::middle_right);
+    setTextColor(ink.accent);
+    char coins[16];
+    snprintf(coins, sizeof coins, "$%u", static_cast<unsigned>(bank_));
+    drawString(coins, kPanelWidth - 12, 48);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.ink);
     drawCard("PLAY", continueLine(), menuPlayBox());
     drawCard("CHECKPOINTS", checkpointLine(), menuCheckBox());
     drawCard("CUSTOM", "ship, guns, laser", menuCustomBox());
+    drawCard("SHOP", "themes, guns, power-ups", menuShopBox());
     drawCard(themeName(), "tap to switch", menuThemeBox());
+    drawCard("HOME SCREEN", "CPU attract", menuHomeBox());
     drawKey("RESTART GAME", menuRestartBox(), false);
   }
 
@@ -831,12 +940,340 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   void beginMenu() {
     if (demo_) level_ = camp_level_;
     demo_ = false;
+    saveShop();
     fadeOut();
     mode_ = Mode::Menu;
     shot_ = false;
     clearFoe();
     paintMenu();
     fadeIn();
+  }
+
+  // ---- Coins -------------------------------------------------------------
+
+  bool themeOwned(int t) const { return ((themes_owned_ >> (t & 7)) & 1) != 0; }
+  bool laserOwned(int c) const { return ((lasers_owned_ >> (c % 12)) & 1) != 0; }
+
+  void loadShop() {
+    bank_ = prefs_.getUShort("coins", 0);
+    themes_owned_ = static_cast<uint8_t>(prefs_.getUChar("themes", 0x0F) | 0x0F);
+    lasers_owned_ = static_cast<uint16_t>(prefs_.getUShort("lasers", 0x0001) | 0x0001);
+    shield_ = prefs_.getUChar("shield", 0);
+    spare_ = prefs_.getUChar("spare", 0);
+    thrust_ = prefs_.getUChar("thrust", 0);
+    if (thrust_ > 2) thrust_ = 2;
+    ship_step_ = kShipStep + thrust_;
+    if (!themeOwned(theme_)) theme_ = 0;
+    if (!laserOwned(laser_color_)) laser_color_ = 0;
+  }
+
+  void saveShop() {
+    if (demo_) return;
+    prefs_.putUShort("coins", bank_);
+    prefs_.putUChar("themes", themes_owned_);
+    prefs_.putUShort("lasers", lasers_owned_);
+    prefs_.putUChar("shield", shield_);
+    prefs_.putUChar("spare", spare_);
+    prefs_.putUChar("thrust", thrust_);
+  }
+
+  void drawCoin(int x, int y) {
+    fillCircle(x + 3, y + 3, 3, color565(255, 210, 48));
+    fillRect(x + 2, y + 2, 2, 2, color565(255, 246, 170));
+  }
+
+  void spawnCoin(int x, int y) {
+    if (demo_) return;
+    if (x < 0) x = 0;
+    if (x > kPanelWidth - kCoinW) x = kPanelWidth - kCoinW;
+    for (int i = 0; i < kCoins; ++i) {
+      if (coins_[i].on) continue;
+      coins_[i].on = true;
+      coins_[i].x = static_cast<int16_t>(x);
+      coins_[i].y = static_cast<int16_t>(y);
+      drawCoin(x, y);
+      return;
+    }
+  }
+
+  // A boss scatters its coins over the spot where it fell.
+  void dropCoins(int x, int y, int n) {
+    for (int i = 0; i < n; ++i) spawnCoin(x + (i - n / 2) * 7, y);
+  }
+
+  void paintCoins() {
+    for (int i = 0; i < kCoins; ++i) {
+      if (coins_[i].on) drawCoin(coins_[i].x, coins_[i].y);
+    }
+  }
+
+  void clearCoins() {
+    for (int i = 0; i < kCoins; ++i) {
+      if (!coins_[i].on) continue;
+      repair(coins_[i].x, coins_[i].y, kCoinW, kCoinW);
+      coins_[i].on = false;
+    }
+  }
+
+  void stepCoins() {
+    bool collected = false;
+    for (int i = 0; i < kCoins; ++i) {
+      Coin& coin = coins_[i];
+      if (!coin.on) continue;
+      const int ox = coin.x;
+      const int oy = coin.y;
+      const int ny = oy + 2;
+      if (overlap(ox, ny, kCoinW, kCoinW, player_x_, kShipY, kShipW, kShipH)) {
+        repair(ox, oy, kCoinW, kCoinW);
+        drawShipAt(player_x_);
+        coin.on = false;
+        if (bank_ < 65535) bank_ += 1;
+        collected = true;
+        continue;
+      }
+      if (ny >= kButtonY) {
+        repair(ox, oy, kCoinW, kCoinW);
+        coin.on = false;
+        continue;
+      }
+      coin.y = static_cast<int16_t>(ny);
+      drawCoin(ox, ny);
+      uncover(ox, oy, ox, ny, kCoinW, kCoinW);
+    }
+    if (collected) drawHud();
+  }
+
+  // ---- Shop --------------------------------------------------------------
+
+  int shopCount(int tab) const {
+    switch (tab) {
+      case 0:
+        return 8;
+      case 1:
+        return 12;
+      case 2:
+        return 9;
+      default:
+        return 2;
+    }
+  }
+
+  int shopPrice(int tab, int idx) const {
+    switch (tab) {
+      case 0:
+        return kThemePrice[idx];
+      case 1:
+        return idx == 0 ? 0 : 15;
+      case 2:
+        return idx == 0 ? 0 : 90;
+      case 3:
+        return idx == 0 ? 40 : 60;
+      default:
+        return idx == 0 ? 50 * (gunLv(gun_equip_) + 1) : 60 * (thrust_ + 1);
+    }
+  }
+
+  bool shopOwned(int tab, int idx) const {
+    if (tab == 0) return themeOwned(idx);
+    if (tab == 1) return laserOwned(idx);
+    if (tab == 2) return gunUnlocked(idx);
+    return false;
+  }
+
+  bool shopActive(int idx) const {
+    if (shop_tab_ == 0) return theme_ == idx;
+    if (shop_tab_ == 1) return laser_color_ == idx;
+    if (shop_tab_ == 2) return gun_equip_ == idx;
+    return false;
+  }
+
+  const char* shopName(int tab, int idx) const {
+    switch (tab) {
+      case 0:
+        return themeNameOf(idx);
+      case 1:
+        return laserNameOf(idx);
+      case 2:
+        return gunToken(idx);
+      case 3:
+        return idx == 0 ? "SHIELD" : "SPARE HEART";
+      default:
+        return idx == 0 ? "GUN POWER" : "THRUSTERS";
+    }
+  }
+
+  void shopStatus(int tab, int idx, char* buf, int n) const {
+    if (tab <= 2) {
+      if (shopActive(idx)) snprintf(buf, n, "ON");
+      else if (shopOwned(tab, idx)) snprintf(buf, n, "OWNED");
+      else snprintf(buf, n, "$%d", shopPrice(tab, idx));
+      return;
+    }
+    if (tab == 3) {
+      snprintf(buf, n, "x%d", idx == 0 ? shield_ : spare_);
+      return;
+    }
+    if (idx == 0) snprintf(buf, n, "LV%d", gunLv(gun_equip_));
+    else snprintf(buf, n, "LV%d", static_cast<int>(thrust_));
+  }
+
+  bool pay(int price) {
+    if (bank_ < price) {
+      shop_msg_ = "NOT ENOUGH COINS";
+      return false;
+    }
+    bank_ = static_cast<uint16_t>(bank_ - price);
+    return true;
+  }
+
+  void shopAct(int idx) {
+    const int tab = shop_tab_;
+    if (idx < 0 || idx >= shopCount(tab)) return;
+    shop_msg_ = "";
+    if (tab <= 2) {
+      if (!shopOwned(tab, idx)) {
+        if (!pay(shopPrice(tab, idx))) {
+          paintShop();
+          return;
+        }
+        if (tab == 0) themes_owned_ = static_cast<uint8_t>(themes_owned_ | (1u << idx));
+        else if (tab == 1) lasers_owned_ = static_cast<uint16_t>(lasers_owned_ | (1u << idx));
+        else gun_unlock_ = static_cast<uint8_t>(gun_unlock_ | (1u << (idx - 1)));
+        shop_msg_ = "BOUGHT";
+      }
+      if (tab == 0) {
+        theme_ = static_cast<uint8_t>(idx);
+        prefs_.putUChar("theme", theme_);
+      } else if (tab == 1) {
+        laser_color_ = static_cast<uint8_t>(idx);
+      } else {
+        gun_equip_ = static_cast<uint8_t>(idx);
+      }
+      saveGear();
+      saveShop();
+      paintShop();
+      return;
+    }
+    if (tab == 3) {
+      if (!pay(shopPrice(tab, idx))) {
+        paintShop();
+        return;
+      }
+      if (idx == 0) {
+        if (shield_ < 9) shield_ = static_cast<uint8_t>(shield_ + 1);
+      } else if (spare_ < 9) {
+        spare_ = static_cast<uint8_t>(spare_ + 1);
+      }
+      shop_msg_ = "BOUGHT";
+      saveShop();
+      paintShop();
+      return;
+    }
+    if (idx == 0 && gunLv(gun_equip_) >= kGunMaxLv) {
+      shop_msg_ = "MAXED";
+      paintShop();
+      return;
+    }
+    if (idx == 1 && thrust_ >= 2) {
+      shop_msg_ = "MAXED";
+      paintShop();
+      return;
+    }
+    if (!pay(shopPrice(tab, idx))) {
+      paintShop();
+      return;
+    }
+    if (idx == 0) {
+      gun_lv_[gun_equip_] = static_cast<uint8_t>(gunLv(gun_equip_) + 1);
+      saveGear();
+    } else {
+      thrust_ = static_cast<uint8_t>(thrust_ + 1);
+      ship_step_ = kShipStep + thrust_;
+    }
+    shop_msg_ = "UPGRADED";
+    saveShop();
+    paintShop();
+  }
+
+  void paintShop() {
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_left);
+    setTextColor(ink.ink);
+    drawString("SHOP", 12, 18);
+    setTextDatum(lgfx::middle_right);
+    setTextColor(ink.accent);
+    char coins[16];
+    snprintf(coins, sizeof coins, "$%u", static_cast<unsigned>(bank_));
+    drawString(coins, kPanelWidth - 12, 18);
+    static const char* const kTabs[5] = {"THEMES", "COLORS", "GUNS", "POWER", "UPGRADE"};
+    for (int t = 0; t < 5; ++t) {
+      drawKey(kTabs[t], shopTab(t), t == shop_tab_);
+    }
+    const int count = shopCount(shop_tab_);
+    const int pages = (count + kShopRows - 1) / kShopRows;
+    if (shop_page_ >= pages) shop_page_ = 0;
+    for (int row = 0; row < kShopRows; ++row) {
+      const int idx = shop_page_ * kShopRows + row;
+      if (idx >= count) break;
+      const Box b = shopRow(row);
+      fillRect(b.x, b.y, b.w, b.h, ink.button);
+      drawRect(b.x, b.y, b.w, b.h, shopActive(idx) ? ink.accent : ink.button);
+      if (shop_tab_ == 0) fillRect(b.x + 8, b.y + 12, 22, 22, paletteOf(idx).accent);
+      if (shop_tab_ == 1) fillRect(b.x + 8, b.y + 12, 22, 22, laserColorOf(idx));
+      setTextDatum(lgfx::middle_left);
+      setTextColor(ink.ink);
+      drawString(shopName(shop_tab_, idx), b.x + 38, b.y + b.h / 2);
+      char state[16];
+      shopStatus(shop_tab_, idx, state, sizeof state);
+      setTextDatum(lgfx::middle_right);
+      setTextColor(ink.muted);
+      drawString(state, b.x + b.w - 10, b.y + b.h / 2);
+    }
+    char page[32];
+    snprintf(page, sizeof page, "PAGE %d/%d", shop_page_ + 1, pages);
+    drawKey(page, shopPageBox(), false);
+    setTextDatum(lgfx::middle_left);
+    setTextColor(ink.accent);
+    drawString(shop_msg_, 140, 410);
+    drawKey("BACK", homeBox(), false);
+  }
+
+  void beginShop() {
+    fadeOut();
+    mode_ = Mode::Shop;
+    shop_msg_ = "";
+    paintShop();
+    fadeIn();
+  }
+
+  // ---- Who killed you ----------------------------------------------------
+
+  const char* foeKiller(const FoeBolt& foe) const {
+    if (god_ != 0 && god_entrance_) return godName();
+    if (mini_) return "MINI BOSS";
+    if (foe.kind == 2) return "CANNON";
+    if (foe.kind == 1) return "ASSAULT";
+    return "ALIEN";
+  }
+
+  const char* unitKiller(uint8_t kind) const {
+    switch (kind) {
+      case 2:
+        if (god_ != 0) return godName();
+        return raid_ ? "RAID BOSS" : "BOSS";
+      case 3:
+        return "DRONE";
+      case 4:
+        return "ASSAULT";
+      case 5:
+        return "CANNON";
+      case 6:
+        return "MINI BOSS";
+      default:
+        return "ALIEN";
+    }
   }
 
   // ---- Checkpoints -------------------------------------------------------
@@ -898,6 +1335,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     fadeOut();
     score_ = 0;
     lives_ = 3;
+    if (spare_ > 0) {
+      spare_ -= 1;
+      lives_ = 4;
+      saveShop();
+    }
     god_ = 0;
     god_wave_ = 0;
     god_entrance_ = false;
@@ -1271,11 +1713,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     int slots = lives_ > 3 ? lives_ : 3;
     if (slots > 8) slots = 8;
-    if (textWidth(line) > kPanelWidth - 24 - slots * 14) {
+    if (textWidth(line) > kPanelWidth - 70 - slots * 14) {
       snprintf(line, sizeof line, "M %d %d", level_, score_);
     }
     drawString(line, 8, 12);
     drawHearts();
+    char coins[12];
+    snprintf(coins, sizeof coins, "$%u", static_cast<unsigned>(bank_));
+    setTextDatum(lgfx::middle_right);
+    drawString(coins, kPanelWidth - 8 - slots * 14 - 6, 12);
     if (boss_ || god_ != 0) drawBossBar();
   }
 
@@ -1572,6 +2018,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       drawBuddy();
     }
     if (drop_on_) drawDrop();
+    paintCoins();
     drawHud();
     if (demo_) {
       // The attract loop shows one big PLAY key where the ship controls sit.
@@ -1584,6 +2031,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void startLevel() {
+    clearCoins();
     mode_ = Mode::Play;
     shot_ = false;
     clearFoe();
@@ -1641,6 +2089,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       repair(foes_[i].x, foes_[i].y, foes_[i].w, foes_[i].h);
     }
     clearFoe();
+    clearCoins();
+    saveShop();
     mode_ = Mode::Advance;
     shot_ = false;
     clearBolts();
@@ -1671,8 +2121,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
-  void showOver(const char* title) {
+  void showOver(const char* title, const char* killer) {
     fadeOut();
+    clearCoins();
+    saveShop();
     mode_ = Mode::Over;
     shot_ = false;
     clearFoe();
@@ -1686,15 +2138,24 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawString("INVADERS MACHINA", kPanelWidth / 2, 150);
     setTextColor(ink.ink);
     drawString(title, kPanelWidth / 2, 186);
+    if (killer != nullptr) {
+      char who[40];
+      snprintf(who, sizeof who, "%s Killed you", killer);
+      setTextColor(ink.accent);
+      drawString(who, kPanelWidth / 2, 214);
+    }
     char line[24];
     snprintf(line, sizeof line, "LV %d   %d", level_, score_);
     setTextColor(ink.muted);
-    drawString(line, kPanelWidth / 2, 220);
+    drawString(line, kPanelWidth / 2, 244);
     drawKey("HOME", homeBox(), false);
     fadeIn();
   }
 
-  void endRound(bool won) { showOver(won ? "CLEARED" : "CAUGHT"); }
+  void endRound(bool won) {
+    if (won) showOver("CLEARED", nullptr);
+    else showOver("YOU DIED", hit_by_);
+  }
 
   // The ship blinks where it is; the level keeps its formation and progress.
   void blinkShip() {
@@ -1727,12 +2188,22 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     if (invuln_ > 0) return;
-    lives_ -= 1;
     clearFoe();
     shot_ = false;
     beam_on_ = false;
     beam_burst_ = 0;
     clearBolts();
+    if (shield_ > 0) {
+      shield_ -= 1;
+      invuln_ = 80;
+      liftFormation();
+      paintLevel();
+      blinkShip();
+      drawHud();
+      saveShop();
+      return;
+    }
+    lives_ -= 1;
     if (lives_ <= 0) {
       endRound(false);
       return;
@@ -2226,6 +2697,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       addScore(20);
       if (boss_hp_ <= 0) {
         unit.alive = false;
+        dropCoins(origin_x_ + unit.ox + unitW(unit) / 2 - 3, origin_y_ + unit.oy + unitH(unit) / 2 - 3, 2);
         maybeDrop(true);
         return true;
       }
@@ -2261,6 +2733,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
             boss_ = false;
             god_ = 0;
             god_entrance_ = false;
+            dropCoins(origin_x_ + unit.ox + kBossW / 2 - 3, origin_y_ + unit.oy + kBossH / 2 - 3, 10);
             maybeDrop(true);
             return true;
           }
@@ -2292,6 +2765,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
           raid_won_ = true;
           saveCampaign();
         }
+        dropCoins(origin_x_ + unit.ox + unitW(unit) / 2 - 3, origin_y_ + unit.oy + unitH(unit) / 2 - 3, raid_ ? 4 : 3);
         maybeDrop(true);
         return true;
       }
@@ -2300,6 +2774,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     unit.alive = false;
     addScore(10);
+    if ((nextRng() % 100) < 35) {
+      spawnCoin(origin_x_ + unit.ox + unitW(unit) / 2 - 3, origin_y_ + unit.oy + unitH(unit) / 2 - 3);
+    }
     maybeDrop(false);
     return true;
   }
@@ -2663,9 +3140,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         repair(ox, oy, w, h);
         foe.on = false;
         if (foe.kind == 2) {
-          if (blastAt(nx, ny)) lost = true;
+          if (blastAt(nx, ny)) {
+            lost = true;
+            hit_by_ = foeKiller(foe);
+          }
         } else if (hit_ship) {
           lost = true;
+          hit_by_ = foeKiller(foe);
         }
       } else {
         foe.x = static_cast<int16_t>(nx);
@@ -2816,9 +3297,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     const int old_player = player_x_;
     if (held != nullptr && std::strcmp(held, "LEFT") == 0) {
-      player_x_ -= kShipStep;
+      player_x_ -= ship_step_;
     } else if (held != nullptr && std::strcmp(held, "RIGHT") == 0) {
-      player_x_ += kShipStep;
+      player_x_ += ship_step_;
     }
     if (player_x_ < 4) player_x_ = 4;
     if (player_x_ > kPanelWidth - kShipW - 4) player_x_ = kPanelWidth - kShipW - 4;
@@ -2849,6 +3330,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     stepBolts();
     stepDrop();
+    stepCoins();
     const bool was_open = boss_open_;
     if (boss_ && boss_style_ == 2 && bossAlive()) {
       boss_tick_ += 1;
@@ -2856,7 +3338,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (mode_ == Mode::Play) moveFormation();
     if (was_open != boss_open_) drawHud();
-    const bool lost = stepFoe() || stepBossLaser();
+    bool lost = stepFoe();
+    if (!lost && stepBossLaser()) {
+      lost = true;
+      hit_by_ = "LASER";
+    }
     endWrite();
     if (mode_ != Mode::Play) return;
     if (lost) {
@@ -2911,6 +3397,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     for (int i = 0; i < unit_n_; ++i) {
       if (!units_[i].alive) continue;
       if (origin_y_ + units_[i].oy + unitH(units_[i]) >= kShipY) {
+        hit_by_ = unitKiller(units_[i].kind);
         playerHit();
         return;
       }
@@ -2934,6 +3421,18 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool god_entrance_ = false;
   Mode mode_ = Mode::Demo;
   uint8_t theme_ = 0;
+  uint16_t bank_ = 0;
+  uint8_t themes_owned_ = 0x0F;
+  uint16_t lasers_owned_ = 0x0001;
+  uint8_t shield_ = 0;
+  uint8_t spare_ = 0;
+  uint8_t thrust_ = 0;
+  int ship_step_ = kShipStep;
+  int shop_tab_ = 0;
+  int shop_page_ = 0;
+  Coin coins_[kCoins] = {};
+  const char* hit_by_ = "ALIEN";
+  const char* shop_msg_ = "";
   int origin_x_ = 0;
   int origin_y_ = 0;
   int form_dir_ = 1;
