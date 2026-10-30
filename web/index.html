@@ -10,7 +10,6 @@
     height: 100%;
     background: #050505;
     overflow: hidden;
-    font-family: monospace;
   }
   body {
     display: flex;
@@ -32,10 +31,13 @@
 <script>
 "use strict";
 
-// Invaders Machina, web edition. A port of the CYD firmware's game rules to
-// the browser. Controls: arrows or A/D to move, Space, W or Up to fire, mouse
-// or trackpad to aim and click (click and hold to fire), Enter to confirm,
-// Esc to pause or go back.
+// Invaders Machina, web edition.
+//
+// The screen is a 320x480 pixel framebuffer drawn with the same shapes,
+// layout, and bitmap fonts as the ESP32 CYD firmware (fonts are decoded from
+// the LovyanGFX font tables). Controls: arrows or A/D move, Space / W / Up
+// fire, the mouse or trackpad moves the ship and clicks the on-screen keys,
+// Enter confirms, Esc pauses.
 
 const W = 320, H = 480;
 const SHIP_Y = 368, SHIP_W = 32, SHIP_H = 16;
@@ -48,8 +50,18 @@ const LEVELS = 300;
 const SHIP_STEP = 5;
 const BUTTON_Y = 430;
 const COIN_MAX = 16;
-const TICK_MS = 1000 / 60;
+const COIN_CHANCE = 20;
 const ESCORT_Y = 54;
+const TICK_MS = 1000 / 60;
+
+const FONTS = {
+  f2: {h:16,base:13,g:[[6,"AAAAAAAAAAAAAAAA"],[3,"ACSSSQQA"],[4,"AKqgAAAAAAA="],[9,"AAAABIJBI/xIJH+JBIJAAAAA"],[8,"AAAoOGyqqGg8KqpsOCgAAA=="],[9,"AAAADCkUkZAQEBMSUShgAAAA"],[9,"AAAABAUEQiCgICkjEYcwAAAA"],[3,"ASUAAAAA"],[7,"ABhBBAggQIECAgQEBAY="],[7,"AYCAgIEBAgQIEECCCGA="],[8,"AAAAABCSVDhUkhAAAAAAAA=="],[6,"AAAAAAII+IIAAAAA"],[3,"AAAAAGyg"],[6,"AAAAAAAA+AAAAAAA"],[5,"AAAAAAAAAYwAAA=="],[7,"AAAQIIEECCBBAggQAAA="],[8,"AAAAOEREgoKCgkREOAAAAA=="],[8,"AAAAEDBQEBAQEBAQfAAAAA=="],[8,"AAAAOESCAgQYIECA/gAAAA=="],[8,"AAAAeIQCBDgEAgKEeAAAAA=="],[8,"AAAABAwUJESE/gQEBAAAAA=="],[8,"AAAA/ICAgPgEAgKEeAAAAA=="],[8,"AAAAPECAgLjEgoJEOAAAAA=="],[8,"AAAAfgICBAQICBAQEAAAAA=="],[8,"AAAAOESCRDhEgoJEOAAAAA=="],[8,"AAAAOESCgkY6AgIEeAAAAA=="],[3,"AAA2GwAA"],[3,"AAA2GygA"],[6,"AAAACEIQgQIECAAA"],[6,"AAAAAAA+A+AAAAAA"],[6,"AAAAgQIECEIQgAAA"],[8,"AAAAOESCAgQIEBAAEAAAAA=="],[9,"AAAAB4QkypVKpVKniAPgAAAA"],[8,"AAAAEBAoKEREfIKCggAAAA=="],[8,"AAAA+ISChPiEgoKE+AAAAA=="],[8,"AAAAPEKAgICAgIBCPAAAAA=="],[8,"AAAA+ISCgoKCgoKE+AAAAA=="],[8,"AAAA/oCAgPyAgICA/gAAAA=="],[8,"AAAA/oCAgPiAgICAgAAAAA=="],[8,"AAAAPEKAgICcgoJCPAAAAA=="],[8,"AAAAhISEhPyEhISEhAAAAA=="],[4,"AA5ERERE4AA="],[8,"AAAAAgICAgICAoJEOAAAAA=="],[8,"AAAAhIiQoMCgkIiEggAAAA=="],[7,"AAAECBAgQIECBA/AAAA="],[10,"AAAAAwbBqKoqUpSiKIoCgIAAAAA="],[8,"AAAAwsKiopKSioqGhgAAAA=="],[8,"AAAAOESCgoKCgoJEOAAAAA=="],[8,"AAAA+ISCgoKE+ICAgAAAAA=="],[8,"AAAAOESCgoKCgoJEOAgGAA=="],[8,"AAAA+ISCgoT4kIiEggAAAA=="],[8,"AAAAOESCgGAcAoJEOAAAAA=="],[8,"AAAA/hAQEBAQEBAQEAAAAA=="],[8,"AAAAgoKCgoKCgoJEOAAAAA=="],[8,"AAAAgoKCgkREKCgQEAAAAA=="],[10,"AAAAAgKAoCiKIkkVRVCIIgAAAAA="],[8,"AAAAgoJEKBAQKESCggAAAA=="],[8,"AAAAgoKCRCgQEBAQEAAAAA=="],[8,"AAAA/gIECBAQIECA/gAAAA=="],[4,"AOiIiIiIjgA="],[7,"AAIEBAgIEBAgIEBAgAA="],[4,"AOIiIiIiLgA="],[7,"ACCiIAAAAAAAAAAAAAA="],[9,"AAAAAAAAAAAAAAAAAAAAA/wA"],[5,"AADJSYAAAAAAAA=="],[7,"AAAAAAAcBATqNGdAAAA="],[7,"AAAACBAsZIUKFksAAAA="],[7,"AAAAAAAOIoECAiOAAAA="],[7,"AAAAAECNJoUKEmNAAAA="],[7,"AAAAAAAOIoXyAiOAAAA="],[6,"AAAMSQQQ4QQQQAAA"],[7,"AAAAAAAMJoUKEmNAgjg="],[7,"AAAECBAsZIUKFChAAAA="],[4,"AABAREREQAA="],[5,"AAABAMIQhCEKTA=="],[6,"AAAgggikowokiAAA"],[4,"AAxEREREQAA="],[8,"AAAAAAAArNKSkpKSkgAAAA=="],[7,"AAAAAAAsZIUKFChAAAA="],[8,"AAAAAAAAOESCgoJEOAAAAA=="],[7,"AAAAAAAsZIUKFksQIEA="],[8,"AAAAAAAANEyEhIRMNAQEBg=="],[6,"AAAAAAsygggggAAA"],[6,"AAAAAAcigcCicAAA"],[5,"AAAEI4hCEIMAAA=="],[7,"AAAAAAAhQoUKEmNAAAA="],[8,"AAAAAAAAgoKCgkQoEAAAAA=="],[8,"AAAAAAAAgoKCkpKqRAAAAA=="],[6,"AAAAAAiiUIUiiAAA"],[7,"AAAAAAAhQoUKEmNAgjg="],[7,"AAAAAAA/AghhBA/AAAA="],[5,"AIhCEIRBCEIQgg=="],[3,"ASSSSSSQ"],[5,"AghCEIQRCEIQiA=="],[8,"AAAAMkwAAAAAAAAAAAAAAA=="],[6,"AAMSSMAAAAAAAAAA"],]},
+  f4: {h:26,base:19,g:[[5,"AAAAAAAAAAAAAAAAAAAAAAA="],[8,"ABgYGBgYGBgYGBgYGBgAABgYGAAAAAAAAAA="],[8,"ACQkJCQkJCQAAAAAAAAAAAAAAAAAAAAAAAA="],[19,"AAAAAAABmAAiAARAAZgAIgAEQB//gCIABEAAiAP/8ARAAIgAMwAEQACIADMAAAAAAAAAAAAAAAAAAAAAAAA="],[14,"AAAAAPwP/DhxgGYBmABwAMAH+AYAGABgAYAMAD+J/+YPAAAAAAAAAAAAAAAAAA=="],[21,"AAAAAAADgGB/AgMYMDBjAYMQDBmAMYgB/IADjHAAT+AEYwBmDAIwYDGDAwYwED+BgHAIAAAAAAAAAAAAAAAAAAAAAAAA"],[17,"AAAD4AP4A44BgwDBgGHAGcAHwAeAB+GHOMcOYwPhgPDAMHB+H/OH4OAAAAAAAAAAAAAAAAAAAAA="],[6,"AcccEMYAAAAAAAAAAAAAAAAAAAA="],[8,"AAMCBgQMDAwYGBgYGBgYGBgYDAwMBAYCAwA="],[8,"AMBAYCAwMDAYGBgYGBgYGBgYMDAwIGBAwAA="],[12,"AABgBgBgJkf+H4DwGYOcEIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[10,"AAAAAAAAAAAAAAwDAMH+f4MAwDAAAAAAAAAAAAAAAAAA"],[7,"AAAAAAAAAAAAAAAAAAA4cOBBggwAAAA="],[8,"AAAAAAAAAAAAAAB+fgAAAAAAAAAAAAAAAAA="],[7,"AAAAAAAAAAAAAAAAAAA4cOAAAAAAAAA="],[8,"AAMDAgYGBAwMCBgYEDAwIGBgQMDAAAAAAAA="],[14,"AAAAAHgH+DzwwMcDmAZgGYBmAZgGYBmAZwOMDDzwf4B4AAAAAAAAAAAAAAAAAA=="],[14,"AAAAABgAYAOAfgH4AGABgAYAGABgAYAGABgAYAGABgAYAAAAAAAAAAAAAAAAAA=="],[14,"AAAAAPwP/DhxwGYBmAYAGADgDwD4D4B4A4AcAGAB/+f/gAAAAAAAAAAAAAAAAA=="],[14,"AAAAAPwH+DhwwMcDAAwAcA+APwAOABmAZgGcDjhw/8D8AAAAAAAAAAAAAAAAAA=="],[14,"AAAAAAYAOAHgB4A2AZgMYDGBhgwYYGH/5/+AGABgAYAGAAAAAAAAAAAAAAAAAA=="],[14,"AAAAA/8P/DAAwAMADfA/8eHGA4AGABgAZgGcDjhw/8D8AAAAAAAAAAAAAAAAAA=="],[14,"AAAAAHwH/DgwwGMBmABnwf/HhxwOYBmAZgGMDjhwf8D8AAAAAAAAAAAAAAAAAA=="],[14,"AAAAB/+f/gAwAcAOADABwAYAMADABwAYAGABgAwAMADAAAAAAAAAAAAAAAAAAA=="],[14,"AAAAAHgH+BhgwMMDDAwYYD8B/g4cYBmAZgGYBjhw/8D8AAAAAAAAAAAAAAAAAA=="],[14,"AAAAAPwP+DhxwMYBmAZgGcDjh4/+D5gAZgMYDDBw/4H8AAAAAAAAAAAAAAAAAA=="],[7,"AAAAAAAOHDgAAAAAAAA4cOAAAAAAAAA="],[7,"AAAAAAAOHDgAAAAAAAA4cOBBggwAAAA="],[14,"AAAAAAAAAAAAAAAAAA4A4B4BwBgAHAAOAA4ADgAAAAAAAAAAAAAAAAAAAAAAAA=="],[9,"AAAAAAAAAAAAAD+fwAAD+fwAAAAAAAAAAAAAAAAA"],[14,"AAAAAAAAAAAAAAAAHAAcAB4ADgAGAOAeAcAcAAAAAAAAAAAAAAAAAAAAAAAAAA=="],[13,"AAB+D/hw5wMwGYDADgDgDgDgBgBwA4AAAAAHADgBwAAAAAAAAAAAAAAAAA=="],[25,"AAAAAD/gAHAcAOADAMAAwMAAMEB5DGDHhjDBgzBgwZhgYMwwMGYYMGMMGDGGDDBhjjAwefAMAAADAAAAwAMAOB4AB/gAAAAAAAAAAAAAAAAAAA=="],[16,"AAADwAPAA8AGYAZgBmAMMAwwDDAYGBgYH/g//DAMMAxgBmAG4AcAAAAAAAAAAAAAAAAAAA=="],[17,"AAAf/A//hgHDAGGAMMAYYAwwDh/8D/+GAcMAMYAYwAxgBjAOH/8P/gAAAAAAAAAAAAAAAAAAAAA="],[18,"AAAA/gD/4Hg8OAMMAGcAGYAAYAAYAAYAAYAAYAGcAGMAOOAMHg8D/4A/gAAAAAAAAAAAAAAAAAAAAAA="],[18,"AAAP/AP/wMB4MAcMAMMAOMAGMAGMAGMAGMAGMAGMAOMAMMAcMB4P/wP/AAAAAAAAAAAAAAAAAAAAAAA="],[16,"AAA//j/+MAAwADAAMAAwADAAP/w//DAAMAAwADAAMAAwAD/+P/4AAAAAAAAAAAAAAAAAAA=="],[15,"AAB/+P/xgAMABgAMABgAMAB/8P/hgAMABgAMABgAMABgAMAAAAAAAAAAAAAAAAAAAA=="],[19,"AAAAfwA/+A4Hg4AwYAccAAMAAGAADA/xgf4wAMYAGOADDADhwDweD4H/sA/CAAAAAAAAAAAAAAAAAAAAAAA="],[18,"AAAMAMMAMMAMMAMMAMMAMMAMP/8P/8MAMMAMMAMMAMMAMMAMMAMMAMMAMAAAAAAAAAAAAAAAAAAAAAA="],[6,"AMMMMMMMMMMMMMMMMMMAAAAAAAA="],[13,"AAADABgAwAYAMAGADABgAwAYAMAGYDMBmAzg4/4P4AAAAAAAAAAAAAAAAA=="],[17,"AAAYA4wDhgODA4GDgMOAY4AzgBvAD/AHnAOHAYGAwOBgODAOGAOMAOAAAAAAAAAAAAAAAAAAAAA="],[13,"AAGADABgAwAYAMAGADABgAwAYAMAGADABgAwAf/P/gAAAAAAAAAAAAAAAA=="],[21,"AAABwAcPAHh4A8PAHhsBsNgNhsBsMwZhmDMMwZhjGMMYxhjGMMNhhhsMMPhhg4MMHBgAAAAAAAAAAAAAAAAAAAAAAAAA"],[18,"AAAOAMOAMPAMPgMNgMNwMM4MMYMMcMMOMMGMMHMMDsMBsMB8MA8MAcMAcAAAAAAAAAAAAAAAAAAAAAA="],[19,"AAAAfwA/+A8Hg4A4YAMcAHMABmAAzAAZgAMwAGYADOADjABhwBweDwH/wA/gAAAAAAAAAAAAAAAAAAAAAAA="],[16,"AAA/+D/8MA4wBjAGMAYwBjAOP/w/+DAAMAAwADAAMAAwADAAMAAAAAAAAAAAAAAAAAAAAA=="],[19,"AAAAfwA/+A8Hg4A4YAMcAHMABmAAzAAZgAMwAGYADOAjjA5hwPweDwH/8A/nAABAAAAAAAAAAAAAAAAAAAA="],[17,"AAAf/g//hgDjADGAGMAMYAYwBh//D/8GAcMAYYA4wAxgBjADGAGMAMAAAAAAAAAAAAAAAAAAAAA="],[16,"AAAH4B/4OBwwDDAMMA44AB8AD+AB+AA8AA5wBjAGMAY8Dh/8B/AAAAAAAAAAAAAAAAAAAA=="],[14,"AAP////AwAMADAAwAMADAAwAMADAAwAMADAAwAMADAAwAAAAAAAAAAAAAAAAAA=="],[18,"AAAMAMMAMMAMMAMMAMMAMMAMMAMMAMMAMMAMMAMMAMMAMOAcHA4D/wB/gAAAAAAAAAAAAAAAAAAAAAA="],[15,"AAHAHYAzAGYAxgMMBhgMGDAwYGDAYwDGAYwBsANgB8AHAA4AAAAAAAAAAAAAAAAAAA=="],[23,"AAABwHAdgOAzAcBnBsHGDYMMGwYYNgw4xjgxjGBjGMDGMYHYNwGwbANg2AbBsA8B4A4DgBwHAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[15,"AADAGcBxgMGDA44DGANgB8AHAA4ANgDuAYwGDBwcMBjgO4A4AAAAAAAAAAAAAAAAAA=="],[16,"AADgB3AOMAw4HBgYDDAOcAZgA8ADwAGAAYABgAGAAYABgAGAAYAAAAAAAAAAAAAAAAAAAA=="],[16,"AAA//j/+AA4AHAA4ADAAYADgAcADgAMABgAOABwAOABwAH/+f/4AAAAAAAAAAAAAAAAAAA=="],[9,"AA+HwwGAwGAwGAwGAwGAwGAwGAwGAwGAwHw+AAAA"],[13,"IAEADAAgAQAMACABAAwAIAEADAAgAQAMACABAAwAIAEADAAgAQAMACAAAA=="],[9,"AD4fAYDAYDAYDAYDAYDAYDAYDAYDAYDAYfD4AAAA"],[12,"AABwDYGMMGYDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[13,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/+AAAAAAAA=="],[9,"AA8PznYbDc5+HgAAAAAAAAAAAAAAAAAAAAAAAAAA"],[14,"AAAAAAAAAAAAAAD8D/gwcMDAAwP8P/HAxgMYDHDw/vHxwAAAAAAAAAAAAAAAAA=="],[15,"AABgAMABgAMABgAM8Bv4PnhwMMBxgGMAxgGMBxwMPnhv4M8AAAAAAAAAAAAAAAAAAA=="],[13,"AAAAAAAAAAAAAB4D/DzhgZwAwAYAMAHAxgY84P8B4AAAAAAAAAAAAAAAAA=="],[15,"AAAAMABgAMABgAMB5g/sPPhgccBjAMYBjAMcBhgcPPg/sB5gAAAAAAAAAAAAAAAAAA=="],[14,"AAAAAAAAAAAAAAB4B/g88MDHAZ/+f/mABwAMDjzwf4B4AAAAAAAAAAAAAAAAAA=="],[8,"AB4+MDAw/v4wMDAwMDAwMDAwMAAAAAAAAAA="],[15,"AAAAAAAAAAAAAAAB5g/sPPhgcYBjAMYBjAMcBhgcPPg/sB5gAMYBjAcOHB/4D8AAAA=="],[15,"AABgAMABgAMABgAM+Bv4PDhwMMBhgMMBhgMMBhgMMBhgMMBgAAAAAAAAAAAAAAAAAA=="],[6,"AMMMAAMMMMMMMMMMMMMAAAAAAAA="],[6,"AMMMAAMMMMMMMMMMMMMMMMM84AA="],[12,"AAAAMAMAMAMAMHMOMcM4NwPwP4OYMcMMMOMGMHAAAAAAAAAAAAAA"],[6,"AMMMMMMMMMMMMMMMMMMAAAAAAAA="],[22,"AAAAAAAAAAAAAAAAAAAAAAM8PA37+Dx8cODgwwMDDAwMMDAwwMDDAwMMDAwwMDDAwMMDAwAAAAAAAAAAAAAAAAAAAAAAAAAA"],[15,"AAAAAAAAAAAAAAAM+Bv4PDhwMMBhgMMBhgMMBhgMMBhgMMBgAAAAAAAAAAAAAAAAAA=="],[15,"AAAAAAAAAAAAAAAB8A/4PHhgMcBzAGYAzAGcBxgMPHg/4B8AAAAAAAAAAAAAAAAAAA=="],[15,"AAAAAAAAAAAAAAAM8Bv4PnhwMMBxgGMAxgGMBxwMPnhv4M8BgAMABgAMABgAAAAAAA=="],[15,"AAAAAAAAAAAAAAAB5g/sPPhgccBjAMYBjAMcBhgcPPg/sB5gAMABgAMABgAMAAAAAA=="],[8,"AAAAAAAANz84MDAwMDAwMDAwMAAAAAAAAAA="],[12,"AAAAAAAAAAAAHwP8cMYGYAPgH8A+AGYGcOP8H4AAAAAAAAAAAAAA"],[7,"AADBgwY/fjBgwYMGDBgweHAAAAAAAAA="],[14,"AAAAAAAAAAAAAAMBjAYwGMBjAYwGMBjAYwGMDjh4f2D5gAAAAAAAAAAAAAAAAA=="],[12,"AAAAAAAAAAAAwGwGYMYMYMMYMYMYGwGwHwDgDgAAAAAAAAAAAAAA"],[18,"AAAAAAAAAAAAAAAAAAwcGwcGwUGY2MY2MY2MYiMNjYNjYNjYHBwHBwHBwAAAAAAAAAAAAAAAAAAAAAA="],[13,"AAAAAAAAAAAAAYDODjBgxgdwHwBwB8B3AxgwY4OYDAAAAAAAAAAAAAAAAA=="],[13,"AAAAAAAAAAAAA4DsBmAxgwwYYMGMDGBjAbANgGwBwA4AcAMAOA+AeAAAAA=="],[12,"AAAAAAAAAAAAf+f+AOAcA4BwBgDgHAOAcAf+f+AAAAAAAAAAAAAA"],[13,"AeAcAMAGADABgAwAYAMAGADADAHAAwAMAGADABgAwAYAMAGADABwAeAAAA=="],[13,"BgAwAYAMAGADABgAwAYAMAGADABgAwAYAMAGADABgAwAYAMAGADABgAAAA=="],[13,"PABwAYAMAGADABgAwAYAMAGABgAcAYAYAMAGADABgAwAYAMAGAHAPAAAAA=="],[15,"AAA8AMwDDhQGaAeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="],[1,"AAAAAA=="],]},
+  f6: {h:48,base:36,g:[[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[17,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/gf/A/+B/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[15,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPgB8APgB8APgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAA/wAA//wAP//AD//8A/gfwHwA+A8ADwPgAfB4AB4PAAPB4AB4eAAHjwAA8eAAHjwAA8eAAHjwAA8eAAHjwAA8eAAHjwAA8eAAHjwAA8eAAHjwAA8PAAPB4AB4PAAPB8AD4HgAeA+AHwH8D+Af//gB//4AH/+AAH+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAA4AAAHAAAB4AAAPAAAD4AAA/AAAf4AB//AAP/4AB/vAAPh4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAf4AAP/4AH//gB//+APwP4D4AfAfAB4DwAPg+AA8HgAHg8AA8HgAHgAAA8AAAPgAAB8AAAfAAAH4AAB+AAA/gAAf4AAP+AAD/gAB/wAAf4AAH8AAB+AAAfgAAD4AAA+AAAHgAAA8AAAP///h///8P///h///8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAA/wAA//wAP//gD//8A/gfwHwA+B8AD4PgAfB4AB4PAAPB4AB4AAAfAAAD4AAA+AAAPwAD/8AAf+AAD/8AAf/wAAB/AAAD4AAAPgAAB8eAAHjwAA8eAAHj4AB8fAAfh8AD4PwA/A/gfwD//8AP//AA//wAA/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAAAAAADwAAA+AAAPwAAD+AAAfwAAH+AAB7wAAPeAADzwAA8eAAPjwAB4eAAeDwAHgeAB8DwAPAeADwDwA+AeAHgDwB4AeAeADwD///8f///j///8f///gAAeAAADwAAAeAAADwAAAeAAADwAAAeAAADwAAAeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAAAAB//+AP//wB//+AP//wBwAAAeAAADwAAAeAAADgAAAcAAADgAAA8f4AHv/wA///AH//8A/gfwHwA/A8AD4AAAPAAAB8AAAHgAAA8AAAHgAAA8AAAHh4AA8PAAPh4AB4PgAfA+AH4H8D+Af//gB//4AH/+AAH+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAfwAAP/wAH//AB//8AfwPwH4AfA+AB4HgAPh8AA8PAAHh4AAAPAAADwAAAeD+ADx/+Ae//4D///gf8D+D+AHwfgAfD4AB4fAAPjwAA8eAAHjwAA8eAAHjwAA8PAAPh4AB4PgAfA+AH4H8D+Af//gB//4AD/+AAH/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAAAAP///h///8P///h///8AAAHgAAB4AAAeAAAHgAAB8AAAfAAAHwAAA8AAAPgAAD4AAAfAAAHwAAA8AAAPgAAB4AAAfAAAD4AAAeAAAHwAAA8AAAHgAAB8AAAPAAAB4AAAPAAAB4AAAfAAADwAAAeAAADwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAfgAAf/gAP//AD//8A/gfwHwA+B8AD4PgAfB4AB4PAAPB4AB4PgAfA8ADwHwA+AfgfgB//4AH/+AB//4Af//gH4B+B8AD4PAAPD4AB8eAAHjwAA8eAAHjwAA8eAAHj4AB8fAAPh8AD4P4B/A///wD//8AP//AAP/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAB/wAA//gAP//AD//8A/gfwPwA+B8AD4PAAPD4AB4eAAHjwAA8eAAHjwAA8eAAHj4AB8PAAPh8AD8HwA/g/gf8D///gP/+8A//HgA/g8AAAHgAAB4AAAPDwAB4eAAfD4ADwPAA+B8APwH4H8Af//AB//wAH/4AAH8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[15,"AAAAAAAAAAAAAAAAAAAAAAAAAB8APgB8APgB8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPgB8APgB8APgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/4AAf/4AP//gB//+AfgPwHwAfA8AB4HgAPA8AB4AAAPAAAD4AA//AD//4B///Af/54H/APA+AB4PgAPB4AB4PAAPB4AD4PAA/B8AP4HwH/w//8+D//HwP/geAfwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[42,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/gH8AHj/wf/AHv/4//gHv/9//wH+B/4HwH4A/gD4HwAfAB4HwAfAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4HgAeAB4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[29,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH8AB4//ADz//AHv//AP+B/AfwA+A/AA+B8AA8D4AB4HwAD4PAADweAAHg8AAPB4AAeDwAA8HgAB4PAADweAAHg8AAfB8AA8D4AD4H4AHwP4AfAf8D+A9//4B5//gDx/+AHg/gAPAAAAeAAAA8AAAB4AAADwAAAHgAAAPAAAAeAAAA8AAAB4AAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],]},
+};
+
+
+// ---- Palettes and tables --------------------------------------------------
 
 const PAL_RGB = [
   [[0,0,0],[255,255,255],[150,160,150],[48,230,86],[255,206,32],[46,228,72],[36,255,96],[28,186,64],[255,214,48],[48,116,255],[10,24,16],[18,78,42],[210,210,220]],
@@ -61,28 +73,122 @@ const PAL_RGB = [
   [[40,8,24],[255,226,236],[180,110,140],[255,80,150],[255,110,170],[230,70,140],[255,200,220],[170,40,100],[255,240,120],[110,30,70],[80,16,50],[140,30,84],[255,190,220]],
   [[0,0,0],[255,255,0],[120,120,0],[0,255,255],[255,0,255],[0,200,255],[0,255,255],[255,0,0],[255,255,255],[60,0,60],[20,20,20],[60,60,0],[255,255,255]]
 ];
-const PAL_KEYS = ["bg","ink","muted","accent","top","low","ship","barrier","shot","planet","button","buttonOn","star"];
-const THEME_NAMES = ["DARK NEON","LIGHT","BLUE","AMBER","MIDNIGHT","MINT","ROSE","ARCADE"];
+const THEME_NAMES = ["DARK NEON", "LIGHT", "BLUE", "AMBER", "MIDNIGHT", "MINT", "ROSE", "ARCADE"];
 const THEME_PRICE = [0, 0, 0, 0, 60, 80, 100, 120];
 const LASERS = [
-  ["RED",[255,64,56]], ["GOLD",[255,210,48]], ["GREEN",[48,230,96]], ["CYAN",[80,210,255]],
-  ["WHITE",[255,255,255]], ["MAGENTA",[255,80,220]], ["ORANGE",[255,140,32]], ["BLUE",[64,96,255]],
-  ["LIME",[170,255,48]], ["PINK",[255,140,180]], ["ICE",[180,255,255]], ["VIOLET",[170,80,255]]
+  ["RED", [255,64,56]], ["GOLD", [255,210,48]], ["GREEN", [48,230,96]], ["CYAN", [80,210,255]],
+  ["WHITE", [255,255,255]], ["MAGENTA", [255,80,220]], ["ORANGE", [255,140,32]], ["BLUE", [64,96,255]],
+  ["LIME", [170,255,48]], ["PINK", [255,140,180]], ["ICE", [180,255,255]], ["VIOLET", [170,80,255]]
 ];
-const GUNS = ["CANNON","SHOTGUN","ASSAULT","BEAM","TWIN","WAVE","RAIL","NOVA","HOMING"];
+const GUNS = ["CANNON", "SHOTGUN", "ASSAULT", "BEAM", "TWIN", "WAVE", "RAIL", "NOVA", "HOMING"];
 const GUN_COOL = [12, 11, 6, 16, 12, 18, 24, 16, 14];
-const GODS = ["ZEUS","HERA","POSEIDON","DEMETER","ATHENA","ARES","APOLLO","ARTEMIS","APHRODITE","HEPHAESTUS","HERMES","DIONYSUS"];
+const GODS = ["ZEUS", "HERA", "POSEIDON", "DEMETER", "ATHENA", "ARES", "APOLLO", "ARTEMIS", "APHRODITE", "HEPHAESTUS", "HERMES", "DIONYSUS"];
 const GOD_INK = [[255,214,56],[226,170,255],[64,190,255],[120,220,96],[206,214,232],[255,72,60],[255,200,88],[176,220,255],[255,140,200],[255,128,40],[140,255,220],[190,96,255]];
+const DROP_RGB = [[255,150,40],[80,255,120],[80,120,255],[255,255,80],[80,255,80],[255,80,255],[255,255,80],[180,80,255]];
+
+// ---- Framebuffer ----------------------------------------------------------
 
 const cv = document.getElementById("c");
-const g = cv.getContext("2d");
+const ctx = cv.getContext("2d");
+const IMG = ctx.createImageData(W, H);
+const FB = new Uint32Array(IMG.data.buffer);
 
-const rgb = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
-function pal(t) {
-  const p = PAL_RGB[t & 7];
-  const o = {};
-  PAL_KEYS.forEach((k, i) => { o[k] = rgb(p[i]); });
-  return o;
+function clr(arr) { return ((255 << 24) | (arr[2] << 16) | (arr[1] << 8) | arr[0]) >>> 0; }
+
+function px(x, y, c) {
+  if (x >= 0 && y >= 0 && x < W && y < H) FB[y * W + x] = c;
+}
+function fillRect(x, y, w, h, c) {
+  if (w <= 0 || h <= 0) return;
+  const x0 = Math.max(0, x), y0 = Math.max(0, y);
+  const x1 = Math.min(W, x + w), y1 = Math.min(H, y + h);
+  for (let yy = y0; yy < y1; yy++) {
+    const row = yy * W;
+    for (let xx = x0; xx < x1; xx++) FB[row + xx] = c;
+  }
+}
+function drawRect(x, y, w, h, c) {
+  fillRect(x, y, w, 1, c);
+  fillRect(x, y + h - 1, w, 1, c);
+  fillRect(x, y, 1, h, c);
+  fillRect(x + w - 1, y, 1, h, c);
+}
+function fillCircle(x0, y0, r, c) {
+  fillRect(x0, y0 - r, 1, 2 * r + 1, c);
+  let f = 1 - r, ddFx = 1, ddFy = -2 * r, x = 0, y = r;
+  while (x < y) {
+    if (f >= 0) { y--; ddFy += 2; f += ddFy; }
+    x++; ddFx += 2; f += ddFx;
+    fillRect(x0 - x, y0 + y, 2 * x + 1, 1, c);
+    fillRect(x0 - x, y0 - y, 2 * x + 1, 1, c);
+    fillRect(x0 - y, y0 + x, 2 * y + 1, 1, c);
+    fillRect(x0 - y, y0 - x, 2 * y + 1, 1, c);
+  }
+}
+function drawCircle(x0, y0, r, c) {
+  px(x0, y0 + r, c); px(x0, y0 - r, c); px(x0 + r, y0, c); px(x0 - r, y0, c);
+  let f = 1 - r, ddFx = 1, ddFy = -2 * r, x = 0, y = r;
+  while (x < y) {
+    if (f >= 0) { y--; ddFy += 2; f += ddFy; }
+    x++; ddFx += 2; f += ddFx;
+    px(x0 + x, y0 + y, c); px(x0 - x, y0 + y, c); px(x0 + x, y0 - y, c); px(x0 - x, y0 - y, c);
+    px(x0 + y, y0 + x, c); px(x0 - y, y0 + x, c); px(x0 + y, y0 - x, c); px(x0 - y, y0 - x, c);
+  }
+}
+function fillTriangle(x0, y0, x1, y1, x2, y2, c) {
+  const p = [[x0, y0], [x1, y1], [x2, y2]].sort((a, b) => a[1] - b[1]);
+  const [a, b, d] = p;
+  const edge = (u, v, y) => (v[1] === u[1] ? u[0] : u[0] + (v[0] - u[0]) * (y - u[1]) / (v[1] - u[1]));
+  for (let y = a[1]; y <= d[1]; y++) {
+    const xa = edge(a, d, y);
+    const xb = y <= b[1] ? edge(a, b, y) : edge(b, d, y);
+    const lo = Math.round(Math.min(xa, xb)), hi = Math.round(Math.max(xa, xb));
+    fillRect(lo, y, hi - lo + 1, 1, c);
+  }
+}
+
+// ---- Bitmap text (same glyphs as the firmware) ----------------------------
+
+const FONT = {};
+for (const key of Object.keys(FONTS)) {
+  const f = FONTS[key];
+  FONT[key] = {
+    h: f.h,
+    base: f.base,
+    glyphs: f.g.map(([w, b64]) => {
+      const bin = atob(b64);
+      const n = w * f.h;
+      const bits = new Uint8Array(n);
+      for (let i = 0; i < n; i++) bits[i] = (bin.charCodeAt(i >> 3) >> (7 - (i & 7))) & 1;
+      return { w, bits };
+    })
+  };
+}
+function glyphFor(font, ch) {
+  const c = ch.charCodeAt(0);
+  const idx = c >= 32 && c < 128 ? c - 32 : 63 - 32;
+  return FONT[font].glyphs[idx];
+}
+function textWidth(s, font = "f2") {
+  let w = 0;
+  for (const ch of s) w += glyphFor(font, ch).w;
+  return w;
+}
+// dt: "mc" middle centre, "ml" middle left, "mr" middle right.
+function drawText(s, x, y, c, font = "f2", dt = "mc") {
+  const f = FONT[font];
+  const w = textWidth(s, font);
+  let x0 = dt === "ml" ? x : dt === "mr" ? x - w : x - Math.floor(w / 2);
+  const y0 = Math.round(y - f.h / 2);
+  for (const ch of s) {
+    const gl = glyphFor(font, ch);
+    for (let r = 0; r < f.h; r++) {
+      for (let k = 0; k < gl.w; k++) {
+        if (gl.bits[r * gl.w + k]) px(x0 + k, y0 + r, c);
+      }
+    }
+    x0 += gl.w;
+  }
 }
 
 // ---- Save (localStorage) --------------------------------------------------
@@ -91,14 +197,14 @@ const SAVE_KEY = "invaders-machina-web-v1";
 const DEFAULT_SAVE = {
   level: 1, camp: 0, raidWon: false, coins: 0,
   themes: 0x0f, lasers: 0x0001, guns: 0, gunEquip: 0,
-  gunLv: [0,0,0,0,0,0,0,0,0], laser: 0, theme: 0,
+  gunLv: [0, 0, 0, 0, 0, 0, 0, 0, 0], laser: 0, theme: 0,
   shield: 0, spare: 0, thrust: 0
 };
 let save = Object.assign({}, DEFAULT_SAVE);
 try {
   const loaded = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}");
   save = Object.assign({}, DEFAULT_SAVE, loaded);
-  save.gunLv = Object.assign([0,0,0,0,0,0,0,0,0], loaded.gunLv || []);
+  save.gunLv = Object.assign([0, 0, 0, 0, 0, 0, 0, 0, 0], loaded.gunLv || []);
 } catch (e) { save = Object.assign({}, DEFAULT_SAVE); }
 function persist() {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* private mode */ }
@@ -110,6 +216,15 @@ function gunLv(gun) { return Math.min(5, save.gunLv[gun] || 0); }
 if (!themeOwned(save.theme)) save.theme = 0;
 if (!laserOwned(save.laser)) save.laser = 0;
 if (!gunOwned(save.gunEquip)) save.gunEquip = 0;
+save.thrust = Math.min(2, save.thrust || 0);
+
+// Palette as colours. Index map matches the firmware's Palette struct.
+function palFor(t) {
+  const p = PAL_RGB[t & 7].map(clr);
+  return { bg: p[0], ink: p[1], muted: p[2], accent: p[3], top: p[4], low: p[5], ship: p[6],
+    barrier: p[7], shot: p[8], planet: p[9], button: p[10], buttonOn: p[11], star: p[12] };
+}
+function laserColour(c) { return clr(LASERS[c % 12][1]); }
 
 // ---- Input ----------------------------------------------------------------
 
@@ -121,12 +236,14 @@ const KEY_NAMES = {
 };
 const held = new Set();
 const pressed = new Set();
-let mouse = { x: 0, y: 0, inside: false, down: false, moved: -1e9 };
+const mouse = { x: 0, y: 0, inside: false, down: false, moved: -1e9 };
+let kbActive = false;
 
 window.addEventListener("keydown", (e) => {
   const name = KEY_NAMES[e.code];
   if (!name) return;
   e.preventDefault();
+  kbActive = true;
   if (!e.repeat) pressed.add(name);
   held.add(name);
 });
@@ -144,8 +261,9 @@ cv.addEventListener("pointermove", (e) => {
   const p = toLogical(e);
   mouse.x = p.x; mouse.y = p.y; mouse.inside = true;
   mouse.moved = performance.now();
-  const hit = btnAt(p.x, p.y);
-  if (hit >= 0) sel = hit;
+  kbActive = false;
+  const i = btnAt(p.x, p.y);
+  if (i >= 0) sel = i;
 });
 cv.addEventListener("pointerleave", () => { mouse.inside = false; });
 cv.addEventListener("pointerdown", (e) => {
@@ -153,9 +271,13 @@ cv.addEventListener("pointerdown", (e) => {
   mouse.x = p.x; mouse.y = p.y; mouse.inside = true;
   mouse.down = true;
   mouse.moved = performance.now();
+  kbActive = false;
   cv.setPointerCapture(e.pointerId);
   const i = btnAt(p.x, p.y);
-  if (i >= 0) { sel = i; btns[i].fn(); }
+  if (i >= 0) {
+    sel = i;
+    if (btns[i].fn) btns[i].fn();
+  }
 });
 cv.addEventListener("pointerup", () => { mouse.down = false; });
 cv.addEventListener("pointercancel", () => { mouse.down = false; });
@@ -166,13 +288,13 @@ let scr = "demo";
 let sel = 0;
 let btns = [];
 let shopTab = 0, shopPage = 0, shopMsg = "";
-let confirmBack = "menu";
-let pauseMsg = "";
+let customFromPause = false;
+let demo = true;
 
 function setScr(s) {
   scr = s;
   sel = 0;
-  if (s !== "shop") { shopMsg = ""; }
+  if (s !== "shop") shopMsg = "";
 }
 function btnAt(x, y) {
   for (let i = 0; i < btns.length; i++) {
@@ -181,46 +303,51 @@ function btnAt(x, y) {
   }
   return -1;
 }
-function inside(b, x, y) { return x >= b.x && y >= b.y && x < b.x + b.w && y < b.y + b.h; }
 
 // ---- Run state ------------------------------------------------------------
 
-let R = null;      // the current run (campaign or demo)
-let demo = true;   // the attract loop is running
+let R = null;
 
 function newRun(level) {
   return {
-    level, score: 0, lives: 3, invuln: 0, shield: 0,
+    level, score: 0, lives: 3, invuln: 0,
     px: (W - SHIP_W) / 2,
-    ox: 0, oy: 34, dir: 1, mv: 1, drop: 8,
+    ox: 0, oy: 34, dir: 1, step: 2, drop: 8,
     units: [], foes: [], bolts: [], coins: [], blasts: [], barriers: [],
+    scraps: [], terrain: 0, sky: null,
     boss: null, escorts: [], mini: false, raid: false,
     god: 0, godWave: 0, godEntrance: false, godBars: 3, godHp: 0, godHpMax: 1,
-    cool: 0, foeCool: 0, foeGap: 40, hitBy: "ALIEN",
-    timer: 0, msg: "", msgT: 0, scoreFlash: 0
+    cool: 0, foeCool: 0, foeGap: 40, hitBy: "ALIEN", gunCool: 0,
+    drop_: null, msg: "", msgT: 0, timer: 0, won: false, over: false
   };
 }
 
 function rnd(n) { return Math.floor(Math.random() * n); }
 function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+function overlapRect(ax, ay, aw, ah, bx, by, bw, bh) {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
 
 function unitSize(u) {
   if (u.kind === 2) return [BOSS_W, BOSS_H];
   if (u.kind === 6) return [MINI_W, MINI_H];
   if (u.kind === 5) return [ALIEN_W + 4, ALIEN_H + 2];
+  if (u.kind === 7) return [ALLY_W, ALLY_H];
   return [ALIEN_W, ALIEN_H];
 }
 
 function startLevel() {
   const L = R.level;
-  const bestTier = Math.floor((L - 1) / 20);
   R.foes = []; R.bolts = []; R.blasts = []; R.escorts = []; R.boss = null;
   R.mini = false; R.raid = false; R.god = 0; R.godEntrance = false;
-  R.invuln = 0; R.cool = 0; R.foeCool = 0;
-  R.drop = Math.min(20, 8 + bestTier);
+  R.invuln = 0; R.cool = 0; R.foeCool = 0; R.gunCool = 0;
+  R.drop = Math.min(20, 8 + Math.floor((L - 1) / 20));
   R.foeGap = Math.max(14, 42 - Math.floor(L / 20) - (L % 5 === 0 ? 6 : 0));
-  R.dir = 1; R.mv = 1;
+  R.dir = 1; R.step = 2;
   R.barriers = []; R.units = [];
+  R.coins = []; R.drop_ = null; R.sky = null;
+  R.terrain = L % 4;
+  buildTerrain();
   if (L % 25 === 0) buildGod();
   else if (L % 5 === 0) buildBoss();
   else if (save.raidWon && Math.random() < 0.4) buildMini();
@@ -231,6 +358,19 @@ function startLevel() {
   }
   if (!demo) { save.level = L; persist(); }
   setScr(demo ? "demo" : "play");
+}
+
+function buildTerrain() {
+  R.scraps = [];
+  const count = R.terrain === 0 ? 5 : R.terrain === 3 ? 6 : 3;
+  for (let i = 0; i < count; i++) {
+    const s = { x: rnd(W - 48), y: 48 + rnd(170), w: 0, h: 0 };
+    if (R.terrain === 0) { s.w = 10 + rnd(10); s.h = 6 + rnd(6); }
+    else if (R.terrain === 1) { s.w = 36 + rnd(48); s.h = 2; }
+    else if (R.terrain === 2) { s.x = 0; s.y = 64 + i * 58; s.w = 8; s.h = 2; }
+    else { s.w = 6 + rnd(12); s.h = 2; }
+    R.scraps.push(s);
+  }
 }
 
 function buildBarriers(L) {
@@ -247,7 +387,7 @@ function buildBarriers(L) {
       if (c === notch) h = 1 + rnd(2);
       cols.push(h);
     }
-    R.barriers.push({ x: slot + i * (36 + slot), cols });
+    R.barriers.push({ x: slot + i * (36 + slot), y: 292, cols });
   }
 }
 
@@ -264,8 +404,7 @@ function buildFormation() {
   if (L > 220) rows += 1;
   if (rows > 5) rows = 5;
   const yellow = 1 + rnd(rows);
-  R.step = 2 + Math.floor(L / 50) + rnd(3);
-  if (R.step > 7) R.step = 7;
+  R.step = Math.min(7, 2 + Math.floor(L / 50) + rnd(3));
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       let ox = col * 30;
@@ -281,10 +420,10 @@ function buildFormation() {
       const roll = rnd(100);
       if (L >= 3 && roll < 6 + Math.floor(L / 25)) kind = 4;
       else if (L >= 8 && roll >= 90 - Math.floor(L / 30)) kind = 5;
-      R.units.push({ ox, oy, kind, hp: 1, alive: true });
+      R.units.push({ ox, oy, kind, hp: 1, max: 1, alive: true });
     }
   }
-  if (R.units.length === 0) R.units.push({ ox: 0, oy: 0, kind: 1, hp: 1, alive: true });
+  if (R.units.length === 0) R.units.push({ ox: 0, oy: 0, kind: 1, hp: 1, max: 1, alive: true });
   centerFormation();
   buildBarriers(L);
 }
@@ -292,8 +431,8 @@ function buildFormation() {
 function centerFormation() {
   let minX = 999, maxX = 0;
   for (const u of R.units) {
-    if (u.ox < minX) minX = u.ox;
-    if (u.ox + ALIEN_W > maxX) maxX = u.ox + ALIEN_W;
+    minX = Math.min(minX, u.ox);
+    maxX = Math.max(maxX, u.ox + ALIEN_W);
   }
   R.ox = Math.floor((W - (maxX - minX)) / 2) - minX;
   R.oy = 34;
@@ -307,7 +446,7 @@ function buildBoss() {
   R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: max, max, style: L % 2, cool: 0 };
   R.units = [];
   if (R.raid) {
-    for (let i = 0; i < 4; i++) R.units.push({ ox: i * 30, oy: 0, kind: 0, hp: 1, alive: true });
+    for (let i = 0; i < 4; i++) R.units.push({ ox: i * 30, oy: 0, kind: 0, hp: 1, max: 1, alive: true });
     R.ox = Math.floor((W - 120) / 2);
     R.oy = 84;
     R.dir = 1;
@@ -322,23 +461,22 @@ function buildMini() {
   const cols = 4;
   R.units = [];
   for (let col = 0; col < cols; col++) {
-    R.units.push({ ox: col * 30, oy: 24 + (col & 1) * 20, kind: col & 1 ? 1 : 0, hp: 1, alive: true });
+    R.units.push({ ox: col * 30, oy: 24 + (col & 1) * 20, kind: col & 1 ? 1 : 0, hp: 1, max: 1, alive: true });
   }
   const mhp = Math.min(22, 6 + Math.floor(L / 20));
-  R.units.push({ ox: Math.floor((cols * 30 - MINI_W) / 2), oy: 0, kind: 6, hp: mhp, alive: true });
+  R.units.push({ ox: Math.floor((cols * 30 - MINI_W) / 2), oy: 0, kind: 6, hp: mhp, max: mhp, alive: true });
   R.ox = Math.floor((W - cols * 30) / 2);
   R.oy = 38;
   R.dir = 1;
-  R.step = 2 + Math.floor(L / 70);
-  if (R.step > 5) R.step = 5;
+  R.step = Math.min(5, 2 + Math.floor(L / 70));
   buildBarriers(L);
 }
 
 // ---- Olympian gods --------------------------------------------------------
 
 function godIndex(L) { return ((Math.floor(L / 25) - 1) % 12) + 1; }
-function godName() { return GODS[R.god - 1] || "GOD"; }
-function godInkRgb() { return GOD_INK[(R.god - 1 + 12) % 12]; }
+function godName() { return GODS[(R.god - 1 + 12) % 12] || "GOD"; }
+function godInk() { return clr(GOD_INK[(R.god - 1 + 12) % 12]); }
 function godBarHp() { return 12 + Math.floor(R.level / 12); }
 
 function buildGod() {
@@ -359,10 +497,11 @@ function spawnGodWave() {
       const roll = rnd(100);
       if (roll < 12) kind = 4;
       else if (roll < 20) kind = 5;
-      R.units.push({ ox: col * 30, oy: row * 22, kind, hp: 1, alive: true });
+      R.units.push({ ox: col * 30, oy: row * 22, kind, hp: 1, max: 1, alive: true });
     }
   }
-  R.units.push({ ox: Math.floor((cols * 30 - MINI_W) / 2), oy: -6, kind: 6, hp: 3 + wave, alive: true });
+  const mhp = 3 + wave;
+  R.units.push({ ox: Math.floor((cols * 30 - MINI_W) / 2), oy: -6, kind: 6, hp: mhp, max: mhp, alive: true });
   R.ox = Math.floor((W - cols * 30) / 2);
   R.oy = 40;
   R.dir = 1;
@@ -374,11 +513,6 @@ function spawnGodWave() {
   R.foes = [];
 }
 
-function beginSplash() {
-  setScr("splash");
-  R.timer = 60;
-}
-
 function godFight() {
   R.units = [];
   R.godEntrance = true;
@@ -386,27 +520,20 @@ function godFight() {
   R.godHpMax = godBarHp();
   R.godHp = R.godHpMax;
   R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: 1, max: 1, style: 5, cool: 0 };
-  R.escorts = [
-    { side: -1, hp: 2, alive: true },
-    { side: 1, hp: 2, alive: true }
-  ];
+  R.escorts = [{ side: -1, hp: 2 }, { side: 1, hp: 2 }];
   R.foes = [];
   R.bolts = [];
-  R.foeGap = 40;
   R.foeCool = 0;
+  R.foeGap = 40;
   setScr("play");
 }
 
 // ---- Enemy fire -----------------------------------------------------------
 
 function fireFoe(x, y, kind, who, vx = 0) {
-  if (kind === 2) {
-    R.foes.push({ x: x - 2, y, vx, vy: 4, w: 5, h: 6, kind: 2, who });
-  } else if (kind === 1) {
-    R.foes.push({ x: x - 1, y, vx, vy: 8, w: 2, h: 6, kind: 1, who });
-  } else {
-    R.foes.push({ x, y, vx, vy: 6, w: 3, h: 8, kind: 0, who });
-  }
+  if (kind === 2) R.foes.push({ x: x - 2, y, vx, vy: 4, w: 5, h: 6, kind: 2, who });
+  else if (kind === 1) R.foes.push({ x: x - 1, y, vx, vy: 8, w: 2, h: 6, kind: 1, who });
+  else R.foes.push({ x, y, vx, vy: 6, w: 3, h: 8, kind: 0, who });
 }
 
 function unitLabel(u) {
@@ -418,7 +545,14 @@ function unitLabel(u) {
   return "ALIEN";
 }
 
-// ---- Coins ----------------------------------------------------------------
+function foeInk(f) {
+  if (f.kind === 2) return clr([255, 168, 56]);
+  if (f.kind === 1) return clr([255, 140, 96]);
+  if (R.god) return godInk();
+  return clr([255, 72, 64]);
+}
+
+// ---- Coins and drops ------------------------------------------------------
 
 function spawnCoin(x, y) {
   if (demo || R.coins.length >= COIN_MAX) return;
@@ -428,6 +562,56 @@ function dropCoins(x, y, n) {
   for (let i = 0; i < n; i++) spawnCoin(x + (i - Math.floor(n / 2)) * 7, y);
 }
 function centerOf(x, y, w, h) { return [x + w / 2 - 3, y + h / 2 - 3]; }
+
+function nextLockedGun() {
+  for (let g = 1; g < 9; g++) if (!gunOwned(g)) return g;
+  return 0;
+}
+
+function maybeDrop(bossKill) {
+  if (R.drop_) return;
+  if (bossKill) {
+    const which = nextLockedGun();
+    if (which !== 0 && rnd(10) === 0) { R.drop_ = { which, x: 16 + rnd(W - 48), y: 40 }; return; }
+  }
+  const roll = rnd(100);
+  if (roll < 5) R.drop_ = { which: 9, x: 16 + rnd(W - 48), y: 40 };
+  else if (roll < 20) R.drop_ = { which: 10, x: 16 + rnd(W - 48), y: 40 };
+}
+
+function collectDrop() {
+  const d = R.drop_;
+  if (d.which >= 1 && d.which <= 8) {
+    save.guns |= (1 << (d.which - 1));
+    save.gunEquip = d.which;
+    persist();
+    setMsg(GUNS[d.which]);
+  } else if (d.which === 9) {
+    if (R.lives < 8) R.lives += 1;
+    setMsg("HEART");
+  } else if (d.which === 10) {
+    const g = save.gunEquip;
+    if (gunLv(g) < 5) {
+      save.gunLv[g] = gunLv(g) + 1;
+      persist();
+      setMsg("GUN +1");
+    } else {
+      setMsg("MAX");
+    }
+  }
+  R.drop_ = null;
+}
+
+function setMsg(m) { R.msg = m; R.msgT = 45; }
+
+function stepDrop() {
+  const d = R.drop_;
+  if (!d) return;
+  const ny = d.y + 3;
+  if (overlapRect(d.x, ny, 14, 14, R.px, SHIP_Y, SHIP_W, SHIP_H)) { collectDrop(); return; }
+  if (ny > SHIP_Y + 8) { R.drop_ = null; return; }
+  d.y = ny;
+}
 
 // ---- Hits -----------------------------------------------------------------
 
@@ -440,9 +624,11 @@ function killUnit(u) {
   if (u.kind === 6) {
     addScore(20);
     dropCoins(cx, cy, 2);
+    maybeDrop(true);
   } else {
     addScore(10);
-    if (rnd(100) < 35) spawnCoin(cx, cy);
+    if (rnd(100) < COIN_CHANCE) spawnCoin(cx, cy);
+    maybeDrop(false);
   }
 }
 
@@ -470,6 +656,7 @@ function bossHit() {
       } else {
         const [cx, cy] = centerOf(R.boss.x, R.boss.y, BOSS_W, BOSS_H);
         dropCoins(cx, cy, 10);
+        maybeDrop(true);
         R.boss = null;
         R.godEntrance = false;
         R.god = 0;
@@ -482,9 +669,9 @@ function bossHit() {
   if (R.boss.hp <= 0) {
     const [cx, cy] = centerOf(R.boss.x, R.boss.y, BOSS_W, BOSS_H);
     dropCoins(cx, cy, R.raid ? 4 : 3);
-    if (R.raid) save.raidWon = true;
+    if (R.raid) { save.raidWon = true; persist(); }
     R.boss = null;
-    persist();
+    maybeDrop(true);
   }
   return true;
 }
@@ -492,47 +679,48 @@ function bossHit() {
 // ---- Player fire ----------------------------------------------------------
 
 function fireGun() {
-  if (R.cool > 0) return;
+  if (R.gunCool > 0) return;
   const gun = save.gunEquip;
   const lv = gunLv(gun);
   const cx = R.px + SHIP_W / 2;
   const y = SHIP_Y - 6;
-  R.cool = GUN_COOL[gun];
-  const add = (x, vx, vy, w = 3, h = 8, pierce = false, home = false) =>
+  R.gunCool = GUN_COOL[gun];
+  const add = (x, vx, vy, w = 3, h = 6, pierce = false, home = false) =>
     R.bolts.push({ x: x - w / 2, y, vx, vy, w, h, pierce, home, hit: new Set() });
   switch (gun) {
-    case 1:
-      add(cx, -1.5, -8); add(cx, 0, -8); add(cx, 1.5, -8);
-      break;
-    case 2:
-      add(cx, 0, -12);
-      break;
-    case 3:
-      add(cx, 0, -16, 2, 12, true);
-      break;
-    case 4:
-      add(cx - 6, 0, -9); add(cx + 6, 0, -9);
-      break;
-    case 5:
-      add(cx, 0, -8, 14, 6, true);
-      break;
-    case 6:
-      add(cx, 0, -22, 2, 10, true);
-      break;
-    case 7:
-      add(cx, -3, -6); add(cx, -1.5, -7); add(cx, 0, -8); add(cx, 1.5, -7); add(cx, 3, -6);
-      break;
-    case 8:
-      add(cx, 0, -7, 3, 8, false, true);
-      break;
+    case 1: add(cx, -1.5, -8); add(cx, 0, -8); add(cx, 1.5, -8); break;
+    case 2: add(cx, 0, -12); break;
+    case 3: add(cx, 0, -16, 2, 12, true); break;
+    case 4: add(cx - 6, 0, -9); add(cx + 6, 0, -9); break;
+    case 5: add(cx, 0, -8, 14, 6, true); break;
+    case 6: add(cx, 0, -22, 2, 10, true); break;
+    case 7: add(cx, -3, -6); add(cx, -1.5, -7); add(cx, 0, -8); add(cx, 1.5, -7); add(cx, 3, -6); break;
+    case 8: add(cx, 0, -7, 3, 8, false, true); break;
     default:
       add(cx, 0, -8);
       if (lv >= 2) { add(cx - 5, 0, -8); add(cx + 5, 0, -8); }
   }
 }
 
-function anyTargetAlive() {
-  return R.units.some(u => u.alive) || !!R.boss || R.escorts.length > 0;
+function escortX(e) {
+  const bx = R.boss ? R.boss.x : (W - BOSS_W) / 2;
+  return e.side < 0 ? bx - 52 : bx + BOSS_W + 34;
+}
+
+function barrierHitRect(x, y, w, h) {
+  for (const b of R.barriers) {
+    for (let c = 0; c < 10; c++) {
+      const cells = b.cols[c];
+      for (let row = 0; row < cells; row++) {
+        const cx = b.x + c * 3, cy = b.y + row * 3;
+        if (overlapRect(x, y, w, h, cx, cy, 3, 2)) {
+          b.cols[c] = row;
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 function stepBolts() {
@@ -567,55 +755,27 @@ function stepBolts() {
     if (!consumed) {
       for (const e of R.escorts) {
         if (b.hit.has(e)) continue;
-        const ex = escortX(e);
-        if (!overlapRect(b.x, b.y, b.w, b.h, ex, ESCORT_Y, ALLY_W, ALLY_H)) continue;
+        if (!overlapRect(b.x, b.y, b.w, b.h, escortX(e), ESCORT_Y, ALLY_W, ALLY_H)) continue;
         b.hit.add(e);
         e.hp -= 1;
         addScore(10);
-        if (e.hp <= 0) e.alive = false;
         consumed = true;
         break;
       }
-      R.escorts = R.escorts.filter(e => e.alive);
+      R.escorts = R.escorts.filter(e => e.hp > 0);
     }
-    if (!consumed && R.boss) {
-      if (overlapRect(b.x, b.y, b.w, b.h, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) {
-        bossHit();
-        consumed = true;
-      }
+    if (!consumed && R.boss && overlapRect(b.x, b.y, b.w, b.h, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) {
+      bossHit();
+      consumed = true;
     }
     if (consumed && !b.pierce) R.bolts.splice(i, 1);
   }
 }
 
-function escortX(e) {
-  const bx = R.boss ? R.boss.x : (W - BOSS_W) / 2;
-  return e.side < 0 ? bx - 52 : bx + BOSS_W + 34;
-}
-
-function overlapRect(ax, ay, aw, ah, bx, by, bw, bh) {
-  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
-}
-
-// ---- Barriers and blasts --------------------------------------------------
-
-function barrierHitRect(x, y, w, h) {
-  for (const b of R.barriers) {
-    for (let c = 0; c < 10; c++) {
-      const hgt = b.cols[c];
-      if (hgt <= 0) continue;
-      const cx = b.x + c * 3;
-      if (overlapRect(x, y, w, h, cx, 296 - hgt, 3, hgt)) {
-        b.cols[c] = 0;
-        return true;
-      }
-    }
-  }
-  return false;
-}
+// ---- Ship damage ----------------------------------------------------------
 
 function blastAt(cx, cy) {
-  R.blasts.push({ x: cx, y: cy, t: 12 });
+  R.blasts.push({ x: cx, y: cy, t: 24 });
   for (const b of R.barriers) {
     for (let c = 0; c < 10; c++) {
       const bx = b.x + c * 3;
@@ -626,8 +786,6 @@ function blastAt(cx, cy) {
          cy > SHIP_Y - BLAST_R && cy < SHIP_Y + SHIP_H + BLAST_R;
 }
 
-// ---- Ship damage ----------------------------------------------------------
-
 function shipHit(who) {
   if (demo) {
     R.lives = 3;
@@ -636,10 +794,10 @@ function shipHit(who) {
   }
   if (R.invuln > 0) return;
   R.foes = []; R.bolts = [];
+  R.invuln = 80;
+  liftFormation();
   if (save.shield > 0) {
     save.shield -= 1;
-    R.invuln = 80;
-    liftFormation();
     persist();
     return;
   }
@@ -649,8 +807,6 @@ function shipHit(who) {
     die();
     return;
   }
-  R.invuln = 80;
-  liftFormation();
   persist();
 }
 
@@ -698,8 +854,7 @@ function stepFoes() {
     if (hitShip || blocked) {
       foes.splice(i, 1);
       if (f.kind === 2) {
-        const ring = blastAt(nx + 2, ny + 3);
-        if (ring) shipHit(f.who);
+        if (blastAt(nx + 2, ny + 3)) shipHit(f.who);
       } else if (hitShip) {
         shipHit(f.who);
       }
@@ -748,10 +903,7 @@ function fireBoss() {
       fireFoe(x - 16, y, 1, who, -3); fireFoe(x - 8, y, 1, who, -1); fireFoe(x, y, 2, who, 0);
       fireFoe(x + 8, y, 1, who, 1); fireFoe(x + 16, y, 1, who, 3);
     }
-    for (const e of R.escorts) {
-      const ex = escortX(e) + ALLY_W / 2;
-      fireFoe(ex, ESCORT_Y + ALLY_H, 0, who, 0);
-    }
+    for (const e of R.escorts) fireFoe(escortX(e) + ALLY_W / 2, ESCORT_Y + ALLY_H, 0, who, 0);
     return;
   }
   if (b.style === 1) {
@@ -759,93 +911,6 @@ function fireBoss() {
   } else {
     const dx = R.px + SHIP_W / 2 - x;
     fireFoe(x, y, 0, who, dx < -10 ? -1 : (dx > 10 ? 1 : 0));
-  }
-}
-
-// ---- Level flow -----------------------------------------------------------
-
-function levelClear() {
-  if (demo) {
-    R.level = R.level >= LEVELS ? 1 : R.level + 1;
-    startLevel();
-    return;
-  }
-  if (R.level >= LEVELS) {
-    save.level = LEVELS;
-    persist();
-    R.hitBy = "";
-    R.won = true;
-    setScr("over");
-    return;
-  }
-  R.level += 1;
-  save.level = R.level;
-  persist();
-  R.timer = 54;
-  R.foes = []; R.bolts = []; R.coins = [];
-  setScr("advance");
-}
-
-function stepPlay(input) {
-  const entry = scr;
-  if (R.invuln > 0) R.invuln -= 1;
-  if (R.cool > 0) R.cool -= 1;
-  if (input.left) R.px -= SHIP_STEP;
-  if (input.right) R.px += SHIP_STEP;
-  if (input.aim !== null) R.px = input.aim;
-  R.px = clamp(R.px, 4, W - SHIP_W - 4);
-  if (input.fire) fireGun();
-  stepBolts();
-  moveFormation();
-  if (R.boss) {
-    const b = R.boss;
-    const speed = b.style === 1 ? 2 : 1;
-    b.x += b.dir * speed;
-    if (b.x < 8) { b.x = 8; b.dir = 1; }
-    if (b.x > W - BOSS_W - 8) { b.x = W - BOSS_W - 8; b.dir = -1; }
-    b.cool -= 1;
-    if (b.cool <= 0) {
-      fireBoss();
-      b.cool = Math.max(18, R.foeGap + 10);
-    }
-  }
-  R.foeCool += 1;
-  if (R.foeCool >= R.foeGap) {
-    R.foeCool = 0;
-    enemyShoot();
-  }
-  stepFoes();
-  for (let i = R.blasts.length - 1; i >= 0; i--) {
-    if (--R.blasts[i].t <= 0) R.blasts.splice(i, 1);
-  }
-  stepCoins();
-  if (R.msgT > 0) R.msgT -= 1;
-  if (scr !== entry) return;
-
-  // Formation or ally reached the ship line.
-  for (const u of R.units) {
-    if (!u.alive) continue;
-    const [, sh] = unitSize(u);
-    if (R.oy + u.oy + sh >= SHIP_Y) {
-      shipHit(unitLabel(u));
-      if (scr !== entry) return;
-      break;
-    }
-  }
-
-  if (!anyTargetAlive() && !R.godEntrance) {
-    if (R.god && R.godWave < 4) {
-      R.godWave += 1;
-      if (R.godWave < 4) spawnGodWave();
-      else beginSplash();
-      return;
-    }
-    if (R.god) { R.god = 0; }
-    levelClear();
-    return;
-  }
-  if (R.godEntrance && !R.boss && R.escorts.length === 0) {
-    levelClear();
   }
 }
 
@@ -863,6 +928,102 @@ function stepCoins() {
   }
 }
 
+function stepSky() {
+  if (R.sky) {
+    R.sky.y += 1;
+    if (R.sky.y > 240) R.sky = null;
+    return;
+  }
+  if (R.level % 5 !== 0 || rnd(180) !== 0) return;
+  const r = 14 + rnd(9);
+  R.sky = { kind: rnd(2), x: 24 + rnd(W - 48), y: 56 + r, r };
+}
+
+// ---- Level flow -----------------------------------------------------------
+
+function levelClear() {
+  if (R.drop_) return;
+  if (demo) {
+    R.level = R.level >= LEVELS ? 1 : R.level + 1;
+    startLevel();
+    return;
+  }
+  if (R.level >= LEVELS) {
+    save.level = LEVELS;
+    persist();
+    R.won = true;
+    setScr("over");
+    return;
+  }
+  R.level += 1;
+  save.level = R.level;
+  persist();
+  R.timer = 54;
+  R.foes = []; R.bolts = []; R.coins = [];
+  setScr("advance");
+}
+
+function stepPlay(input) {
+  const entry = scr;
+  if (R.invuln > 0) R.invuln -= 1;
+  if (R.gunCool > 0) R.gunCool -= 1;
+  if (input.left) R.px -= SHIP_STEP;
+  if (input.right) R.px += SHIP_STEP;
+  if (input.aim !== null) R.px = input.aim;
+  R.px = clamp(R.px, 4, W - SHIP_W - 4);
+  if (input.fire) fireGun();
+  stepBolts();
+  stepDrop();
+  moveFormation();
+  if (R.boss) {
+    const b = R.boss;
+    b.x += b.dir * (b.style === 1 ? 2 : 1);
+    if (b.x < 8) { b.x = 8; b.dir = 1; }
+    if (b.x > W - BOSS_W - 8) { b.x = W - BOSS_W - 8; b.dir = -1; }
+    b.cool -= 1;
+    if (b.cool <= 0) {
+      fireBoss();
+      b.cool = Math.max(18, R.foeGap + 10);
+    }
+  }
+  R.foeCool += 1;
+  if (R.foeCool >= R.foeGap) {
+    R.foeCool = 0;
+    enemyShoot();
+  }
+  stepFoes();
+  if (scr !== entry) return;
+  for (let i = R.blasts.length - 1; i >= 0; i--) {
+    if (--R.blasts[i].t <= 0) R.blasts.splice(i, 1);
+  }
+  stepCoins();
+  stepSky();
+  if (R.msgT > 0) R.msgT -= 1;
+
+  for (const u of R.units) {
+    if (!u.alive) continue;
+    const [, sh] = unitSize(u);
+    if (R.oy + u.oy + sh >= SHIP_Y) {
+      shipHit(unitLabel(u));
+      if (scr !== entry) return;
+      break;
+    }
+  }
+
+  const anyLeft = R.units.some(u => u.alive) || !!R.boss || R.escorts.length > 0;
+  if (!anyLeft && !R.godEntrance) {
+    if (R.god && R.godWave < 4) {
+      R.godWave += 1;
+      if (R.godWave < 4) spawnGodWave();
+      else { setScr("splash"); R.timer = 60; }
+      return;
+    }
+    levelClear();
+    return;
+  }
+  if (R.godEntrance && !R.boss && R.escorts.length === 0) levelClear();
+}
+
 // Demo pilot: chase the lowest live unit and fire when lined up.
 function demoInput() {
   let target = null, low = -1e9;
@@ -875,23 +1036,55 @@ function demoInput() {
   if (target === null && R.boss) target = R.boss.x + BOSS_W / 2;
   if (target === null) return { left: false, right: false, fire: false, aim: null };
   const cx = R.px + SHIP_W / 2;
-  return {
-    left: target < cx - 4,
-    right: target > cx + 4,
-    fire: Math.abs(target - cx) <= 6,
-    aim: null
-  };
+  return { left: target < cx - 4, right: target > cx + 4, fire: Math.abs(target - cx) <= 6, aim: null };
 }
 
+// The on-screen keys, in the same places as the firmware.
+const BOX = {
+  left: { x: 8, y: BUTTON_Y, w: 96, h: 44 },
+  fire: { x: 112, y: BUTTON_Y, w: 96, h: 44 },
+  right: { x: 216, y: BUTTON_Y, w: 96, h: 44 },
+  back: { x: 4, y: 2, w: 70, h: 26 },
+  play: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
+  home: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
+  restart: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
+  yes: { x: 32, y: 190, w: 256, h: 52 },
+  no: { x: 32, y: 260, w: 256, h: 52 },
+  resume: { x: 32, y: 176, w: 256, h: 46 },
+  pauseCustom: { x: 32, y: 232, w: 256, h: 46 },
+  pauseHome: { x: 32, y: 288, w: 256, h: 46 },
+  color: { x: 16, y: 46, w: 288, h: 36 },
+  menuPlay: { x: 16, y: 60, w: 288, h: 48 },
+  menuCheck: { x: 16, y: 116, w: 288, h: 40 },
+  menuCustom: { x: 16, y: 164, w: 288, h: 40 },
+  menuShop: { x: 16, y: 212, w: 288, h: 40 },
+  menuTheme: { x: 16, y: 260, w: 288, h: 40 },
+  menuHome: { x: 16, y: 308, w: 288, h: 40 },
+  menuRestart: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
+  shopPage: { x: 8, y: 396, w: 120, h: 28 }
+};
+function gunBox(slot) { return { x: 16, y: 88 + slot * 34, w: 288, h: 32 }; }
+function checkCell(i) { return { x: 12 + (i % 4) * 76, y: 48 + Math.floor(i / 4) * 70, w: 70, h: 56 }; }
+function shopTabBox(t) { return { x: 8 + t * 63, y: 40, w: 60, h: 34 }; }
+function shopRowBox(r) { return { x: 16, y: 84 + r * 52, w: 288, h: 46 }; }
+function inBox(b, x, y) { return x >= b.x && y >= b.y && x < b.x + b.w && y < b.y + b.h; }
+
 function playerInput() {
-  const input = { left: held.has("left"), right: held.has("right"), fire: held.has("space") || held.has("up") || mouse.down, aim: null };
-  if (mouse.inside && performance.now() - mouse.moved < 1500) {
+  const pointerDown = mouse.down && mouse.inside;
+  const onKey = (name) => pointerDown && inBox(BOX[name], mouse.x, mouse.y);
+  const input = {
+    left: held.has("left") || onKey("left"),
+    right: held.has("right") || onKey("right"),
+    fire: held.has("space") || held.has("up") || onKey("fire"),
+    aim: null
+  };
+  if (mouse.inside && mouse.y < BUTTON_Y && performance.now() - mouse.moved < 1500) {
     input.aim = mouse.x - SHIP_W / 2;
   }
   return input;
 }
 
-// ---- Shop helpers ---------------------------------------------------------
+// ---- Shop and custom helpers ----------------------------------------------
 
 function shopCount(tab) { return [8, 12, 9, 2, 2][tab]; }
 function shopPrice(tab, idx) {
@@ -970,7 +1163,25 @@ function shopAct(idx) {
   persist();
 }
 
-// ---- Screens --------------------------------------------------------------
+function cycleTheme() {
+  do { save.theme = (save.theme + 1) & 7; } while (!themeOwned(save.theme));
+  persist();
+}
+function cycleLaser() {
+  do { save.laser = (save.laser + 1) % 12; } while (!laserOwned(save.laser));
+  persist();
+}
+function gunLine(g) {
+  if (!gunOwned(g)) return GUNS[g] + " LOCKED";
+  return GUNS[g] + " LV" + (gunLv(g) + 1) + " " + (g === save.gunEquip ? "ON" : "READY");
+}
+function equipGun(g) {
+  if (!gunOwned(g)) return;
+  save.gunEquip = g;
+  persist();
+}
+
+// ---- Screen transitions ---------------------------------------------------
 
 function startCampaign() {
   demo = false;
@@ -978,7 +1189,6 @@ function startCampaign() {
   if (save.spare > 0) { save.spare -= 1; R.lives = 4; persist(); }
   startLevel();
 }
-
 function startDemo() {
   demo = true;
   R = newRun(1 + rnd(5));
@@ -986,7 +1196,17 @@ function startDemo() {
   startLevel();
   setScr("demo");
 }
-
+function goMenu() {
+  demo = false;
+  setScr("menu");
+  persist();
+}
+function beginPause() {
+  setScr("pause");
+}
+function resumePlay() {
+  setScr("play");
+}
 function restartGame() {
   save.level = 1;
   save.camp = 0;
@@ -995,278 +1215,416 @@ function restartGame() {
   startCampaign();
 }
 
-function goMenu() {
-  demo = false;
-  setScr("menu");
-  persist();
-}
-
-function gameOverUI() { return R && R.won ? "CLEARED" : "YOU DIED"; }
-
-// ---- Drawing --------------------------------------------------------------
+// ---- Drawing: screens (same layout as the firmware) -----------------------
 
 const STARS = [];
 (function makeStars() {
   let s = 0x51a7;
   for (let i = 0; i < 42; i++) {
-    s = (s * 1664525 + 1013904223) >>> 0;
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
     const x = s % W;
-    s = (s * 1664525 + 1013904223) >>> 0;
-    STARS.push([x, 28 + (s % 360), i & 1]);
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    STARS.push({ x, y: 28 + (s % 360), layer: i & 1 });
   }
 })();
 
-function text(str, x, y, color, size = 12, align = "center") {
-  g.font = `bold ${size}px monospace`;
-  g.fillStyle = color;
-  g.textAlign = align;
-  g.textBaseline = "middle";
-  g.fillText(str, x, y);
+function drawKey(text, box, isHeld, P) {
+  fillRect(box.x, box.y, box.w, box.h, isHeld ? P.buttonOn : P.button);
+  drawRect(box.x, box.y, box.w, box.h, P.accent);
+  drawText(text, box.x + Math.floor(box.w / 2), box.y + Math.floor(box.h / 2), P.ink, "f2", "mc");
 }
 
-function rect(x, y, w, h, color) { g.fillStyle = color; g.fillRect(x, y, w, h); }
-function frame(x, y, w, h, color) {
-  g.strokeStyle = color; g.lineWidth = 1;
-  g.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+function drawCard(title, sub, box, P) {
+  fillRect(box.x, box.y, box.w, box.h, P.button);
+  drawRect(box.x, box.y, box.w, box.h, P.accent);
+  const cx = box.x + Math.floor(box.w / 2), cy = box.y + Math.floor(box.h / 2);
+  drawText(title, cx, cy - (sub ? 8 : 0), P.ink, "f2", "mc");
+  if (sub) drawText(sub, cx, cy + 12, P.muted, "f2", "mc");
 }
 
-function button(x, y, w, h, label, sub, fn, c) {
-  const i = btns.length;
-  btns.push({ x, y, w, h, fn });
-  const selected = i === sel;
-  rect(x, y, w, h, c.button);
-  frame(x, y, w, h, selected ? c.accent : c.buttonFrame || c.accent);
-  if (selected) frame(x + 2, y + 2, w - 4, h - 4, c.accent);
-  if (sub) {
-    text(label, x + w / 2, y + h / 2 - 8, c.ink);
-    text(sub, x + w / 2, y + h / 2 + 10, c.muted, 10);
-  } else {
-    text(label, x + w / 2, y + h / 2, c.ink);
+// Registers a clickable box. The highlight only shows for keyboard users.
+function reg(box, fn) {
+  btns.push({ x: box.x, y: box.y, w: box.w, h: box.h, fn });
+}
+
+function paintStars(P) {
+  for (const s of STARS) px(s.x, s.y, s.layer ? P.star : P.muted);
+}
+
+function paintPlanet(P) {
+  for (let i = 0; i < 12; i++) {
+    const inset = Math.floor((i * i) / 4);
+    const y = 404 + i;
+    if (y >= BUTTON_Y - 2) break;
+    fillRect(inset, y, W - inset * 2, 1, P.planet);
   }
 }
 
-function drawStars(c) {
-  for (const s of STARS) rect(s[0], s[1], 1, 1, c.star);
+function drawScrap(s, P) {
+  if (R.terrain === 0) {
+    fillRect(s.x, s.y, s.w, s.h, P.barrier);
+    if (s.w > 5 && s.h > 3) fillRect(s.x + 2, s.y + 2, Math.floor(s.w / 2), Math.floor(s.h / 2), P.muted);
+    return;
+  }
+  if (R.terrain === 1) { fillRect(s.x, s.y, s.w, 2, P.planet); return; }
+  if (R.terrain === 2) { fillRect(0, s.y, W, 2, P.planet); return; }
+  fillRect(s.x, s.y, s.w, 2, P.top);
 }
 
-function heart(x, y, color) {
-  g.fillStyle = color;
-  g.beginPath();
-  g.arc(x + 3, y + 3, 3, Math.PI, 0);
-  g.arc(x + 8, y + 3, 3, Math.PI, 0);
-  g.lineTo(x + 5.5, y + 10);
-  g.closePath();
-  g.fill();
+// Same shapes as the firmware's drawAlienAt.
+function drawAlienAt(x, y, kind, P, opts) {
+  const body = kind === 0 ? P.low : P.top;
+  const eye = P.bg;
+  if (kind === 4) {
+    const plate = clr([255, 120, 96]);
+    fillRect(x + 4, y + 2, 10, 7, plate);
+    fillRect(x + 1, y + 8, 16, 4, body);
+    fillRect(x + 2, y + 12, 3, 2, plate);
+    fillRect(x + 13, y + 12, 3, 2, plate);
+    fillRect(x + 5, y + 9, 2, 4, eye);
+    fillRect(x + 11, y + 9, 2, 4, eye);
+    return;
+  }
+  if (kind === 5) {
+    const plate = clr([255, 150, 60]);
+    fillRect(x + 1, y + 4, 20, 9, body);
+    fillRect(x + 6, y + 1, 10, 4, plate);
+    fillRect(x + 8, y + 13, 6, 3, plate);
+    fillRect(x + 3, y + 6, 3, 3, eye);
+    fillRect(x + 15, y + 6, 3, 3, eye);
+    fillRect(x + 9, y + 8, 4, 2, clr([255, 220, 120]));
+    return;
+  }
+  if (kind === 6) {
+    const plate = opts && opts.god ? godInk() : P.accent;
+    fillRect(x + 4, y + 4, MINI_W - 8, MINI_H - 8, P.top);
+    fillRect(x, y + 8, 5, 6, plate);
+    fillRect(x + MINI_W - 5, y + 8, 5, 6, plate);
+    fillRect(x + 9, y + 7, 4, 4, eye);
+    fillRect(x + MINI_W - 13, y + 7, 4, 4, eye);
+    fillRect(x + 12, y + MINI_H - 4, 6, 3, plate);
+    const pool = opts && opts.max > 0 ? opts.max : 1;
+    const left = clamp(opts && opts.hp !== undefined ? opts.hp : pool, 0, pool);
+    fillRect(x + 4, y + MINI_H - 3, Math.floor((MINI_W - 8) * left / pool), 2, plate);
+    return;
+  }
+  if (kind === 7) {
+    const plate = godInk();
+    fillRect(x + 4, y + 4, 10, 7, plate);
+    fillRect(x, y + 2, 4, 4, plate);
+    fillRect(x + ALLY_W - 4, y + 2, 4, 4, plate);
+    fillRect(x + 7, y + 6, 4, 3, eye);
+    return;
+  }
+  if (kind === 2) {
+    fillRect(x + 8, y + 4, 28, 16, body);
+    fillRect(x + 4, y, 6, 8, body);
+    fillRect(x + 34, y, 6, 8, body);
+    fillRect(x + 14, y + 8, 4, 4, eye);
+    fillRect(x + 26, y + 8, 4, 4, eye);
+    fillRect(x + 6, y + 20, 8, 6, body);
+    fillRect(x + 30, y + 20, 8, 6, body);
+    const pool = opts && opts.max > 0 ? opts.max : 1;
+    const left = clamp(opts && opts.hp !== undefined ? opts.hp : pool, 0, pool);
+    let inner = Math.floor((BOSS_W - 8) * left / pool);
+    if (inner < 4) inner = 4;
+    fillRect(x + 4, y + BOSS_H - 4, inner, 3, P.shot);
+    return;
+  }
+  if (kind === 1) {
+    fillRect(x + 4, y + 2, 10, 8, body);
+    fillRect(x + 2, y, 2, 4, body);
+    fillRect(x + 14, y, 2, 4, body);
+    fillRect(x + 6, y + 4, 2, 2, eye);
+    fillRect(x + 10, y + 4, 2, 2, eye);
+    fillRect(x + 2, y + 10, 4, 3, body);
+    fillRect(x + 12, y + 10, 4, 3, body);
+    return;
+  }
+  fillRect(x + 3, y + 1, 12, 4, body);
+  fillRect(x + 1, y + 5, 16, 6, body);
+  fillRect(x + 5, y + 6, 2, 2, eye);
+  fillRect(x + 11, y + 6, 2, 2, eye);
+  fillRect(x + 2, y + 11, 3, 3, body);
+  fillRect(x + 13, y + 11, 3, 3, body);
 }
 
-function drawHud(c) {
-  rect(0, 0, W, 24, c.bg);
+function drawShipAt(x, P) {
+  fillRect(x + SHIP_W / 2 - 2, SHIP_Y, 4, SHIP_H, P.ship);
+  fillRect(x, SHIP_Y + 9, SHIP_W, 6, P.ship);
+}
+
+function drawHeart(x, y, c) {
+  fillCircle(x + 3, y + 3, 3, c);
+  fillCircle(x + 8, y + 3, 3, c);
+  fillTriangle(x, y + 4, x + 11, y + 4, x + 5, y + 10, c);
+}
+
+function drawHearts(P) {
+  let slots = Math.max(3, R.lives);
+  if (slots > 8) slots = 8;
+  let x = W - 8 - slots * 14;
+  if (x < 84) x = 84;
+  for (let i = 0; i < slots; i++) drawHeart(x + i * 14, 6, i < R.lives ? clr([255, 64, 96]) : P.button);
+  return { x, slots };
+}
+
+function drawCoin(x, y) {
+  fillCircle(x + 3, y + 3, 3, clr([255, 210, 48]));
+  fillRect(x + 2, y + 2, 2, 2, clr([255, 246, 170]));
+}
+
+function drawHud(P) {
+  fillRect(0, 0, W, 24, P.bg);
   let line;
   if (R.msgT > 0) line = R.msg;
-  else if (R.godEntrance) line = godName();
-  else if (R.god) line = `${godName()} ${R.godWave + 1}/4`;
-  else if (R.mini) line = `MINI ${R.level} ${R.score}`;
-  else if (R.boss) line = `${R.raid ? "RAID" : "CORE"} ${R.level} ${R.score}`;
-  else line = `MACHINA ${R.level} ${R.score}`;
-  if (demo) line = `DEMO ${R.level}`;
-  text(line, 8, 12, c.ink, 12, "left");
-  const slots = Math.min(8, Math.max(3, R.lives));
-  const hx = W - 8 - slots * 14;
-  for (let i = 0; i < slots; i++) {
-    heart(hx + i * 14, 6, i < R.lives ? "rgb(255,64,96)" : c.button);
-  }
-  text("$" + save.coins, hx - 6, 12, c.accent, 12, "right");
-  if (R.boss || R.god) drawBossBar(c);
+  else if (R.god && R.godEntrance) line = godName();
+  else if (R.god) line = godName() + " " + (R.godWave + 1) + "/4";
+  else if (R.mini) line = "MINI " + R.level + " " + R.score;
+  else if (R.boss) {
+    let tag = "CORE";
+    if (R.raid && R.units.some(u => u.alive)) tag = "GOONS";
+    else if (R.raid) tag = "RAID";
+    line = tag + " " + R.level + " " + R.score;
+  } else line = "MACHINA " + R.level + " " + R.score;
+  const hearts = (() => { let s = Math.max(3, R.lives); return s > 8 ? 8 : s; })();
+  if (textWidth(line) > W - 24 - hearts * 14) line = "M " + R.level + " " + R.score;
+  if (demo) line = "DEMO " + R.level;
+  drawText(line, 8, 12, P.ink, "f2", "ml");
+  const hr = drawHearts(P);
+  drawText("$" + save.coins, hr.x - 6, 12, P.accent, "f2", "mr");
+  if (R.boss || R.godEntrance) drawBossBar(P);
 }
 
-function drawBossBar(c) {
+function drawBossBar(P) {
   if (R.godEntrance) {
     const w = 96;
-    const ink = rgb(godInkRgb());
+    const ink = godInk();
     for (let bar = 0; bar < 3; bar++) {
       const x = 8 + bar * (w + 4);
-      rect(x, 26, w, 8, c.button);
+      fillRect(x, 26, w, 8, P.button);
       const live = bar < R.godBars;
       if (live) {
         const pool = Math.max(1, R.godHpMax);
         const left = bar === R.godBars - 1 ? clamp(R.godHp, 0, pool) : pool;
         const fill = Math.floor((w - 4) * left / pool);
-        if (fill > 0) rect(x + 2, 28, fill, 4, ink);
+        if (fill > 0) fillRect(x + 2, 28, fill, 4, ink);
       }
-      frame(x, 26, w, 8, live ? ink : c.button);
+      drawRect(x, 26, w, 8, live ? ink : P.button);
     }
     return;
   }
-  if (!R.boss) return;
   const pool = Math.max(1, R.boss.max);
   const left = clamp(R.boss.hp, 0, pool);
-  rect(8, 26, 160, 6, c.button);
-  rect(8, 26, Math.floor(160 * left / pool), 6, c.shot);
+  fillRect(8, 26, 200, 8, P.bg);
+  fillRect(8, 26, 160, 6, P.button);
+  if (left > 0) fillRect(8, 26, Math.floor(160 * left / pool), 6, P.shot);
 }
 
-function drawUnit(u, c, lasers) {
-  const x = R.ox + u.ox, y = R.oy + u.oy;
-  if (u.kind === 4) {
-    rect(x + 4, y + 2, 10, 7, "rgb(255,120,96)");
-    rect(x + 1, y + 8, 16, 4, c.low);
-    rect(x + 2, y + 12, 3, 2, "rgb(255,120,96)");
-    rect(x + 13, y + 12, 3, 2, "rgb(255,120,96)");
-    rect(x + 5, y + 9, 2, 4, c.bg);
-    rect(x + 11, y + 9, 2, 4, c.bg);
-    return;
+function paintLevel(P, input) {
+  fillRect(0, 0, W, H, P.bg);
+  paintStars(P);
+  if (R.god) paintGodArena(P);
+  else {
+    if (R.terrain === 1) paintPlanet(P);
+    for (const s of R.scraps) drawScrap(s, P);
   }
-  if (u.kind === 5) {
-    rect(x + 1, y + 4, 20, 9, c.low);
-    rect(x + 6, y + 1, 10, 4, "rgb(255,150,60)");
-    rect(x + 8, y + 13, 6, 3, "rgb(255,150,60)");
-    rect(x + 3, y + 6, 3, 3, c.bg);
-    rect(x + 15, y + 6, 3, 3, c.bg);
-    return;
-  }
-  if (u.kind === 6) {
-    const plate = scr === "play" && R.god ? rgb(godInkRgb()) : c.accent;
-    rect(x + 4, y + 4, MINI_W - 8, MINI_H - 8, c.top);
-    rect(x, y + 8, 5, 6, plate);
-    rect(x + MINI_W - 5, y + 8, 5, 6, plate);
-    rect(x + 9, y + 7, 4, 4, c.bg);
-    rect(x + MINI_W - 13, y + 7, 4, 4, c.bg);
-    return;
-  }
-  const body = u.kind === 0 ? c.low : c.top;
-  rect(x + 2, y + 2, 14, 8, body);
-  rect(x + 1, y + 8, 16, 4, body);
-  rect(x + 4, y + 11, 3, 3, body);
-  rect(x + 11, y + 11, 3, 3, body);
-  rect(x + 5, y + 5, 2, 3, c.bg);
-  rect(x + 11, y + 5, 2, 3, c.bg);
-}
-
-function drawBoss(c) {
-  const b = R.boss;
-  if (!b) return;
-  if (R.godEntrance) {
-    const ink = rgb(godInkRgb());
-    rect(b.x + 4, b.y + 4, BOSS_W - 8, BOSS_H - 8, ink);
-    rect(b.x + 12, b.y + 12, 20, 6, c.bg);
-    for (const e of R.escorts) {
-      const ex = escortX(e), ey = ESCORT_Y;
-      rect(ex + 4, ey + 4, 10, 7, ink);
-      rect(ex, ey + 2, 4, 4, ink);
-      rect(ex + ALLY_W - 4, ey + 2, 4, 4, ink);
+  if (R.sky) {
+    if (R.sky.kind === 0) {
+      fillCircle(R.sky.x, R.sky.y, R.sky.r, P.planet);
+      fillCircle(R.sky.x - Math.floor(R.sky.r / 3), R.sky.y - Math.floor(R.sky.r / 4), Math.floor(R.sky.r / 4), P.muted);
+    } else {
+      drawCircle(R.sky.x, R.sky.y, R.sky.r, P.muted);
+      drawCircle(R.sky.x, R.sky.y, Math.floor((R.sky.r * 2) / 3), P.accent);
+      fillCircle(R.sky.x, R.sky.y, Math.floor(R.sky.r / 3), P.bg);
     }
-    return;
-  }
-  rect(b.x + 4, b.y + 4, BOSS_W - 8, BOSS_H - 8, c.top);
-  rect(b.x, b.y + 8, 6, 14, c.accent);
-  rect(b.x + BOSS_W - 6, b.y + 8, 6, 14, c.accent);
-  rect(b.x + 14, b.y + 12, 16, 6, c.bg);
-}
-
-function render() {
-  const c = pal(save.theme);
-  btns = [];
-  g.setTransform(1, 0, 0, 1, 0, 0);
-  if (scr === "demo" || scr === "play" || scr === "advance" || scr === "splash" || scr === "pause" || scr === "over") {
-    drawPlayfield(c);
-  }
-  if (scr === "demo") {
-    rect(0, BUTTON_Y, W, H - BUTTON_Y, c.bg);
-    button(24, BUTTON_Y, 272, 44, "PLAY", null, () => goMenu(), c);
-  } else if (scr === "menu") drawMenu(c);
-  else if (scr === "checks") drawChecks(c);
-  else if (scr === "shop") drawShop(c);
-  else if (scr === "confirm") drawConfirm(c);
-  else if (scr === "pause") drawPause(c);
-  else if (scr === "advance") drawAdvance(c);
-  else if (scr === "splash") drawSplash(c);
-  else if (scr === "over") drawOver(c);
-}
-
-function drawPlayfield(c) {
-  rect(0, 0, W, H, c.bg);
-  drawStars(c);
-  if (R.god) {
-    const ink = rgb(godInkRgb());
-    for (let i = 0; i < 6; i++) {
-      const x = 18 + i * 56;
-      rect(x, 40, 6, SHIP_Y - 44, ink);
-    }
-    g.strokeStyle = ink;
-    g.beginPath(); g.arc(W / 2, 150, 78, 0, Math.PI * 2); g.stroke();
   }
   for (const b of R.barriers) {
     for (let col = 0; col < 10; col++) {
-      const hgt = b.cols[col];
-      if (hgt > 0) rect(b.x + col * 3, 296 - hgt, 3, hgt, c.barrier);
+      for (let row = 0; row < b.cols[col]; row++) fillRect(b.x + col * 3, b.y + row * 3, 3, 2, P.barrier);
     }
   }
   for (const u of R.units) {
-    if (u.alive) drawUnit(u, c);
+    if (!u.alive) continue;
+    drawAlienAt(R.ox + u.ox, R.oy + u.oy, u.kind, P, { god: !!R.god, max: u.max, hp: u.hp });
   }
-  drawBoss(c);
-  for (const f of R.foes) rect(f.x, f.y, f.w, f.h, f.kind === 2 ? "rgb(255,168,56)" : (R.god ? rgb(godInkRgb()) : "rgb(255,72,64)"));
-  for (const bolt of R.bolts) rect(bolt.x, bolt.y, bolt.w, bolt.h, rgb(save.laser >= 0 ? LASERS[save.laser][1] : [255,64,56]));
-  for (const coin of R.coins) {
-    g.fillStyle = "rgb(255,210,48)";
-    g.beginPath(); g.arc(coin.x + 3, coin.y + 3, 3, 0, Math.PI * 2); g.fill();
+  if (R.boss) {
+    const b = R.boss;
+    if (R.godEntrance) {
+      for (const e of R.escorts) drawAlienAt(escortX(e), ESCORT_Y, 7, P, {});
+      drawAlienAt(Math.round(b.x), b.y, 2, P, { max: 1, hp: 1 });
+    } else {
+      drawAlienAt(Math.round(b.x), b.y, 2, P, { max: b.max, hp: b.hp });
+    }
   }
+  for (const f of R.foes) fillRect(Math.round(f.x), Math.round(f.y), f.w, f.h, foeInk(f));
+  const lc = laserColour(save.laser);
+  for (const bolt of R.bolts) fillRect(Math.round(bolt.x), Math.round(bolt.y), bolt.w, bolt.h, lc);
+  if (R.drop_) {
+    const d = R.drop_;
+    let color = clr([255, 220, 80]);
+    if (d.which === 9) color = clr([255, 64, 96]);
+    else if (d.which === 10) color = clr([255, 210, 48]);
+    else if (d.which >= 1 && d.which <= 8) color = clr(DROP_RGB[d.which - 1]);
+    fillRect(d.x, d.y, 14, 14, color);
+    fillRect(d.x + 4, d.y + 4, 6, 6, P.bg);
+  }
+  for (const c of R.coins) drawCoin(c.x, c.y);
   for (const bl of R.blasts) {
-    g.strokeStyle = "rgb(255,176,60)";
-    g.beginPath(); g.arc(bl.x, bl.y, BLAST_R * (1 - bl.t / 24), 0, Math.PI * 2); g.stroke();
+    const r = Math.min(BLAST_R, 5 * Math.ceil((24 - bl.t + 1) / 6));
+    for (let rr = 5; rr <= r; rr += 5) drawCircle(bl.x, bl.y, rr, clr([255, 176, 60]));
   }
-  if (!(R.invuln > 0 && Math.floor(R.invuln / 6) % 2 === 1)) {
-    rect(R.px, SHIP_Y, SHIP_W, SHIP_H, c.ship);
-    rect(R.px + 12, SHIP_Y - 4, 8, 4, c.ship);
+  // The ship blinks for a moment after a hit.
+  const blinkOff = R.invuln > 50 && Math.floor((80 - R.invuln) / 5) % 2 === 1;
+  if (!blinkOff) drawShipAt(R.px, P);
+  drawHud(P);
+  if (demo) {
+    fillRect(0, BUTTON_Y, W, H - BUTTON_Y, P.bg);
+    drawKey("PLAY", BOX.play, false, P);
+    reg(BOX.play, () => goMenu());
+    return;
   }
-  drawHud(c);
+  reg(BOX.back, () => beginPause());
+  drawKey("BACK", BOX.back, false, P);
+  drawKey("LEFT", BOX.left, input.left, P);
+  drawKey("FIRE", BOX.fire, input.fire, P);
+  drawKey("RIGHT", BOX.right, input.right, P);
 }
 
-function drawMenu(c) {
-  rect(0, 0, W, H, c.bg);
-  text("INVADERS", W / 2, 24, c.ink, 22);
-  text("MACHINA", W / 2, 48, c.accent, 12);
-  text("$" + save.coins, W - 12, 48, c.accent, 12, "right");
-  const unlocked = popCount(save.camp);
-  button(16, 60, 288, 48, "PLAY", `level ${save.level}`, () => startCampaign(), c);
-  button(16, 116, 288, 40, "CHECKPOINTS", `${unlocked} unlocked`, () => setScr("checks"), c);
-  button(16, 164, 288, 40, "SHOP", "themes, guns, power-ups", () => { setScr("shop"); shopMsg = ""; }, c);
-  button(16, 212, 288, 40, THEME_NAMES[save.theme], "tap to switch", () => cycleTheme(), c);
-  button(16, 260, 288, 40, "HOME SCREEN", "CPU attract", () => startDemo(), c);
-  button(16, BUTTON_Y, 288, 44, "RESTART GAME", null, () => setScr("confirm"), c);
+function paintGodArena(P) {
+  const ink = godInk();
+  for (let i = 0; i < 6; i++) {
+    const x = 18 + i * 56;
+    fillRect(x, 40, 6, SHIP_Y - 44, ink);
+    fillRect(x - 6, 40, 18, 5, ink);
+  }
+  drawCircle(W / 2, 150, 78, ink);
+  drawCircle(W / 2, 150, 60, ink);
+  drawText(godName() + " DOMAIN", W / 2, 150, ink, "f2", "mc");
+}
+
+function paintMenu(P) {
+  fillRect(0, 0, W, H, P.bg);
+  drawText("INVADERS", W / 2, 24, P.ink, "f4", "mc");
+  drawText("MACHINA", W / 2, 48, P.accent, "f2", "mc");
+  drawText("$" + save.coins, W - 12, 48, P.accent, "f2", "mr");
+  drawCard("PLAY", "level " + save.level, BOX.menuPlay, P);
+  drawCard("CHECKPOINTS", popCount(save.camp) + " unlocked", BOX.menuCheck, P);
+  drawCard("CUSTOM", "ship, guns, laser", BOX.menuCustom, P);
+  drawCard("SHOP", "themes, guns, power-ups", BOX.menuShop, P);
+  drawCard(THEME_NAMES[save.theme], "tap to switch", BOX.menuTheme, P);
+  drawCard("HOME SCREEN", "CPU attract", BOX.menuHome, P);
+  drawKey("RESTART GAME", BOX.menuRestart, false, P);
+  reg(BOX.menuPlay, () => startCampaign());
+  reg(BOX.menuCheck, () => setScr("checks"));
+  reg(BOX.menuCustom, () => { customFromPause = false; setScr("custom"); });
+  reg(BOX.menuShop, () => { setScr("shop"); });
+  reg(BOX.menuTheme, () => cycleTheme());
+  reg(BOX.menuHome, () => startDemo());
+  reg(BOX.menuRestart, () => setScr("confirm"));
 }
 
 function popCount(n) { let k = 0; while (n) { k += n & 1; n >>= 1; } return k; }
 
-function cycleTheme() {
-  do { save.theme = (save.theme + 1) & 7; } while (!themeOwned(save.theme));
-  persist();
-}
-
-function drawChecks(c) {
-  rect(0, 0, W, H, c.bg);
-  text("CHECKPOINTS", W / 2, 26, c.ink, 12);
+function paintChecks(P) {
+  fillRect(0, 0, W, H, P.bg);
+  drawText("CHECKPOINTS", W / 2, 26, P.ink, "f2", "mc");
   for (let i = 0; i < 15; i++) {
-    const col = i % 4, row = Math.floor(i / 4);
-    const x = 12 + col * 76, y = 48 + row * 70;
+    const cell = checkCell(i);
     const open = (save.camp & (1 << i)) !== 0;
-    button(x, y, 70, 56, String((i + 1) * 20), null, () => {
+    fillRect(cell.x, cell.y, cell.w, cell.h, open ? P.button : P.bg);
+    drawRect(cell.x, cell.y, cell.w, cell.h, open ? P.accent : P.button);
+    drawText(String((i + 1) * 20), cell.x + Math.floor(cell.w / 2), cell.y + Math.floor(cell.h / 2),
+      open ? P.ink : P.muted, "f2", "mc");
+    reg(cell, () => {
       if (!open) return;
       demo = false;
       R = newRun((i + 1) * 20);
       startLevel();
-    }, Object.assign({}, c, { button: open ? c.button : c.bg, ink: open ? c.ink : c.muted, buttonFrame: c.button }));
+    });
   }
-  button(24, BUTTON_Y, 272, 44, "BACK", null, () => goMenu(), c);
+  drawKey("BACK", BOX.home, false, P);
+  reg(BOX.home, () => goMenu());
 }
 
-function drawShop(c) {
-  rect(0, 0, W, H, c.bg);
-  text("SHOP", 12, 18, c.ink, 12, "left");
-  text("$" + save.coins, W - 12, 18, c.accent, 12, "right");
+function paintConfirm(P) {
+  fillRect(0, 0, W, H, P.bg);
+  drawText("RESTART GAME?", W / 2, 120, P.ink, "f4", "mc");
+  drawText("Are you sure?", W / 2, 156, P.muted, "f2", "mc");
+  drawKey("YES", BOX.yes, false, P);
+  drawKey("NO", BOX.no, false, P);
+  reg(BOX.yes, () => restartGame());
+  reg(BOX.no, () => goMenu());
+}
+
+function paintCustom(P) {
+  fillRect(0, 0, W, H, P.bg);
+  drawText("CUSTOM", W / 2, 22, P.ink, "f2", "mc");
+  drawCard("LASER " + LASERS[save.laser][0], "tap to change", BOX.color, P);
+  reg(BOX.color, () => cycleLaser());
+  for (let g = 0; g < 9; g++) {
+    const b = gunBox(g);
+    drawCard(gunLine(g), null, b, P);
+    reg(b, () => equipGun(g));
+  }
+  drawKey("BACK", BOX.home, false, P);
+  reg(BOX.home, () => (customFromPause ? beginPause() : goMenu()));
+}
+
+function paintPause(P) {
+  fillRect(24, 128, 272, 230, P.bg);
+  drawRect(24, 128, 272, 230, P.accent);
+  drawText("INVADERS MACHINA", W / 2, 152, P.ink, "f2", "mc");
+  drawCard("RESUME", null, BOX.resume, P);
+  drawCard("CUSTOM", "ship and guns", BOX.pauseCustom, P);
+  drawCard("HOME", null, BOX.pauseHome, P);
+  reg(BOX.resume, () => resumePlay());
+  reg(BOX.pauseCustom, () => { customFromPause = true; setScr("custom"); });
+  reg(BOX.pauseHome, () => goMenu());
+}
+
+function paintAdvance(P) {
+  fillRect(16, 140, W - 32, 100, P.bg);
+  drawRect(16, 140, W - 32, 100, P.accent);
+  drawText("INVADERS MACHINA", W / 2, 164, P.ink, "f2", "mc");
+  const next = R.level + 1;
+  if (next % 5 === 0) {
+    const style = ((next / 5) - 1) % 5;
+    const gimmicks = ["BREAK SHIELD", "DROP DRONES", "HIT WHEN OPEN", "DODGE SPRAY", "DODGE LASER"];
+    drawText("BOSS " + next, W / 2, 188, P.ink, "f2", "mc");
+    drawText(gimmicks[style], W / 2, 212, P.accent, "f2", "mc");
+  } else {
+    drawText("LEVEL " + next, W / 2, 198, P.ink, "f2", "mc");
+  }
+}
+
+function paintSplash(P) {
+  fillRect(0, 0, W, H, P.bg);
+  const name = godName();
+  let font = "f6";
+  if (textWidth(name, "f6") > W - 24) font = "f4";
+  drawText(name, W / 2, 190, godInk(), font, "mc");
+  drawText("DESCENDS", W / 2, 250, P.muted, "f2", "mc");
+}
+
+function paintOver(P) {
+  fillRect(0, 0, W, H, P.bg);
+  drawText("INVADERS MACHINA", W / 2, 150, P.muted, "f2", "mc");
+  drawText(R.won ? "CLEARED" : "YOU DIED", W / 2, 186, P.ink, "f2", "mc");
+  if (!R.won) drawText(R.hitBy + " Killed you", W / 2, 214, P.accent, "f2", "mc");
+  drawText("LV " + R.level + "   " + R.score, W / 2, 244, P.muted, "f2", "mc");
+  drawKey("HOME", BOX.home, false, P);
+  reg(BOX.home, () => goMenu());
+}
+
+function paintShop(P) {
+  fillRect(0, 0, W, H, P.bg);
+  drawText("SHOP", 12, 18, P.ink, "f2", "ml");
+  drawText("$" + save.coins, W - 12, 18, P.accent, "f2", "mr");
   const tabs = ["THEMES", "COLORS", "GUNS", "POWER", "UPGRADE"];
   for (let t = 0; t < 5; t++) {
-    const x = 8 + t * 63;
-    button(x, 40, 60, 34, tabs[t], null, () => { shopTab = t; shopPage = 0; shopMsg = ""; }, Object.assign({}, c, { accent: t === shopTab ? c.accent : c.button }));
+    drawKey(tabs[t], shopTabBox(t), t === shopTab, P);
+    reg(shopTabBox(t), () => { shopTab = t; shopPage = 0; shopMsg = ""; });
   }
   const count = shopCount(shopTab);
   const pages = Math.ceil(count / 6);
@@ -1274,107 +1632,95 @@ function drawShop(c) {
   for (let row = 0; row < 6; row++) {
     const idx = shopPage * 6 + row;
     if (idx >= count) break;
-    const x = 16, y = 84 + row * 52, w = 288, h = 46;
+    const b = shopRowBox(row);
     const active = shopActive(shopTab, idx);
-    button(x, y, w, h, "", null, () => shopAct(idx), Object.assign({}, c, { accent: active ? c.accent : c.button }));
-    if (shopTab === 0) rect(x + 8, y + 12, 22, 22, rgb(PAL_RGB[idx][3]));
-    if (shopTab === 1) rect(x + 8, y + 12, 22, 22, rgb(LASERS[idx][1]));
-    text(shopName(shopTab, idx), x + 38, y + h / 2, c.ink, 12, "left");
-    text(shopStatus(shopTab, idx), x + w - 10, y + h / 2, c.muted, 12, "right");
+    fillRect(b.x, b.y, b.w, b.h, P.button);
+    drawRect(b.x, b.y, b.w, b.h, active ? P.accent : P.button);
+    if (shopTab === 0) fillRect(b.x + 8, b.y + 12, 22, 22, clr(PAL_RGB[idx][3]));
+    if (shopTab === 1) fillRect(b.x + 8, b.y + 12, 22, 22, laserColour(idx));
+    drawText(shopName(shopTab, idx), b.x + 38, b.y + Math.floor(b.h / 2), P.ink, "f2", "ml");
+    drawText(shopStatus(shopTab, idx), b.x + b.w - 10, b.y + Math.floor(b.h / 2), P.muted, "f2", "mr");
+    reg(b, () => shopAct(idx));
   }
   if (pages > 1) {
-    button(8, 396, 120, 28, `PAGE ${shopPage + 1}/${pages}`, null, () => { shopPage = (shopPage + 1) % pages; }, c);
+    drawKey("PAGE " + (shopPage + 1) + "/" + pages, BOX.shopPage, false, P);
+    reg(BOX.shopPage, () => { shopPage = (shopPage + 1) % pages; });
   }
-  if (shopMsg) text(shopMsg, 140, 410, c.accent, 12, "left");
-  button(24, BUTTON_Y, 272, 44, "BACK", null, () => goMenu(), c);
+  if (shopMsg) drawText(shopMsg, 140, 410, P.accent, "f2", "ml");
+  drawKey("BACK", BOX.home, false, P);
+  reg(BOX.home, () => goMenu());
 }
 
-function drawConfirm(c) {
-  rect(0, 0, W, H, c.bg);
-  text("RESTART GAME?", W / 2, 120, c.ink, 16);
-  text("Are you sure?", W / 2, 156, c.muted, 12);
-  button(32, 190, 256, 52, "YES", null, () => restartGame(), c);
-  button(32, 260, 256, 52, "NO", null, () => goMenu(), c);
-}
-
-function drawPause(c) {
-  rect(24, 128, 272, 230, c.bg);
-  frame(24, 128, 272, 230, c.accent);
-  text("INVADERS MACHINA", W / 2, 152, c.ink, 12);
-  button(32, 176, 256, 46, "RESUME", null, () => resumeGame(), c);
-  button(32, 232, 256, 46, "HOME", null, () => goMenu(), c);
-}
-
-function resumeGame() { setScr("play"); }
-
-function drawAdvance(c) {
-  rect(16, 140, W - 32, 100, c.bg);
-  frame(16, 140, W - 32, 100, c.accent);
-  text("INVADERS MACHINA", W / 2, 164, c.ink, 12);
-  text("LEVEL " + R.level, W / 2, 200, c.accent, 14);
-}
-
-function drawSplash(c) {
-  rect(0, 0, W, H, c.bg);
-  const name = godName();
-  const size = name.length > 8 ? 18 : 26;
-  text(name, W / 2, 190, rgb(godInkRgb()), size);
-  text("DESCENDS", W / 2, 250, c.muted, 12);
-}
-
-function drawOver(c) {
-  rect(0, 0, W, H, c.bg);
-  text("INVADERS MACHINA", W / 2, 150, c.muted, 12);
-  text(R.won ? "CLEARED" : "YOU DIED", W / 2, 186, c.ink, 20);
-  if (!R.won) text(`${R.hitBy} Killed you`, W / 2, 214, c.accent, 12);
-  text(`LV ${R.level}   ${R.score}`, W / 2, 244, c.muted, 12);
-  button(24, BUTTON_Y, 272, 44, "HOME", null, () => goMenu(), c);
+function render() {
+  const P = palFor(save.theme);
+  btns = [];
+  if (scr === "demo" || scr === "play" || scr === "splash" || scr === "advance" || scr === "pause" || scr === "over") {
+    if (scr === "over") {
+      paintOver(P);
+    } else if (scr === "splash") {
+      paintLevel(P, { left: false, right: false, fire: false });
+      paintSplash(P);
+    } else if (scr === "pause") {
+      paintLevel(P, { left: false, right: false, fire: false });
+      paintPause(P);
+    } else if (scr === "advance") {
+      paintLevel(P, { left: false, right: false, fire: false });
+      paintAdvance(P);
+    } else {
+      paintLevel(P, scr === "demo" ? { left: false, right: false, fire: false } : playerInput());
+    }
+  } else if (scr === "menu") paintMenu(P);
+  else if (scr === "checks") paintChecks(P);
+  else if (scr === "shop") paintShop(P);
+  else if (scr === "custom") paintCustom(P);
+  else if (scr === "confirm") paintConfirm(P);
+  if (kbActive && btns[sel]) {
+    const b = btns[sel];
+    drawRect(b.x + 2, b.y + 2, b.w - 4, b.h - 4, P.ink);
+  }
+  ctx.putImageData(IMG, 0, 0);
 }
 
 // ---- Main loop ------------------------------------------------------------
 
-function activate() {
-  const b = btns[sel];
-  if (b) b.fn();
+function menuNav() {
+  if (pressed.has("up") && btns.length) sel = (sel + btns.length - 1) % btns.length;
+  if (pressed.has("down") && btns.length) sel = (sel + 1) % btns.length;
+  if (pressed.has("left") && scr === "shop") { shopTab = (shopTab + 4) % 5; shopPage = 0; }
+  if (pressed.has("right") && scr === "shop") { shopTab = (shopTab + 1) % 5; shopPage = 0; }
+  if (pressed.has("tab") && scr === "shop") shopPage = (shopPage + 1) % Math.max(1, Math.ceil(shopCount(shopTab) / 6));
+  if (pressed.has("enter") || pressed.has("space")) {
+    const b = btns[sel];
+    if (b && b.fn) b.fn();
+  }
+  if (pressed.has("esc")) {
+    if (scr === "pause") resumePlay();
+    else if (scr === "play") beginPause();
+    else if (scr === "demo") goMenu();
+    else if (scr === "custom" && customFromPause) beginPause();
+    else if (scr === "over") goMenu();
+    else if (scr !== "menu") goMenu();
+  }
 }
 
 function step() {
-  // Keyboard navigation for every menu-style screen.
-  const menuLike = scr !== "play" && scr !== "demo";
-  if (menuLike) {
-    if (pressed.has("up") && btns.length) sel = (sel + btns.length - 1) % btns.length;
-    if (pressed.has("down") && btns.length) sel = (sel + 1) % btns.length;
-    if (pressed.has("left") && scr === "shop") { shopTab = (shopTab + 4) % 5; shopPage = 0; }
-    if (pressed.has("right") && scr === "shop") { shopTab = (shopTab + 1) % 5; shopPage = 0; }
-    if (pressed.has("tab") && scr === "shop") { shopPage = (shopPage + 1) % Math.max(1, Math.ceil(shopCount(shopTab) / 6)); }
-    if (pressed.has("enter") || pressed.has("space")) activate();
-    if (pressed.has("esc")) {
-      if (scr === "pause") resumeGame();
-      else if (scr === "play" || scr === "advance") setScr("pause");
-      else if (scr === "over") goMenu();
-      else goMenu();
-    }
-  } else if (scr === "demo") {
+  if (scr === "demo") {
     if (pressed.has("enter") || pressed.has("space") || pressed.has("esc")) goMenu();
   } else if (scr === "play") {
-    if (pressed.has("esc")) setScr("pause");
+    if (pressed.has("esc")) beginPause();
+  } else if (scr !== "splash" && scr !== "advance") {
+    menuNav();
   }
   pressed.clear();
 
-  if (scr === "demo" || scr === "play") {
-    if (scr === "play" || scr === "demo") {
-      if (scr === "demo") stepPlay(demoInput());
-      else stepPlay(playerInput());
-    }
-  } else if (scr === "advance") {
+  if (scr === "demo") stepPlay(demoInput());
+  else if (scr === "play") stepPlay(playerInput());
+  else if (scr === "advance") {
     if (--R.timer <= 0) startLevel();
   } else if (scr === "splash") {
     if (--R.timer <= 0) godFight();
   }
 }
-
-// Mouse-driven menus need the active list to be current before clicks land.
-// The list is rebuilt every frame in render().
 
 let acc = 0;
 let last = performance.now();
@@ -1389,7 +1735,6 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
-setScr("demo");
 startDemo();
 requestAnimationFrame(loop);
 </script>
