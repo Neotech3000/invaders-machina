@@ -441,7 +441,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr uint32_t kStepMs = 16;
   static constexpr int kLevels = 300;
   static constexpr int kMaxUnits = 40;
-  static constexpr int kBolts = 6;
+  static constexpr int kBolts = 16;
   static constexpr int kFoeBolts = 10;
   static constexpr int kBlastR = 20;
   static constexpr int kGunCount = 9;
@@ -2332,6 +2332,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     saveShop();
     fadeOut();
     score_ = 0;
+    demeter_bonus_ = 0;
+    demeter_timer_ = 0;
     lives_ = 3;
     if (perk(PERK_LIFE)) lives_ += 1;
     if (spare_ > 0) {
@@ -2420,7 +2422,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   const char* machineHint(int i) const {
     static const char* hints[kGods] = {
-        "stun zap 5s", "clone ship", "wave blocks 8s", "+3 then +1",
+        "stun zap 5s", "clone ship", "wave blocks 8s", "+2 then +1",
         "3s shield x2", "1-life proc", "burn beam 5s", "homing 6s",
         "stop fire 9s", "blast 6s", "dash 6s", "slow shots 8s"};
     if (i < 0 || i >= kGods) return "";
@@ -2428,7 +2430,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   int machineCool(int i) const {
-    static const int cool[kGods] = {312, 0, 500, 625, 437, 0, 312, 375, 562, 375, 375, 500};
+    static const int cool[kGods] = {312, 0, 500, 313, 437, 0, 312, 375, 562, 375, 375, 500};
     if (i < 0 || i >= kGods) return 0;
     return cool[i];
   }
@@ -2441,6 +2443,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void resetMachines() {
+    if (demeter_bonus_ > 0) {
+      lives_ -= demeter_bonus_;
+      if (lives_ < 1) lives_ = 1;
+    }
+    demeter_bonus_ = 0;
+    demeter_timer_ = 0;
     demeter_uses_ = 0;
     athena_uses_ = 0;
     aegis_ticks_ = 0;
@@ -3584,7 +3592,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     lives_ -= 1;
+    if (demeter_bonus_ > 0) demeter_bonus_ -= 1;
     if (lives_ <= 0) {
+      demeter_bonus_ = 0;
+      demeter_timer_ = 0;
       if (perk(PERK_REVIVE) && !revived_) {
         revived_ = true;
         lives_ = 1;
@@ -4112,66 +4123,73 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
-  void tryFire() {
+  int primaryBolts() const {
     const int gun = baseGun();
-    if (gun == 3 || gun_cool_ > 0) return;
     const int lv = gunLv(gun_equip_);
-    const int cx = player_x_ + kShipW / 2;
+    if (gun == 1) return lv >= 3 ? 4 : 3;
+    if (gun == 4) return 2;
+    if (gun == 7) return 5;
+    return 1;
+  }
+
+  // One volley from a ship. The cooldown is applied by tryFire after both ships shoot.
+  bool fireWeaponAt(int ship_x) {
+    const int gun = baseGun();
+    const int lv = gunLv(gun_equip_);
+    const int cx = ship_x + kShipW / 2;
     if (gun == 1) {
-      if (boltSlots() < 3) return;
       const int kick = lv / 2;
       spawnBoltAt(cx, kShipY - 7, -2, -7 - kick, 3, 6, 0);
       spawnBoltAt(cx, kShipY - 7, 0, -8 - kick, 3, 6, 0);
       spawnBoltAt(cx, kShipY - 7, 2, -7 - kick, 3, 6, 0);
       if (lv >= 3) spawnBoltAt(cx, kShipY - 7, 0, -9, 3, 6, 0);
       spawnForgeExtras(cx, lv);
-      gun_cool_ = fireGap();
-      return;
+      return true;
     }
     if (gun == 4) {
-      spawnBoltAt(player_x_ + 4, kShipY - 10, 0, -9 - lv, 3, 8, 0);
-      spawnBoltAt(player_x_ + kShipW - 4, kShipY - 10, 0, -9 - lv, 3, 8, 0);
+      spawnBoltAt(ship_x + 4, kShipY - 10, 0, -9 - lv, 3, 8, 0);
+      spawnBoltAt(ship_x + kShipW - 4, kShipY - 10, 0, -9 - lv, 3, 8, 0);
       spawnForgeExtras(cx, lv);
-      gun_cool_ = fireGap();
-      return;
+      return true;
     }
     if (gun == 5) {
-      if (spawnBoltAt(cx, kShipY - 10, 2, -8 - lv / 2, 3, 8, 1)) {
-        spawnForgeExtras(cx, lv);
-        gun_cool_ = fireGap();
-      }
-      return;
+      if (!spawnBoltAt(cx, kShipY - 10, 2, -8 - lv / 2, 3, 8, 1)) return false;
+      spawnForgeExtras(cx, lv);
+      return true;
     }
     if (gun == 6) {
-      if (spawnBoltAt(cx, kShipY - 16, 0, -16, 2, 16, 2)) {
-        spawnForgeExtras(cx, lv);
-        gun_cool_ = fireGap();
-      }
-      return;
+      if (!spawnBoltAt(cx, kShipY - 16, 0, -16, 2, 16, 2)) return false;
+      spawnForgeExtras(cx, lv);
+      return true;
     }
     if (gun == 7) {
-      if (boltSlots() < 5) return;
       const int vxs[5] = {-3, -1, 0, 1, 3};
       for (int i = 0; i < 5; ++i) {
         spawnBoltAt(cx, kShipY - 8, vxs[i], -8 - lv / 2, 3, 6, 0);
       }
       spawnForgeExtras(cx, lv);
-      gun_cool_ = fireGap();
-      return;
+      return true;
     }
     if (gun == 8) {
-      if (spawnBoltAt(cx, kShipY - 10, 0, -7, 3, 8, 3)) {
-        spawnForgeExtras(cx, lv);
-        gun_cool_ = fireGap();
-      }
-      return;
+      if (!spawnBoltAt(cx, kShipY - 10, 0, -7, 3, 8, 3)) return false;
+      spawnForgeExtras(cx, lv);
+      return true;
     }
     const int vy = gun == 2 ? -12 - lv : -9 - lv;
     const int h = gun == 2 ? 10 : 8;
-    if (spawnBoltAt(cx, kShipY - h - 1, 0, vy, 3, h, 0)) {
-      spawnForgeExtras(cx, lv);
-      gun_cool_ = fireGap();
-    }
+    if (!spawnBoltAt(cx, kShipY - h - 1, 0, vy, 3, h, 0)) return false;
+    spawnForgeExtras(cx, lv);
+    return true;
+  }
+
+  void tryFire() {
+    const int gun = baseGun();
+    if (gun == 3 || gun_cool_ > 0) return;
+    const bool twin = clone_alive_;
+    if (boltSlots() < primaryBolts() * (twin ? 2 : 1)) return;
+    if (!fireWeaponAt(player_x_)) return;
+    if (twin) fireWeaponAt(clone_x_);
+    gun_cool_ = fireGap();
   }
 
   void steerBolt(Bolt& bolt) {
@@ -4399,50 +4417,62 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     return true;
   }
 
-  void eraseBeam() {
-    repair(beam_x_, 36, 3, kShipY - 36);
+  void eraseBeamColumn(int x) {
+    repair(x, 36, 3, kShipY - 36);
     for (int i = 0; i < scrap_n_; ++i) {
       const Scrap& scrap = scraps_[i];
       const int sx = terrain_ == 2 ? 0 : scrap.x;
       const int sw = terrain_ == 2 ? kPanelWidth : scrap.w;
       const int sh = terrain_ == 2 ? 2 : scrap.h;
-      if (!overlap(beam_x_, 36, 3, kShipY - 36, sx, scrap.y, sw, sh)) continue;
-      if (terrain_ == 2) fillRect(beam_x_, scrap.y, 3, 2, palette().planet);
+      if (!overlap(x, 36, 3, kShipY - 36, sx, scrap.y, sw, sh)) continue;
+      if (terrain_ == 2) fillRect(x, scrap.y, 3, 2, palette().planet);
       else drawScrap(scrap);
     }
     for (int i = 0; i < unit_n_; ++i) {
       if (!units_[i].alive) continue;
       const int ax = origin_x_ + units_[i].ox;
       const int ay = origin_y_ + units_[i].oy;
-      if (overlap(beam_x_, 36, 3, kShipY - 36, ax, ay, unitW(units_[i]), unitH(units_[i]))) {
+      if (overlap(x, 36, 3, kShipY - 36, ax, ay, unitW(units_[i]), unitH(units_[i]))) {
         drawAlienAt(ax, ay, units_[i].kind);
       }
     }
     for (int i = 0; i < barrier_n_; ++i) {
       if (!barriers_[i].on) continue;
-      if (overlap(beam_x_, 36, 3, kShipY - 36, barriers_[i].x, barriers_[i].y, kBarCols * 3, 21)) {
+      if (overlap(x, 36, 3, kShipY - 36, barriers_[i].x, barriers_[i].y, kBarCols * 3, 21)) {
         drawBarrier(i);
       }
     }
-    if (drop_on_ && overlap(beam_x_, 36, 3, kShipY - 36, drop_x_, drop_y_, 14, 14)) drawDrop();
-    if (sky_on_ && overlap(beam_x_, 36, 3, kShipY - 36, sky_x_ - sky_r_, sky_y_ - sky_r_, sky_r_ * 2, sky_r_ * 2)) {
+    if (drop_on_ && overlap(x, 36, 3, kShipY - 36, drop_x_, drop_y_, 14, 14)) drawDrop();
+    if (sky_on_ && overlap(x, 36, 3, kShipY - 36, sky_x_ - sky_r_, sky_y_ - sky_r_, sky_r_ * 2, sky_r_ * 2)) {
       drawSky();
     }
     if (buddy_drawn_) drawBuddy();
     drawShipAt(player_x_);
+    if (clone_alive_ && clone_drawn_) drawShipAt(clone_x_);
+  }
+
+  void eraseBeam() {
+    eraseBeamColumn(beam_x_);
+    if (beam_mate_ >= 0 && beam_mate_ != beam_x_) eraseBeamColumn(beam_mate_);
+    beam_mate_ = -1;
   }
 
   void hurtAlongBeam() {
-    for (int i = 0; i < unit_n_; ++i) {
-      if (!units_[i].alive) continue;
-      const int ax = origin_x_ + units_[i].ox;
-      const int ay = origin_y_ + units_[i].oy;
-      const int aw = unitW(units_[i]);
-      const int ah = unitH(units_[i]);
-      if (!overlap(beam_x_, 36, 3, kShipY - 36, ax, ay, aw, ah)) continue;
-      applyHit(i);
-      if (!units_[i].alive) repair(ax, ay, aw, ah);
-      else drawAlienAt(ax, ay, units_[i].kind);
+    const int columns[2] = {beam_x_, beam_mate_};
+    const int n = (beam_mate_ >= 0 && beam_mate_ != beam_x_) ? 2 : 1;
+    for (int col = 0; col < n; ++col) {
+      const int bx = columns[col];
+      for (int i = 0; i < unit_n_; ++i) {
+        if (!units_[i].alive) continue;
+        const int ax = origin_x_ + units_[i].ox;
+        const int ay = origin_y_ + units_[i].oy;
+        const int aw = unitW(units_[i]);
+        const int ah = unitH(units_[i]);
+        if (!overlap(bx, 36, 3, kShipY - 36, ax, ay, aw, ah)) continue;
+        applyHit(i);
+        if (!units_[i].alive) repair(ax, ay, aw, ah);
+        else drawAlienAt(ax, ay, units_[i].kind);
+      }
     }
   }
 
@@ -4644,6 +4674,21 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     (void)bottom;
   }
 
+  int cloneBeamX(int player_beam) const {
+    if (!clone_alive_) return -1;
+    int mx = clone_x_ + kShipW / 2 - 1;
+    if (mx < 4) mx = 4;
+    if (mx > kPanelWidth - 7) mx = kPanelWidth - 7;
+    if (mx == player_beam) return -1;
+    return mx;
+  }
+
+  void paintBeamColumns() {
+    fillRect(beam_x_, 36, 3, kShipY - 36, laserColor());
+    beam_mate_ = cloneBeamX(beam_x_);
+    if (beam_mate_ >= 0) fillRect(beam_mate_, 36, 3, kShipY - 36, laserColor());
+  }
+
   void stepBeam(bool firing, int next_beam) {
     if (beam_cool_ > 0) {
       beam_cool_ -= 1;
@@ -4662,15 +4707,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     if (beam_burst_ > 0) {
-      if (beam_on_ && next_beam != beam_x_) eraseBeam();
+      const int next_mate = cloneBeamX(next_beam);
+      if (beam_on_ && (next_beam != beam_x_ || next_mate != beam_mate_)) eraseBeam();
       beam_x_ = next_beam;
       beam_on_ = true;
-      fillRect(beam_x_, 36, 3, kShipY - 36, laserColor());
+      paintBeamColumns();
       beam_burst_ -= 1;
       beam_tick_ += 1;
       if ((beam_tick_ & 3) == 0) {
         hurtAlongBeam();
-        if (beam_on_) fillRect(beam_x_, 36, 3, kShipY - 36, laserColor());
+        if (beam_on_) paintBeamColumns();
       }
       if (beam_burst_ == 0) {
         if (beam_on_) eraseBeam();
@@ -4684,7 +4730,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     beam_tick_ = 0;
     beam_x_ = next_beam;
     beam_on_ = true;
-    fillRect(beam_x_, 36, 3, kShipY - 36, laserColor());
+    paintBeamColumns();
   }
 
   uint16_t foeInk(uint8_t kind) const {
@@ -4919,28 +4965,88 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drone_drawn_ = n > 0;
   }
 
+  bool shipsTooClose(int a, int b) const {
+    int d = a - b;
+    if (d < 0) d = -d;
+    return d < kShipW + 16;
+  }
+
+  int mirrorClone(int px) const {
+    int mirror = (kPanelWidth - kShipW) - px;
+    if (mirror < 4) mirror = 4;
+    if (mirror > kPanelWidth - kShipW - 4) mirror = kPanelWidth - kShipW - 4;
+    return mirror;
+  }
+
+  // Stay on the clone's current side of the player so it never crosses the hull.
+  int placeClone(int px) const {
+    const int mirror = mirrorClone(px);
+    const bool mirror_left = mirror + kShipW / 2 <= px + kShipW / 2;
+    if (!clone_drawn_) {
+      if (!shipsTooClose(mirror, px)) return mirror;
+      return besideClone(px, px >= (kPanelWidth - kShipW) / 2);
+    }
+    const bool clone_left = clone_x_ + kShipW / 2 <= px + kShipW / 2;
+    if (!shipsTooClose(mirror, px) && mirror_left == clone_left) return mirror;
+    return besideClone(px, clone_left);
+  }
+
+  int besideClone(int px, bool left) const {
+    const int gap = kShipW + 16;
+    int x = left ? px - gap : px + gap;
+    if (x < 4) x = 4;
+    if (x > kPanelWidth - kShipW - 4) x = kPanelWidth - kShipW - 4;
+    if (!shipsTooClose(x, px)) return x;
+    return left ? 4 : kPanelWidth - kShipW - 4;
+  }
+
+  void eraseCloneDrawn() {
+    if (!clone_drawn_) return;
+    const int x = clone_x_;
+    eraseShipAt(x);
+    clone_drawn_ = false;
+    if (overlap(x - 7, kShipY - 8, kShipW + 15, kShipH + 17, player_x_ - 7, kShipY - 8,
+                kShipW + 15, kShipH + 17)) {
+      drawShipAt(player_x_);
+    }
+  }
+
+  // The clone mirrors the player and only changes when it actually moves.
   void stepClone() {
     if (demo_ || !divineOn(1)) {
-      if (clone_drawn_) eraseShipAt(clone_x_);
-      clone_drawn_ = false;
+      eraseCloneDrawn();
       clone_alive_ = false;
       return;
     }
     if (!clone_alive_) return;
-    int want = (kPanelWidth - kShipW) - player_x_;
-    if (want < 4) want = 4;
-    if (want > kPanelWidth - kShipW - 4) want = kPanelWidth - kShipW - 4;
-    if (want > player_x_ - kShipW && want < player_x_ + kShipW) {
-      want = player_x_ > (kPanelWidth / 2) ? 8 : kPanelWidth - kShipW - 8;
+    const int want = placeClone(player_x_);
+    if (!clone_drawn_) {
+      clone_x_ = want;
+      if (shipsTooClose(clone_x_, player_x_)) {
+        clone_x_ = player_x_ > kPanelWidth / 2 ? 4 : kPanelWidth - kShipW - 4;
+      }
+      clone_drawn_ = true;
+      drawShipAt(clone_x_);
+      return;
     }
-    if (clone_drawn_ && clone_x_ != want) eraseShipAt(clone_x_);
-    clone_x_ = want;
+    if (clone_x_ == want && !shipsTooClose(clone_x_, player_x_)) return;
+    if (shipsTooClose(clone_x_, player_x_)) {
+      const int hop = clone_x_ < player_x_ ? (kPanelWidth - kShipW - 4) : 4;
+      if (shipsTooClose(hop, player_x_) || hop == clone_x_) return;
+      eraseCloneDrawn();
+      clone_x_ = hop;
+      clone_drawn_ = true;
+      drawShipAt(clone_x_);
+      return;
+    }
+    const int pace = ship_step_ + (hermes_ticks_ > 0 ? 4 : 0);
+    int next = want > clone_x_ ? clone_x_ + pace : clone_x_ - pace;
+    if ((want > clone_x_ && next > want) || (want < clone_x_ && next < want)) next = want;
+    if (shipsTooClose(next, player_x_) || next == clone_x_) return;
+    eraseCloneDrawn();
+    clone_x_ = next;
     clone_drawn_ = true;
     drawShipAt(clone_x_);
-    if (clone_cool_ > 0) clone_cool_ -= 1;
-    else if (spawnBoltAt(clone_x_ + kShipW / 2, kShipY - 10, 0, -8, 3, 8, 0)) {
-      clone_cool_ = fireGap();
-    }
   }
 
   void stepAegisBox() {
@@ -4992,9 +5098,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool castHeal() {
     if (demeter_uses_ >= 2 || lives_ >= 9) return false;
     demeter_uses_ += 1;
-    lives_ += demeter_uses_ == 1 ? 3 : 1;
-    if (lives_ > 9) lives_ = 9;
-    noteUnlock(demeter_uses_ == 1 ? "+3 LIFE" : "+1 LIFE");
+    int add = demeter_uses_ == 1 ? 2 : 1;
+    if (lives_ + add > 9) add = 9 - lives_;
+    if (add <= 0) return false;
+    lives_ += add;
+    demeter_bonus_ += add;
+    demeter_timer_ = 219;
+    noteUnlock(add >= 2 ? "+2 LIFE" : "+1 LIFE");
     return true;
   }
 
@@ -5105,6 +5215,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (revel_ticks_ > 0) revel_ticks_ -= 1;
     if (hermes_ticks_ > 0) hermes_ticks_ -= 1;
     if (berserk_ticks_ > 0) berserk_ticks_ -= 1;
+    if (demeter_timer_ > 0) {
+      demeter_timer_ -= 1;
+      if (demeter_timer_ == 0 && demeter_bonus_ > 0) {
+        lives_ -= demeter_bonus_;
+        if (lives_ < 1) lives_ = 1;
+        demeter_bonus_ = 0;
+        drawHud();
+      }
+    }
     if (aegis_ticks_ > 0) {
       aegis_ticks_ -= 1;
       if (aegis_ticks_ == 0) aegis_hits_ = 0;
@@ -5171,9 +5290,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (clone_alive_ && clone_drawn_) drawShipAt(clone_x_);
     if (clone_alive_ && cx > clone_x_ - kBlastR && cx < clone_x_ + kShipW + kBlastR &&
         cy > kShipY - kBlastR && cy < kShipY + kShipH + kBlastR) {
+      eraseCloneDrawn();
       clone_alive_ = false;
-      if (clone_drawn_) eraseShipAt(clone_x_);
-      clone_drawn_ = false;
     }
     drawHud();
     return hit;
@@ -5252,9 +5370,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
           lost = true;
           hit_by_ = foeKiller(foe);
         }
+        eraseCloneDrawn();
         clone_alive_ = false;
-        if (clone_drawn_) eraseShipAt(clone_x_);
-        clone_drawn_ = false;
         continue;
       }
       if (hit_ship || blocked) {
@@ -5449,6 +5566,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (player_x_ != old_player) {
       eraseShipAt(old_player);
       drawShipAt(player_x_);
+      if (clone_alive_ && clone_drawn_ &&
+          overlap(shipClearX(old_player), shipClearY(), shipClearW(), shipClearH(), clone_x_,
+                  kShipY, kShipW, kShipH)) {
+        drawShipAt(clone_x_);
+      }
     }
     stepBuddy();
     stepMachines();
@@ -5600,6 +5722,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int space_tick_ = 0;
   int gun_cool_ = 0;
   int beam_x_ = 0;
+  int beam_mate_ = -1;
   int beam_tick_ = 0;
   int drop_x_ = 0;
   int drop_y_ = 0;
@@ -5649,6 +5772,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int div_page_ = 0;
   int div_cool_[kGods] = {};
   int demeter_uses_ = 0;
+  int demeter_bonus_ = 0;
+  int demeter_timer_ = 0;
   int athena_uses_ = 0;
   int stun_ticks_ = 0;
   int charm_ticks_ = 0;
