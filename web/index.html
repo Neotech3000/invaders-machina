@@ -207,9 +207,7 @@ catch (e) { loadedSave = {}; }
 let save = Object.assign({}, DEFAULT_SAVE, loadedSave);
 save.gunLv = blankLevels();
 const srcLv = Array.isArray(loadedSave.gunLv) ? loadedSave.gunLv : [];
-if (srcLv.length === 9 || srcLv.length === 10 || srcLv.length === GUN_SLOTS) {
-  for (let i = 0; i < srcLv.length && i < GUN_SLOTS; i++) save.gunLv[i] = Math.min(5, srcLv[i] | 0);
-}
+for (let i = 0; i < srcLv.length && i < GUN_SLOTS; i++) save.gunLv[i] = Math.min(5, srcLv[i] | 0);
 function sanitizeForge(f) {
   if (!f || f.valid !== true) return null;
   const ok = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;
@@ -259,6 +257,26 @@ function shopGunAt(idx) {
   return 0;
 }
 function shopGunCount() { return GUN_COUNT + save.forges.filter(Boolean).length; }
+function shopUpgradeCount() {
+let n = 1;
+for (let g = 0; g < GUN_COUNT; g++) if (gunOwned(g)) n += 1;
+for (let i = 0; i < MAX_FORGED; i++) if (save.forges[i]) n += 1;
+return n;
+}
+function shopUpgradeGun(idx) {
+let seen = 0;
+for (let g = 0; g < GUN_COUNT; g++) {
+if (!gunOwned(g)) continue;
+if (seen === idx) return g;
+seen += 1;
+}
+for (let i = 0; i < MAX_FORGED; i++) {
+if (!save.forges[i]) continue;
+if (seen === idx) return GUN_COUNT + i;
+seen += 1;
+}
+return -1;
+}
 function gunOwned(gun) {
   if (isForgedId(gun)) return forgedAt(gun) !== null;
   return gun === 0 || ((save.guns >> (gun - 1)) & 1) !== 0;
@@ -423,7 +441,8 @@ god: 0, godWave: 0, godEntrance: false, godBars: 3, godHp: 0, godHpMax: 1,
 cool: 0, foeCool: 0, foeGap: 40, hitBy: "ALIEN", gunCool: 0,
 beamOn: false, beamX: 0, beamBurst: 0, beamCool: 0, beamTick: 0, spaceTick: 0,
 spreadSide: false, revived: false,
-drop_: null, msg: "", msgT: 0, timer: 0, won: false, over: false
+drop_: null, msg: "", msgT: 0, timer: 0, won: false, over: false,
+boost: [0, 0, 0, 0, 0]
 };
 }
 function rnd(n) { return Math.floor(Math.random() * n); }
@@ -662,11 +681,43 @@ return 0;
 function spawnDropAt(which, x, y) {
 R.drop_ = { which, x: clamp(Math.round(x), 16, W - 32), y: clamp(Math.round(y), 40, SHIP_Y - 40) };
 }
+const BOOSTS = [
+{ name: "RUSH", rate: 8, len: 500 },
+{ name: "FURY", rate: 12, len: 500 },
+{ name: "WIDE", rate: 5, len: 500 },
+{ name: "VEIL", rate: 3, len: 250 },
+{ name: "SALVO", rate: 15, len: 500 }
+];
+function boostOn(i) { return !!(R && R.boost && R.boost[i] > 0); }
+function boostHud() {
+if (!R || !R.boost) return "";
+const names = [];
+for (let i = 0; i < BOOSTS.length; i++) if (R.boost[i] > 0) names.push(BOOSTS[i].name);
+return names.join(" ");
+}
+function rollTempBoost(x, y) {
+const start = rnd(BOOSTS.length);
+for (let n = 0; n < BOOSTS.length; n++) {
+const i = (start + n) % BOOSTS.length;
+if (rnd(100) >= BOOSTS[i].rate) continue;
+if (x === undefined) R.drop_ = { which: 12 + i, x: 16 + rnd(W - 48), y: 40 };
+else spawnDropAt(12 + i, x, y);
+return true;
+}
+return false;
+}
+function stepBoosts() {
+if (!R || !R.boost) return;
+for (let i = 0; i < BOOSTS.length; i++) {
+if (R.boost[i] > 0) R.boost[i] -= 1;
+}
+}
 function maybeMiniDrop(x, y) {
 if (R.drop_) return;
 if (rnd(100) < 5) { spawnDropAt(11, x, y); return; }
 const which = nextLockedGun();
 if (which !== 0 && rnd(10) === 0) { spawnDropAt(which, x, y); return; }
+if (rollTempBoost(x, y)) return;
 const heart = 35 + (perk(PERK.heal) ? 15 : 0);
 spawnDropAt(rnd(100) < heart ? 9 : 10, x, y);
 }
@@ -676,6 +727,7 @@ if (bossKill) {
 const which = nextLockedGun();
 if (which !== 0 && rnd(10) === 0) { R.drop_ = { which, x: 16 + rnd(W - 48), y: 40 }; return; }
 }
+if (rollTempBoost()) return;
 const roll = rnd(100);
 const heart = 5 + (perk(PERK.heal) ? 10 : 0);
 if (roll < heart) R.drop_ = { which: 9, x: 16 + rnd(W - 48), y: 40 };
@@ -707,6 +759,11 @@ save.shield += 1;
 persist();
 }
 setMsg("SHIELD");
+} else if (d.which >= 12 && d.which < 12 + BOOSTS.length) {
+const i = d.which - 12;
+if (!R.boost) R.boost = [0, 0, 0, 0, 0];
+R.boost[i] = BOOSTS[i].len;
+setMsg(BOOSTS[i].name);
 }
 R.drop_ = null;
 }
@@ -737,6 +794,7 @@ maybeDrop(false);
 function playerDamage() {
 let dmg = 1 + forgedCount("power");
 if (perk(PERK.damage)) dmg += 1;
+if (boostOn(1)) dmg += 1;
 return dmg;
 }
 function hitUnit(u) {
@@ -799,11 +857,13 @@ else if (gun === 8) gap = Math.max(6, 14 - lv);
 else gap = Math.max(2, 7 - lv);
 gap -= 2 * forgedCount("rapid");
 if (perk(PERK.rapid)) gap -= 1;
+if (boostOn(0)) gap -= 2;
 return Math.max(2, gap);
 }
 function spawnBoltAt(cx, y, vx, vy, w, h, tag) {
 if (R.bolts.length >= BOLT_MAX) return false;
 if (perk(PERK.wide)) w += 1;
+if (boostOn(2)) w += 2;
 if (equippedForged()) {
 w += forgedCount("wide");
 const pwr = forgedCount("power");
@@ -826,7 +886,7 @@ if (twins >= 2 || forgedCount("spread") >= 2) {
 spawnBoltAt(cx - 8, SHIP_Y - 8, -2, -8 - lv, 3, 6, 0);
 spawnBoltAt(cx + 8, SHIP_Y - 8, 2, -8 - lv, 3, 6, 0);
 }
-if (perk(PERK.salvo)) {
+if (perk(PERK.salvo) || boostOn(4)) {
 spawnBoltAt(cx - 6, SHIP_Y - 8, -1, -8 - lv, 3, 6, 0);
 spawnBoltAt(cx + 6, SHIP_Y - 8, 1, -8 - lv, 3, 6, 0);
 }
@@ -904,6 +964,7 @@ cool -= 20 * forgedCount("cool");
 if (perk(PERK.cool)) cool -= 20;
 cool -= 10 * forgedCount("rapid");
 if (perk(PERK.rapid)) cool -= 10;
+if (boostOn(0)) cool -= 20;
 return Math.max(30, cool);
 }
 function hurtAlongBeam() {
@@ -1073,7 +1134,7 @@ R.lives = 3;
 startLevel();
 return;
 }
-if (R.invuln > 0) return;
+if (R.invuln > 0 || boostOn(3)) return;
 const inv = perk(PERK.invuln) ? 100 : 80;
 R.foes = []; R.bolts = [];
 R.beamOn = false;
@@ -1256,6 +1317,7 @@ setScr("advance");
 function stepPlay(input) {
 const entry = scr;
 if (R.invuln > 0) R.invuln -= 1;
+stepBoosts();
 if (R.gunCool > 0) R.gunCool -= 1;
 R.spaceTick += 1;
 const step = SHIP_STEP + save.thrust + (perk(PERK.speed) ? 1 : 0);
@@ -1387,7 +1449,7 @@ input.aim = mouse.x - SHIP_W / 2;
 return input;
 }
 function shopCount(tab) {
-return [8, SHIPS.length, 12, shopGunCount(), 2, forgeAnyValid() ? 3 : 2][tab];
+return [8, SHIPS.length, 12, shopGunCount(), 2, shopUpgradeCount()][tab];
 }
 function shopPrice(tab, idx) {
 if (tab === 0) return THEME_PRICE[idx];
@@ -1395,9 +1457,9 @@ if (tab === 1) return SHIP_PRICE[idx % SHIPS.length];
 if (tab === 2) return idx === 0 ? 0 : 15;
 if (tab === 3) return idx === 0 ? 0 : 90;
 if (tab === 4) return idx === 0 ? 10 : 15;
-if (idx === 0) return 50 * (gunLv(save.gunEquip) + 1);
-if (idx === 1) return 60 * (save.thrust + 1);
-return 50 * (gunLv(activeForgeGun()) + 1);
+const gun = shopUpgradeGun(idx);
+if (gun < 0) return 60 * (save.thrust + 1);
+return 50 * (gunLv(gun) + 1);
 }
 function shopOwned(tab, idx) {
 if (tab === 0) return themeOwned(idx);
@@ -1411,6 +1473,10 @@ if (tab === 0) return save.theme === idx;
 if (tab === 1) return save.ship === idx;
 if (tab === 2) return save.laser === idx;
 if (tab === 3) return save.gunEquip === shopGunAt(idx);
+if (tab === 5) {
+const gun = shopUpgradeGun(idx);
+return gun >= 0 && gun === save.gunEquip;
+}
 return false;
 }
 function shopName(tab, idx) {
@@ -1419,9 +1485,8 @@ if (tab === 1) return SHIPS[idx];
 if (tab === 2) return LASERS[idx][0];
 if (tab === 3) return gunToken(shopGunAt(idx));
 if (tab === 4) return idx === 0 ? "SHIELD" : "SPARE HEART";
-if (idx === 0) return "GUN POWER";
-if (idx === 1) return "THRUSTERS";
-return gunToken(activeForgeGun());
+const gun = shopUpgradeGun(idx);
+return gun < 0 ? "THRUSTERS" : gunToken(gun);
 }
 function shopStatus(tab, idx) {
 if (tab <= 3) {
@@ -1430,17 +1495,13 @@ if (shopOwned(tab, idx)) return "OWNED";
 return "$" + shopPrice(tab, idx);
 }
 if (tab === 4) return "$" + shopPrice(tab, idx) + " x" + (idx === 0 ? save.shield : save.spare);
-if (idx === 0) {
-if (gunLv(save.gunEquip) >= 5) return "MAX";
-return "LV" + gunLv(save.gunEquip) + " $" + shopPrice(tab, idx);
-}
-if (idx === 1) {
+const gun = shopUpgradeGun(idx);
+if (gun < 0) {
 if (save.thrust >= 2) return "MAX";
 return "LV" + save.thrust + " $" + shopPrice(tab, idx);
 }
-const forged = activeForgeGun();
-if (!forgeAnyValid() || gunLv(forged) >= 5) return "MAX";
-return "LV" + gunLv(forged) + " $" + shopPrice(tab, idx);
+if (gunLv(gun) >= 5) return "MAX";
+return "LV" + gunLv(gun) + " $" + shopPrice(tab, idx);
 }
 function pay(price) {
 if (save.coins < price) { shopMsg = "NOT ENOUGH COINS"; return false; }
@@ -1477,18 +1538,13 @@ shopMsg = "BOUGHT";
 persist();
 return;
 }
-if (idx === 0 && gunLv(save.gunEquip) >= 5) { shopMsg = "MAXED"; return; }
-if (idx === 1 && save.thrust >= 2) { shopMsg = "MAXED"; return; }
-if (idx === 2 && (!forgeAnyValid() || gunLv(activeForgeGun()) >= 5)) { shopMsg = "MAXED"; return; }
+const gun = shopUpgradeGun(idx);
+if (gun < 0) {
+if (save.thrust >= 2) { shopMsg = "MAXED"; return; }
+} else if (gunLv(gun) >= 5) { shopMsg = "MAXED"; return; }
 if (!pay(shopPrice(tab, idx))) return;
-if (idx === 0) save.gunLv[save.gunEquip] = gunLv(save.gunEquip) + 1;
-else if (idx === 1) save.thrust += 1;
-else {
-const forged = activeForgeGun();
-save.gunLv[forged] = gunLv(forged) + 1;
-save.gunEquip = forged;
-forgeFocus = forged - GUN_COUNT;
-}
+if (gun < 0) save.thrust += 1;
+else save.gunLv[gun] = gunLv(gun) + 1;
 shopMsg = "UPGRADED";
 persist();
 }
@@ -1913,10 +1969,13 @@ fillRect(x + 3, y + 3, 3, 3, clr([255, 255, 255]));
 }
 function drawHud(P) {
 fillRect(0, 0, W, 24, P.bg);
+const boosts = boostHud();
 let line;
 if (R.msgT > 0) line = R.msg;
 else if (R.god && R.godEntrance) line = godName();
+else if (R.god && boosts) line = boosts + " " + (R.godWave + 1) + "/4";
 else if (R.god) line = godName() + " " + (R.godWave + 1) + "/4";
+else if (boosts) line = boosts + " " + R.level + " " + R.score;
 else if (R.mini) line = "MINI " + R.level + " " + R.score;
 else if (R.boss) {
 let tag = "CORE";
@@ -1925,7 +1984,9 @@ else if (R.raid) tag = "RAID";
 line = tag + " " + R.level + " " + R.score;
 } else line = "MACHINA " + R.level + " " + R.score;
 const hearts = heartSlots();
-if (textWidth(line) > W - 24 - hearts * 14) line = "M " + R.level + " " + R.score;
+if (textWidth(line) > W - 24 - hearts * 14) {
+line = boosts && R.msgT <= 0 ? boosts : "M " + R.level + " " + R.score;
+}
 if (demo) line = "DEMO " + R.level;
 drawText(line, 8, 12, P.ink, "f2", "ml");
 const hr = drawHearts(P);
@@ -2012,7 +2073,10 @@ let color = clr([255, 220, 80]);
 if (d.which === 9) color = clr([255, 64, 96]);
 else if (d.which === 10) color = clr([255, 210, 48]);
 else if (d.which === 11) color = clr([96, 200, 255]);
-else if (d.which >= 1 && d.which <= 8) color = clr(DROP_RGB[d.which - 1]);
+else if (d.which >= 12 && d.which < 17) {
+const rgb = [[255, 140, 32], [255, 60, 48], [80, 220, 255], [230, 230, 255], [255, 80, 220]];
+color = clr(rgb[d.which - 12]);
+} else if (d.which >= 1 && d.which <= 8) color = clr(DROP_RGB[d.which - 1]);
 fillRect(d.x, d.y, 14, 14, color);
 fillRect(d.x + 4, d.y + 4, 6, 6, P.bg);
 }
