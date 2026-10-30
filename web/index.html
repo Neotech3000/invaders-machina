@@ -199,7 +199,8 @@ const DEFAULT_SAVE = {
 level: 1, camp: 0, raidWon: false, coins: 0,
 themes: 0x0f, ships: 0x01, ship: 0, lasers: 0x0001, guns: 0, gunEquip: 0,
 gunLv: blankLevels(), laser: 0, theme: 0,
-shield: 0, spare: 0, thrust: 0, forges: blankForges(), fpw: 0, fup: 0
+shield: 0, spare: 0, thrust: 0, forges: blankForges(), fpw: 0, fup: 0,
+armed: [0, 0, 0, 0, 0]
 };
 let loadedSave = {};
 try { loadedSave = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}") || {}; }
@@ -222,6 +223,10 @@ if (Array.isArray(loadedSave.forges) && loadedSave.forges.length === MAX_FORGED)
   if (old) save.forges[0] = old;
 }
 delete save.forge;
+save.armed = [0, 0, 0, 0, 0];
+if (Array.isArray(loadedSave.armed)) {
+for (let i = 0; i < 5 && i < loadedSave.armed.length; i++) save.armed[i] = loadedSave.armed[i] | 0;
+}
 save.fpw = (save.fpw | 0) >>> 0;
 save.fup = (save.fup | 0) >>> 0;
 save.ships = ((save.ships | 0) | 1) & 0x3f;
@@ -682,12 +687,18 @@ function spawnDropAt(which, x, y) {
 R.drop_ = { which, x: clamp(Math.round(x), 16, W - 32), y: clamp(Math.round(y), 40, SHIP_Y - 40) };
 }
 const BOOSTS = [
-{ name: "RUSH", rate: 8, len: 500 },
-{ name: "FURY", rate: 12, len: 500 },
-{ name: "WIDE", rate: 5, len: 500 },
-{ name: "VEIL", rate: 3, len: 250 },
-{ name: "SALVO", rate: 15, len: 500 }
+{ name: "RUSH", rate: 8, len: 500, price: 20 },
+{ name: "FURY", rate: 12, len: 500, price: 25 },
+{ name: "WIDE", rate: 5, len: 500, price: 15 },
+{ name: "VEIL", rate: 3, len: 250, price: 40 },
+{ name: "SALVO", rate: 15, len: 500, price: 20 }
 ];
+for (let i = 0; i < BOOSTS.length; i++) {
+if (!save.armed || save.armed[i] !== BOOSTS[i].len) {
+if (!save.armed) save.armed = [0, 0, 0, 0, 0];
+save.armed[i] = 0;
+}
+}
 function boostOn(i) { return !!(R && R.boost && R.boost[i] > 0); }
 function boostHud() {
 if (!R || !R.boost) return "";
@@ -1449,14 +1460,18 @@ input.aim = mouse.x - SHIP_W / 2;
 return input;
 }
 function shopCount(tab) {
-return [8, SHIPS.length, 12, shopGunCount(), 2, shopUpgradeCount()][tab];
+return [8, SHIPS.length, 12, shopGunCount(), 2 + BOOSTS.length, shopUpgradeCount()][tab];
 }
 function shopPrice(tab, idx) {
 if (tab === 0) return THEME_PRICE[idx];
 if (tab === 1) return SHIP_PRICE[idx % SHIPS.length];
 if (tab === 2) return idx === 0 ? 0 : 15;
 if (tab === 3) return idx === 0 ? 0 : 90;
-if (tab === 4) return idx === 0 ? 10 : 15;
+if (tab === 4) {
+if (idx <= 0) return 10;
+if (idx === 1) return 15;
+return BOOSTS[idx - 2].price;
+}
 const gun = shopUpgradeGun(idx);
 if (gun < 0) return 60 * (save.thrust + 1);
 return 50 * (gunLv(gun) + 1);
@@ -1473,6 +1488,7 @@ if (tab === 0) return save.theme === idx;
 if (tab === 1) return save.ship === idx;
 if (tab === 2) return save.laser === idx;
 if (tab === 3) return save.gunEquip === shopGunAt(idx);
+if (tab === 4 && idx >= 2) return !!(save.armed && save.armed[idx - 2] > 0);
 if (tab === 5) {
 const gun = shopUpgradeGun(idx);
 return gun >= 0 && gun === save.gunEquip;
@@ -1484,7 +1500,11 @@ if (tab === 0) return THEME_NAMES[idx];
 if (tab === 1) return SHIPS[idx];
 if (tab === 2) return LASERS[idx][0];
 if (tab === 3) return gunToken(shopGunAt(idx));
-if (tab === 4) return idx === 0 ? "SHIELD" : "SPARE HEART";
+if (tab === 4) {
+if (idx <= 0) return "SHIELD";
+if (idx === 1) return "SPARE HEART";
+return BOOSTS[idx - 2].name;
+}
 const gun = shopUpgradeGun(idx);
 return gun < 0 ? "THRUSTERS" : gunToken(gun);
 }
@@ -1494,7 +1514,10 @@ if (shopActive(tab, idx)) return "ON";
 if (shopOwned(tab, idx)) return "OWNED";
 return "$" + shopPrice(tab, idx);
 }
-if (tab === 4) return "$" + shopPrice(tab, idx) + " x" + (idx === 0 ? save.shield : save.spare);
+if (tab === 4) {
+if (idx >= 2) return save.armed && save.armed[idx - 2] > 0 ? "READY" : "$" + shopPrice(tab, idx);
+return "$" + shopPrice(tab, idx) + " x" + (idx === 0 ? save.shield : save.spare);
+}
 const gun = shopUpgradeGun(idx);
 if (gun < 0) {
 if (save.thrust >= 2) return "MAX";
@@ -1532,8 +1555,12 @@ return;
 }
 if (tab === 4) {
 if (!pay(shopPrice(tab, idx))) return;
-if (idx === 0) save.shield = Math.min(shieldCap(), save.shield + 1);
-else save.spare = Math.min(9, save.spare + 1);
+if (idx <= 0) save.shield = Math.min(shieldCap(), save.shield + 1);
+else if (idx === 1) save.spare = Math.min(9, save.spare + 1);
+else {
+if (!save.armed) save.armed = [0, 0, 0, 0, 0];
+save.armed[idx - 2] = BOOSTS[idx - 2].len;
+}
 shopMsg = "BOUGHT";
 persist();
 return;
@@ -1700,7 +1727,10 @@ persist();
 }
 function startCampaign() {
 demo = false;
+const armed = Array.isArray(save.armed) ? save.armed.slice() : [0, 0, 0, 0, 0];
 R = newRun(save.level || 1);
+R.boost = armed;
+save.armed = [0, 0, 0, 0, 0];
 R.lives = 3 + (perk(PERK.life) ? 1 : 0);
 if (save.spare > 0) { save.spare -= 1; R.lives += 1; }
 if (perk(PERK.shieldStart) && save.shield < shieldCap()) save.shield += 1;
