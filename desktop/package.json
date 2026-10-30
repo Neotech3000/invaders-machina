@@ -7,13 +7,16 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "electron .",
-    "test": "node dist/sequence.test.cjs && node dist/edge.test.cjs && node dist/time_sync.test.cjs"
+    "test": "node dist/sequence.test.cjs && node dist/edge.test.cjs && node dist/time_sync.test.cjs && node dist/ports.test.cjs"
   },
   "dependencies": {
     "ajv": "^8.17.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "serialport": "^13.0.0"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "devDependencies": {
     "electron": "^35.7.5",

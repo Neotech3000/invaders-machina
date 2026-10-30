@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Drive one device handoff on the CH340 and print the transcript.
+"""Drive one device handoff and print the transcript.
 
-Baud 115200 is the unconfirmed placeholder. This script opens only
-/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0.
+Baud 115200 is the speed the firmware opens. The serial port comes from
+the INVADERS_SERIAL_PORT environment variable, or from firmware/port.local
+(copy firmware/port.example). Nothing in this script names a machine.
 """
 
 import json
@@ -10,8 +11,22 @@ import os
 import sys
 import time
 
-PORT = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
-BAUD = 115200  # unconfirmed placeholder
+BAUD = 115200  # same speed as Serial.begin in the firmware
+PLACEHOLDER = "REPLACE_WITH_YOUR_PORT"
+
+
+def resolve_port():
+    env = os.environ.get("INVADERS_SERIAL_PORT", "").strip()
+    if env and env != PLACEHOLDER:
+        return env
+    local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "port.local")
+    if os.path.isfile(local):
+        with open(local, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if line and not line.startswith("#") and line != PLACEHOLDER:
+                    return line
+    return ""
 
 transcript = []
 
@@ -26,16 +41,16 @@ def fail(message):
 
 
 def main():
-    if not os.path.exists(PORT):
-        fail("ch340-by-id-missing")
-    real = os.path.realpath(PORT)
-    if "ttyACM" in real:
-        fail("refusing-acm-port")
+    port = resolve_port()
+    if not port:
+        fail("set INVADERS_SERIAL_PORT or copy firmware/port.example to firmware/port.local")
+    if not os.path.exists(port) and not port.upper().startswith("COM"):
+        fail("port-missing")
 
     import serial
 
     ser = serial.Serial()
-    ser.port = PORT
+    ser.port = port
     ser.baudrate = BAUD
     ser.timeout = 0.05
     ser.dsrdtr = False
