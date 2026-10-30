@@ -43,7 +43,7 @@ const BUTTON_Y = 430;
 const COIN_MAX = 16;
 const COIN_CHANCE = 20;
 const COIN_SIZE = 11;
-const BOLT_MAX = 6;
+const BOLT_MAX = 16;
 const ESCORT_Y = 54;
 const TICK_MS = 1000 / 60;
 const FONTS = {
@@ -478,7 +478,7 @@ spreadSide: false, revived: false,
 drop_: null, msg: "", msgT: 0, timer: 0, won: false, over: false,
 boost: [0, 0, 0, 0, 0],
 divCool: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-demeterUses: 0, athenaUses: 0, aegisT: 0, aegisHits: 0,
+demeterUses: 0, demeterBonus: 0, demeterT: 0, athenaUses: 0, aegisT: 0, aegisHits: 0,
 stun: 0, charm: 0, revel: 0, hermes: 0, berserk: 0,
 waveY: -1, sunT: 0, sunX: 0, godBeamT: 0, godBeamX: 0, godWard: 0,
 cloneAlive: false, cloneX: 16, cloneCool: 0
@@ -709,7 +709,7 @@ const MACHINES = [
 { name: "LIGHTNING", hint: "stun zap 5s", cool: 312 },
 { name: "DOUBLE", hint: "clone ship", cool: 0 },
 { name: "TSUNAMI", hint: "wave blocks 8s", cool: 500 },
-{ name: "HEAL RAY", hint: "+3 then +1", cool: 625 },
+{ name: "HEAL RAY", hint: "+2 then +1", cool: 313 },
 { name: "AEGIS", hint: "3s shield x2", cool: 437 },
 { name: "BERSERKER", hint: "1-life proc", cool: 0 },
 { name: "SOLARIS", hint: "burn beam 5s", cool: 312 },
@@ -722,6 +722,8 @@ const MACHINES = [
 function divineSlots() { return Math.min(12, 1 + (save.dmul | 0)); }
 function divineOn(i) { return i >= 0 && i < 12 && ((save.dive >> i) & 1) !== 0; }
 function resetMachines() {
+if (R.demeterBonus > 0) R.lives = Math.max(1, R.lives - R.demeterBonus);
+R.demeterBonus = 0; R.demeterT = 0;
 R.demeterUses = 0; R.athenaUses = 0; R.aegisT = 0; R.aegisHits = 0;
 R.stun = 0; R.charm = 0; R.revel = 0; R.hermes = 0; R.berserk = 0;
 R.waveY = -1; R.sunT = 0; R.sunX = 0; R.godBeamT = 0; R.godBeamX = 0; R.godWard = 0;
@@ -811,6 +813,13 @@ if (R.charm > 0) R.charm -= 1;
 if (R.revel > 0) R.revel -= 1;
 if (R.hermes > 0) R.hermes -= 1;
 if (R.berserk > 0) R.berserk -= 1;
+if (R.demeterT > 0) {
+R.demeterT -= 1;
+if (R.demeterT === 0 && R.demeterBonus > 0) {
+R.lives = Math.max(1, R.lives - R.demeterBonus);
+R.demeterBonus = 0;
+}
+}
 if (R.aegisT > 0) {
 R.aegisT -= 1;
 if (R.aegisT === 0) R.aegisHits = 0;
@@ -831,14 +840,6 @@ if (R.boss && overlapRect(R.sunX, 36, 6, SHIP_Y - 36, R.boss.x, R.boss.y, BOSS_W
 }
 R.sunT -= 1;
 }
-if (R.cloneAlive && divineOn(1) && !demo) {
-let want = (W - SHIP_W) - R.px;
-want = clamp(want, 4, W - SHIP_W - 4);
-if (want > R.px - SHIP_W && want < R.px + SHIP_W) want = R.px > W / 2 ? 8 : W - SHIP_W - 8;
-R.cloneX = want;
-if (R.cloneCool > 0) R.cloneCool -= 1;
-else if (spawnBoltAt(R.cloneX + SHIP_W / 2, SHIP_Y - 10, 0, -8, 3, 8, 0)) R.cloneCool = fireGap();
-} else R.cloneAlive = false;
 for (let i = 0; i < 12; i++) {
 if (!divineOn(i)) continue;
 if (R.divCool[i] > 0) { R.divCool[i] -= 1; continue; }
@@ -883,8 +884,13 @@ return true;
 if (i === 3) {
 if (R.demeterUses >= 2 || R.lives >= 9) return false;
 R.demeterUses += 1;
-R.lives = Math.min(9, R.lives + (R.demeterUses === 1 ? 3 : 1));
-R.msg = R.demeterUses === 1 ? "+3 LIFE" : "+1 LIFE";
+let add = R.demeterUses === 1 ? 2 : 1;
+if (R.lives + add > 9) add = 9 - R.lives;
+if (add <= 0) return false;
+R.lives += add;
+R.demeterBonus += add;
+R.demeterT = 219;
+R.msg = add >= 2 ? "+2 LIFE" : "+1 LIFE";
 R.msgT = 45;
 return true;
 }
@@ -1184,64 +1190,93 @@ spawnBoltAt(cx - 6, SHIP_Y - 8, -1, -8 - lv, 3, 6, 0);
 spawnBoltAt(cx + 6, SHIP_Y - 8, 1, -8 - lv, 3, 6, 0);
 }
 }
-function fireGun() {
+function primaryBolts() {
 const gun = baseGun();
-if (gun === 3 || R.gunCool > 0) return;
 const lv = gunLv(save.gunEquip);
-const cx = R.px + SHIP_W / 2;
+if (gun === 1) return lv >= 3 ? 4 : 3;
+if (gun === 4) return 2;
+if (gun === 7) return 5;
+return 1;
+}
+function fireWeaponAt(shipX) {
+const gun = baseGun();
+const lv = gunLv(save.gunEquip);
+const cx = shipX + SHIP_W / 2;
 if (gun === 1) {
-if (boltSlots() < 3) return;
 const kick = Math.floor(lv / 2);
 spawnBoltAt(cx, SHIP_Y - 7, -2, -7 - kick, 3, 6, 0);
 spawnBoltAt(cx, SHIP_Y - 7, 0, -8 - kick, 3, 6, 0);
 spawnBoltAt(cx, SHIP_Y - 7, 2, -7 - kick, 3, 6, 0);
 if (lv >= 3) spawnBoltAt(cx, SHIP_Y - 7, 0, -9, 3, 6, 0);
 spawnForgeExtras(cx, lv);
-R.gunCool = fireGap();
-return;
+return true;
 }
 if (gun === 4) {
-spawnBoltAt(R.px + 4, SHIP_Y - 10, 0, -9 - lv, 3, 8, 0);
-spawnBoltAt(R.px + SHIP_W - 4, SHIP_Y - 10, 0, -9 - lv, 3, 8, 0);
+spawnBoltAt(shipX + 4, SHIP_Y - 10, 0, -9 - lv, 3, 8, 0);
+spawnBoltAt(shipX + SHIP_W - 4, SHIP_Y - 10, 0, -9 - lv, 3, 8, 0);
 spawnForgeExtras(cx, lv);
-R.gunCool = fireGap();
-return;
+return true;
 }
 if (gun === 5) {
-if (spawnBoltAt(cx, SHIP_Y - 10, 2, -8 - Math.floor(lv / 2), 3, 8, 1)) {
+if (!spawnBoltAt(cx, SHIP_Y - 10, 2, -8 - Math.floor(lv / 2), 3, 8, 1)) return false;
 spawnForgeExtras(cx, lv);
-R.gunCool = fireGap();
-}
-return;
+return true;
 }
 if (gun === 6) {
-if (spawnBoltAt(cx, SHIP_Y - 16, 0, -16, 2, 16, 2)) {
+if (!spawnBoltAt(cx, SHIP_Y - 16, 0, -16, 2, 16, 2)) return false;
 spawnForgeExtras(cx, lv);
-R.gunCool = fireGap();
-}
-return;
+return true;
 }
 if (gun === 7) {
-if (boltSlots() < 5) return;
 const vxs = [-3, -1, 0, 1, 3];
 for (const vx of vxs) spawnBoltAt(cx, SHIP_Y - 8, vx, -8 - Math.floor(lv / 2), 3, 6, 0);
 spawnForgeExtras(cx, lv);
-R.gunCool = fireGap();
-return;
+return true;
 }
 if (gun === 8) {
-if (spawnBoltAt(cx, SHIP_Y - 10, 0, -7, 3, 8, 3)) {
+if (!spawnBoltAt(cx, SHIP_Y - 10, 0, -7, 3, 8, 3)) return false;
 spawnForgeExtras(cx, lv);
-R.gunCool = fireGap();
-}
-return;
+return true;
 }
 const vy = gun === 2 ? -12 - lv : -9 - lv;
 const h = gun === 2 ? 10 : 8;
-if (spawnBoltAt(cx, SHIP_Y - h - 1, 0, vy, 3, h, 0)) {
+if (!spawnBoltAt(cx, SHIP_Y - h - 1, 0, vy, 3, h, 0)) return false;
 spawnForgeExtras(cx, lv);
+return true;
+}
+function fireGun() {
+const gun = baseGun();
+if (gun === 3 || R.gunCool > 0) return;
+const twin = !!R.cloneAlive;
+if (boltSlots() < primaryBolts() * (twin ? 2 : 1)) return;
+if (!fireWeaponAt(R.px)) return;
+if (twin) fireWeaponAt(R.cloneX);
 R.gunCool = fireGap();
 }
+function shipsTooClose(a, b) { return Math.abs(a - b) < SHIP_W + 16; }
+function placeClone() {
+if (demo || !divineOn(1)) { R.cloneAlive = false; return; }
+if (!R.cloneAlive) return;
+const pace = SHIP_STEP + (save.thrust | 0) + (perk(PERK.speed) ? 1 : 0) + (R.hermes > 0 ? 4 : 0);
+const gap = SHIP_W + 16;
+const mirror = clamp((W - SHIP_W) - R.px, 4, W - SHIP_W - 4);
+const mirrorLeft = mirror + SHIP_W / 2 <= R.px + SHIP_W / 2;
+const cloneLeft = R.cloneX + SHIP_W / 2 <= R.px + SHIP_W / 2;
+let want = mirror;
+if (shipsTooClose(mirror, R.px) || mirrorLeft !== cloneLeft) {
+want = clamp(cloneLeft ? R.px - gap : R.px + gap, 4, W - SHIP_W - 4);
+if (shipsTooClose(want, R.px)) want = cloneLeft ? 4 : W - SHIP_W - 4;
+}
+if (R.cloneX === want && !shipsTooClose(R.cloneX, R.px)) return;
+if (shipsTooClose(R.cloneX, R.px)) {
+const hop = R.cloneX < R.px ? W - SHIP_W - 4 : 4;
+if (!shipsTooClose(hop, R.px)) R.cloneX = hop;
+return;
+}
+let next = want > R.cloneX ? R.cloneX + pace : R.cloneX - pace;
+if ((want > R.cloneX && next > want) || (want < R.cloneX && next < want)) next = want;
+if (shipsTooClose(next, R.px) || next === R.cloneX) return;
+R.cloneX = next;
 }
 function beamBurstLen() {
 let len = 188 + gunLv(save.gunEquip) * 12;
@@ -1260,8 +1295,17 @@ if (perk(PERK.rapid)) cool -= 10;
 if (boostOn(0)) cool -= 20;
 return Math.max(16, cool);
 }
+function beamXs() {
+const xs = [R.beamX];
+if (R.cloneAlive) {
+const mx = clamp(R.cloneX + Math.floor(SHIP_W / 2) - 1, 4, W - 7);
+if (mx !== R.beamX) xs.push(mx);
+}
+return xs;
+}
 function hurtAlongBeam() {
-const bx = R.beamX, by = 36, bw = 3, bh = SHIP_Y - 36;
+const by = 36, bw = 3, bh = SHIP_Y - 36;
+for (const bx of beamXs()) {
 for (const u of R.units) {
 if (!u.alive) continue;
 const [sw, sh] = unitSize(u);
@@ -1275,6 +1319,7 @@ addScore(10);
 if (e.hp <= 0) R.escorts.splice(i, 1);
 }
 if (R.boss && overlapRect(bx, by, bw, bh, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) bossHit();
+}
 }
 function stepBeam(firing) {
 if (R.beamCool > 0) {
@@ -1469,7 +1514,9 @@ persist();
 return;
 }
 R.lives -= 1;
+if (R.demeterBonus > 0) R.demeterBonus -= 1;
 R.hitBy = who;
+if (R.lives <= 0) { R.demeterBonus = 0; R.demeterT = 0; }
 if (R.lives <= 0) {
 if (perk(PERK.revive) && !R.revived) {
 R.revived = true;
@@ -1678,6 +1725,7 @@ if (input.left) R.px -= step;
 if (input.right) R.px += step;
 if (input.aim !== null) R.px = input.aim;
 R.px = clamp(R.px, 4, W - SHIP_W - 4);
+placeClone();
 if (baseGun() === 3) stepBeam(input.fire);
 else {
 R.beamOn = false;
@@ -2466,7 +2514,7 @@ fillRect(fx, fy, f.w, f.h, foeInk(f));
 }
 }
 const lc = laserColour(save.laser);
-if (R.beamOn) fillRect(R.beamX, 36, 3, SHIP_Y - 36, lc);
+if (R.beamOn) for (const x of beamXs()) fillRect(x, 36, 3, SHIP_Y - 36, lc);
 if (R.sunT > 0) fillRect(R.sunX, 36, 6, SHIP_Y - 36, (R.sunT & 2) ? clr([255, 250, 220]) : clr([255, 196, 64]));
 if (R.waveY >= 0) {
 fillRect(0, R.waveY, W, 12, clr([48, 160, 255]));
