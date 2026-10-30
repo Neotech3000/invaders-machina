@@ -71,8 +71,11 @@ const LASERS = [
 ["LIME", [170,255,48]], ["PINK", [255,140,180]], ["ICE", [180,255,255]], ["VIOLET", [170,80,255]]
 ];
 const GUNS = ["CANNON", "SHOTGUN", "ASSAULT", "BEAM", "TWIN", "WAVE", "RAIL", "NOVA", "HOMING"];
-const FORGE_GUN = 9;
-const GUN_SLOTS = 10;
+const GUN_COUNT = GUNS.length;
+const MAX_FORGED = 9;
+const GUN_SLOTS = GUN_COUNT + MAX_FORGED;
+function blankLevels() { return Array.from({ length: GUN_SLOTS }, () => 0); }
+function blankForges() { return Array.from({ length: MAX_FORGED }, () => null); }
 const GUN_ATTRS = [
 [["HEAVY", "power"], ["RAPID", "rapid"], ["WIDE", "wide"], ["TWIN", "twin"], ["PIERCE", "pierce"]],
 [["SPREAD", "spread"], ["TWIN", "twin"], ["RAPID", "rapid"], ["WIDE", "wide"], ["PIERCE", "pierce"]],
@@ -195,22 +198,32 @@ const SAVE_KEY = "invaders-machina-web-v1";
 const DEFAULT_SAVE = {
 level: 1, camp: 0, raidWon: false, coins: 0,
 themes: 0x0f, ships: 0x01, ship: 0, lasers: 0x0001, guns: 0, gunEquip: 0,
-gunLv: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], laser: 0, theme: 0,
-shield: 0, spare: 0, thrust: 0, forge: null, fpw: 0, fup: 0
+gunLv: blankLevels(), laser: 0, theme: 0,
+shield: 0, spare: 0, thrust: 0, forges: blankForges(), fpw: 0, fup: 0
 };
-let save = Object.assign({}, DEFAULT_SAVE);
-try {
-const loaded = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}");
-save = Object.assign({}, DEFAULT_SAVE, loaded);
-save.gunLv = Object.assign([0, 0, 0, 0, 0, 0, 0, 0, 0, 0], loaded.gunLv || []);
-} catch (e) { save = Object.assign({}, DEFAULT_SAVE); }
-function sanitizeForge(f) {
-if (!f || f.valid !== true) return null;
-const ok = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;
-if (!ok(f.base, 8) || !ok(f.donor, 8) || !ok(f.attrA, 4) || !ok(f.attrB, 4)) return null;
-return { valid: true, base: f.base, donor: f.donor, attrA: f.attrA, attrB: f.attrB };
+let loadedSave = {};
+try { loadedSave = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}") || {}; }
+catch (e) { loadedSave = {}; }
+let save = Object.assign({}, DEFAULT_SAVE, loadedSave);
+save.gunLv = blankLevels();
+const srcLv = Array.isArray(loadedSave.gunLv) ? loadedSave.gunLv : [];
+if (srcLv.length === 9 || srcLv.length === 10 || srcLv.length === GUN_SLOTS) {
+  for (let i = 0; i < srcLv.length && i < GUN_SLOTS; i++) save.gunLv[i] = Math.min(5, srcLv[i] | 0);
 }
-save.forge = sanitizeForge(save.forge);
+function sanitizeForge(f) {
+  if (!f || f.valid !== true) return null;
+  const ok = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;
+  if (!ok(f.base, 8) || !ok(f.donor, 8) || !ok(f.attrA, 4) || !ok(f.attrB, 4)) return null;
+  return { valid: true, base: f.base, donor: f.donor, attrA: f.attrA, attrB: f.attrB };
+}
+save.forges = blankForges();
+if (Array.isArray(loadedSave.forges) && loadedSave.forges.length === MAX_FORGED) {
+  for (let i = 0; i < MAX_FORGED; i++) save.forges[i] = sanitizeForge(loadedSave.forges[i]);
+} else {
+  const old = sanitizeForge(loadedSave.forge);
+  if (old) save.forges[0] = old;
+}
+delete save.forge;
 save.fpw = (save.fpw | 0) >>> 0;
 save.fup = (save.fup | 0) >>> 0;
 save.ships = ((save.ships | 0) | 1) & 0x3f;
@@ -221,13 +234,40 @@ try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* pri
 function themeOwned(t) { return ((save.themes >> (t & 7)) & 1) !== 0; }
 function shipOwned(s) { return ((save.ships >> (s % SHIPS.length)) & 1) !== 0; }
 function laserOwned(c) { return ((save.lasers >> (c % 12)) & 1) !== 0; }
-function forgeValid() { return save.forge !== null; }
+function forgeAnyValid() { return save.forges.some((f) => f !== null); }
+function isForgedId(gun) { return gun >= GUN_COUNT && gun < GUN_SLOTS; }
+function forgedAt(gun) {
+  if (!isForgedId(gun)) return null;
+  return save.forges[gun - GUN_COUNT] || null;
+}
+function equippedForged() { return forgedAt(save.gunEquip); }
+function firstEmptyForge() { return save.forges.findIndex((f) => !f); }
+function activeForgeGun() {
+  if (forgeFocus >= 0 && forgeFocus < MAX_FORGED && save.forges[forgeFocus]) return GUN_COUNT + forgeFocus;
+  if (equippedForged()) return save.gunEquip;
+  for (let i = MAX_FORGED - 1; i >= 0; i--) if (save.forges[i]) return GUN_COUNT + i;
+  return GUN_COUNT;
+}
+function shopGunAt(idx) {
+  if (idx < GUN_COUNT) return idx;
+  let seen = GUN_COUNT;
+  for (let i = 0; i < MAX_FORGED; i++) {
+    if (!save.forges[i]) continue;
+    if (seen === idx) return GUN_COUNT + i;
+    seen += 1;
+  }
+  return 0;
+}
+function shopGunCount() { return GUN_COUNT + save.forges.filter(Boolean).length; }
 function gunOwned(gun) {
-if (gun === FORGE_GUN) return forgeValid();
-return gun === 0 || ((save.guns >> (gun - 1)) & 1) !== 0;
+  if (isForgedId(gun)) return forgedAt(gun) !== null;
+  return gun === 0 || ((save.guns >> (gun - 1)) & 1) !== 0;
 }
 function gunLv(gun) { return Math.min(5, save.gunLv[gun] || 0); }
-function baseGun() { return save.gunEquip === FORGE_GUN && forgeValid() ? save.forge.base : save.gunEquip; }
+function baseGun() {
+  const g = equippedForged();
+  return g ? g.base : save.gunEquip;
+}
 function nthOtherAttr(chosen, n) {
 let seen = 0;
 for (let a = 0; a < 5; a++) {
@@ -238,16 +278,18 @@ seen += 1;
 return 0;
 }
 function forgedSlotCount() {
-if (!forgeValid()) return 0;
-const lv = gunLv(FORGE_GUN);
-return lv >= 5 ? 8 : (2 + lv);
+  if (!equippedForged()) return 0;
+  const lv = gunLv(save.gunEquip);
+  return lv >= 5 ? 8 : (2 + lv);
 }
 function forgedSlotPair(slot) {
-const donor = (slot & 1) !== 0;
-const gun = donor ? save.forge.donor : save.forge.base;
-const chosen = donor ? save.forge.attrB : save.forge.attrA;
-const attr = slot < 2 ? chosen : nthOtherAttr(chosen, Math.floor((slot - 2) / 2));
-return [gun, attr];
+  const g = equippedForged();
+  if (!g) return [0, 0];
+  const donor = (slot & 1) !== 0;
+  const gun = donor ? g.donor : g.base;
+  const chosen = donor ? g.attrB : g.attrA;
+  const attr = slot < 2 ? chosen : nthOtherAttr(chosen, Math.floor((slot - 2) / 2));
+  return [gun, attr];
 }
 function forgedLatestTrait() {
 const slots = forgedSlotCount();
@@ -256,7 +298,7 @@ const [g, a] = forgedSlotPair(slots - 1);
 return GUN_ATTRS[g][a][0];
 }
 function forgedCount(effect) {
-if (save.gunEquip !== FORGE_GUN || !forgeValid()) return 0;
+  if (!equippedForged()) return 0;
 const slots = forgedSlotCount();
 let count = 0;
 for (let s = 0; s < slots; s++) {
@@ -274,9 +316,10 @@ if (perk(PERK.maxHp)) slots += 1;
 return Math.min(9, slots);
 }
 function gunToken(gun) {
-if (gun !== FORGE_GUN) return GUNS[gun];
-if (!forgeValid()) return "FORGED";
-return GUNS[save.forge.base] + "+" + GUNS[save.forge.donor];
+  if (!isForgedId(gun)) return GUNS[gun] || "CANNON";
+  const g = forgedAt(gun);
+  if (!g) return "FORGED";
+  return GUNS[g.base] + "+" + GUNS[g.donor];
 }
 if (!themeOwned(save.theme)) save.theme = 0;
 if (!shipOwned(save.ship)) save.ship = 0;
@@ -352,6 +395,8 @@ let forgeTab = 0, forgeStep = 0, forgePage = 0;
 let forgeFirst = 0, forgeSecond = 0, forgeAttrA = 0, forgeAttrB = 0;
 let forgeMsg = "", forgeFlash = 0;
 let customFromPause = false;
+let customPage = 0;
+let forgeFocus = -1;
 let demo = true;
 function setScr(s) {
 scr = s;
@@ -759,7 +804,7 @@ return Math.max(2, gap);
 function spawnBoltAt(cx, y, vx, vy, w, h, tag) {
 if (R.bolts.length >= BOLT_MAX) return false;
 if (perk(PERK.wide)) w += 1;
-if (save.gunEquip === FORGE_GUN) {
+if (equippedForged()) {
 w += forgedCount("wide");
 const pwr = forgedCount("power");
 h += Math.min(6, pwr * 2);
@@ -1342,7 +1387,7 @@ input.aim = mouse.x - SHIP_W / 2;
 return input;
 }
 function shopCount(tab) {
-return [8, SHIPS.length, 12, forgeValid() ? GUN_SLOTS : 9, 2, forgeValid() ? 3 : 2][tab];
+return [8, SHIPS.length, 12, shopGunCount(), 2, forgeAnyValid() ? 3 : 2][tab];
 }
 function shopPrice(tab, idx) {
 if (tab === 0) return THEME_PRICE[idx];
@@ -1352,31 +1397,31 @@ if (tab === 3) return idx === 0 ? 0 : 90;
 if (tab === 4) return idx === 0 ? 10 : 15;
 if (idx === 0) return 50 * (gunLv(save.gunEquip) + 1);
 if (idx === 1) return 60 * (save.thrust + 1);
-return 50 * (gunLv(FORGE_GUN) + 1);
+return 50 * (gunLv(activeForgeGun()) + 1);
 }
 function shopOwned(tab, idx) {
 if (tab === 0) return themeOwned(idx);
 if (tab === 1) return shipOwned(idx);
 if (tab === 2) return laserOwned(idx);
-if (tab === 3) return gunOwned(idx);
+if (tab === 3) return gunOwned(shopGunAt(idx));
 return false;
 }
 function shopActive(tab, idx) {
 if (tab === 0) return save.theme === idx;
 if (tab === 1) return save.ship === idx;
 if (tab === 2) return save.laser === idx;
-if (tab === 3) return save.gunEquip === idx;
+if (tab === 3) return save.gunEquip === shopGunAt(idx);
 return false;
 }
 function shopName(tab, idx) {
 if (tab === 0) return THEME_NAMES[idx];
 if (tab === 1) return SHIPS[idx];
 if (tab === 2) return LASERS[idx][0];
-if (tab === 3) return gunToken(idx);
+if (tab === 3) return gunToken(shopGunAt(idx));
 if (tab === 4) return idx === 0 ? "SHIELD" : "SPARE HEART";
 if (idx === 0) return "GUN POWER";
 if (idx === 1) return "THRUSTERS";
-return "FORGED GUN";
+return gunToken(activeForgeGun());
 }
 function shopStatus(tab, idx) {
 if (tab <= 3) {
@@ -1393,8 +1438,9 @@ if (idx === 1) {
 if (save.thrust >= 2) return "MAX";
 return "LV" + save.thrust + " $" + shopPrice(tab, idx);
 }
-if (gunLv(FORGE_GUN) >= 5) return "MAX";
-return "LV" + gunLv(FORGE_GUN) + " $" + shopPrice(tab, idx);
+const forged = activeForgeGun();
+if (!forgeAnyValid() || gunLv(forged) >= 5) return "MAX";
+return "LV" + gunLv(forged) + " $" + shopPrice(tab, idx);
 }
 function pay(price) {
 if (save.coins < price) { shopMsg = "NOT ENOUGH COINS"; return false; }
@@ -1406,18 +1452,20 @@ const tab = shopTab;
 if (idx < 0 || idx >= shopCount(tab)) return;
 shopMsg = "";
 if (tab <= 3) {
+const gun = tab === 3 ? shopGunAt(idx) : idx;
 if (!shopOwned(tab, idx)) {
+if (tab === 3 && (gun <= 0 || gun >= GUN_COUNT)) return;
 if (!pay(shopPrice(tab, idx))) return;
 if (tab === 0) save.themes |= (1 << idx);
 else if (tab === 1) save.ships |= (1 << idx);
 else if (tab === 2) save.lasers |= (1 << idx);
-else save.guns |= (1 << (idx - 1));
+else save.guns |= (1 << (gun - 1));
 shopMsg = "BOUGHT";
 }
 if (tab === 0) save.theme = idx;
 else if (tab === 1) save.ship = idx;
 else if (tab === 2) save.laser = idx;
-else save.gunEquip = idx;
+else save.gunEquip = gun;
 persist();
 return;
 }
@@ -1431,11 +1479,16 @@ return;
 }
 if (idx === 0 && gunLv(save.gunEquip) >= 5) { shopMsg = "MAXED"; return; }
 if (idx === 1 && save.thrust >= 2) { shopMsg = "MAXED"; return; }
-if (idx === 2 && gunLv(FORGE_GUN) >= 5) { shopMsg = "MAXED"; return; }
+if (idx === 2 && (!forgeAnyValid() || gunLv(activeForgeGun()) >= 5)) { shopMsg = "MAXED"; return; }
 if (!pay(shopPrice(tab, idx))) return;
 if (idx === 0) save.gunLv[save.gunEquip] = gunLv(save.gunEquip) + 1;
 else if (idx === 1) save.thrust += 1;
-else { save.gunLv[FORGE_GUN] = gunLv(FORGE_GUN) + 1; save.gunEquip = FORGE_GUN; }
+else {
+const forged = activeForgeGun();
+save.gunLv[forged] = gunLv(forged) + 1;
+save.gunEquip = forged;
+forgeFocus = forged - GUN_COUNT;
+}
 shopMsg = "UPGRADED";
 persist();
 }
@@ -1461,7 +1514,7 @@ if (tab === 2) return UPGRADE_ATTRS[item][attr][1];
 return 0;
 }
 function forgeRevealName() {
-if (forgeTab === 0) return gunToken(FORGE_GUN);
+if (forgeTab === 0) return gunToken(activeForgeGun());
 return forgeAttrName(forgeTab, forgeFirst, forgeAttrA) + "+" +
 forgeAttrName(forgeTab, forgeSecond, forgeAttrB);
 }
@@ -1475,6 +1528,13 @@ forgeAttrA = 0;
 forgeAttrB = 0;
 forgeMsg = "";
 forgeFlash = 0;
+forgeFocus = -1;
+if (equippedForged()) forgeFocus = save.gunEquip - GUN_COUNT;
+else {
+for (let i = MAX_FORGED - 1; i >= 0; i--) {
+if (save.forges[i]) { forgeFocus = i; break; }
+}
+}
 setScr("forge");
 }
 function forgeBack() {
@@ -1519,11 +1579,19 @@ forgeMsg = "";
 function forgeConfirm() {
 const total = forgeTotal();
 if (save.coins < total) { forgeMsg = "NOT ENOUGH COINS"; return; }
+let slot = -1;
+if (forgeTab === 0) {
+slot = firstEmptyForge();
+if (slot < 0) { forgeMsg = "FORGE FULL"; return; }
+}
 save.coins -= total;
 if (forgeTab === 0) {
-save.forge = { valid: true, base: forgeFirst, donor: forgeSecond, attrA: forgeAttrA, attrB: forgeAttrB };
-save.gunLv[FORGE_GUN] = 0;
-save.gunEquip = FORGE_GUN;
+save.forges[slot] = sanitizeForge({
+valid: true, base: forgeFirst, donor: forgeSecond, attrA: forgeAttrA, attrB: forgeAttrB
+});
+save.gunLv[GUN_COUNT + slot] = 0;
+save.gunEquip = GUN_COUNT + slot;
+forgeFocus = slot;
 } else if (forgeTab === 1) {
 save.fpw = (save.fpw | forgePerkOf(1, forgeFirst, forgeAttrA) |
 forgePerkOf(1, forgeSecond, forgeAttrB)) >>> 0;
@@ -1537,14 +1605,16 @@ forgeMsg = "";
 forgeFlash = 24;
 }
 function forgeUpgradeGun() {
-if (!forgeValid()) return;
-const lv = gunLv(FORGE_GUN);
+if (!forgeAnyValid()) return;
+const gun = activeForgeGun();
+const lv = gunLv(gun);
 if (lv >= 5) { forgeMsg = "MAXED"; return; }
 const price = 50 * (lv + 1);
 if (save.coins < price) { forgeMsg = "NOT ENOUGH COINS"; return; }
 save.coins -= price;
-save.gunLv[FORGE_GUN] = lv + 1;
-save.gunEquip = FORGE_GUN;
+save.gunLv[gun] = lv + 1;
+save.gunEquip = gun;
+forgeFocus = gun - GUN_COUNT;
 persist();
 forgeTab = 0;
 forgeStep = 5;
@@ -1993,7 +2063,7 @@ drawCard("FORGE", "combine attributes", BOX.menuForge, P);
 drawKey("RESTART GAME", BOX.menuRestart, false, P);
 reg(BOX.menuPlay, () => startCampaign());
 reg(BOX.menuCheck, () => setScr("checks"));
-reg(BOX.menuCustom, () => { customFromPause = false; setScr("custom"); });
+reg(BOX.menuCustom, () => { customFromPause = false; customPage = 0; setScr("custom"); });
 reg(BOX.menuShop, () => { setScr("shop"); });
 reg(BOX.menuTheme, () => cycleTheme());
 reg(BOX.menuHome, () => startDemo());
@@ -2030,14 +2100,37 @@ drawKey("NO", BOX.no, false, P);
 reg(BOX.yes, () => restartGame());
 reg(BOX.no, () => goMenu());
 }
+function forgedListBox(row) { return { x: 16, y: 48 + row * 40, w: 288, h: 36 }; }
+function customForgeBox() { return { x: 198, y: 4, w: 114, h: 28 }; }
 function paintCustom(P) {
 FB.fill(P.bg);
+if (customPage !== 0) {
+drawText("FORGED", W / 2, 22, P.ink, "f2", "mc");
+let row = 0;
+for (let i = 0; i < MAX_FORGED; i++) {
+if (!save.forges[i]) continue;
+const b = forgedListBox(row);
+const slot = GUN_COUNT + i;
+drawCard(gunLine(slot), null, b, P);
+reg(b, () => equipGun(slot));
+row += 1;
+}
+if (row === 0) {
+drawText("NONE YET", W / 2, 160, P.muted, "f2", "mc");
+drawText("COMBINE TWO GUNS IN FORGE", W / 2, 188, P.muted, "f2", "mc");
+}
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.home, () => { customPage = 0; });
+return;
+}
 drawText("CUSTOM", W / 2, 22, P.ink, "f2", "mc");
+drawKey("FORGED", customForgeBox(), false, P);
+reg(customForgeBox(), () => { customPage = 1; });
 drawCard("LASER " + LASERS[save.laser][0], "tap to change", BOX.color, P);
 reg(BOX.color, () => cycleLaser());
 drawCard("SHIP " + SHIPS[save.ship], "tap to change", BOX.ship, P);
 reg(BOX.ship, () => cycleShip());
-for (let g = 0; g < GUN_SLOTS; g++) {
+for (let g = 0; g < GUN_COUNT; g++) {
 const b = gunBox(g);
 drawCard(gunLine(g), null, b, P);
 reg(b, () => equipGun(g));
@@ -2053,7 +2146,7 @@ drawCard("RESUME", null, BOX.resume, P);
 drawCard("CUSTOM", "ship and guns", BOX.pauseCustom, P);
 drawCard("HOME", null, BOX.pauseHome, P);
 reg(BOX.resume, () => resumePlay());
-reg(BOX.pauseCustom, () => { customFromPause = true; setScr("custom"); });
+reg(BOX.pauseCustom, () => { customFromPause = true; customPage = 0; setScr("custom"); });
 reg(BOX.pauseHome, () => goMenu());
 }
 function paintAdvance(P) {
@@ -2162,8 +2255,8 @@ if (pages > 1) {
 drawKey("PAGE " + (forgePage + 1) + "/" + pages, BOX.forgePage, false, P);
 reg(BOX.forgePage, () => { forgePage = (forgePage + 1) % pages; });
 }
-if (forgeValid() && (forgeTab === 0 || forgeTab === 2)) {
-const lv = gunLv(FORGE_GUN);
+if (forgeAnyValid() && (forgeTab === 0 || forgeTab === 2)) {
+const lv = gunLv(activeForgeGun());
 const lbl = lv >= 5 ? "FORGED MAX" : "UPG LV" + (lv + 1) + " $" + (50 * (lv + 1));
 drawKey(lbl, BOX.forgeUp, false, P);
 reg(BOX.forgeUp, () => forgeUpgradeGun());
@@ -2212,23 +2305,23 @@ return;
 }
 drawText("FORGED!", W / 2, 92, P.ink, "f4", "mc");
 drawText(forgeRevealName(), W / 2, 138, P.accent, "f2", "mc");
-if (forgeTab === 0 && forgeValid()) {
-const lv = gunLv(FORGE_GUN);
+if (forgeTab === 0 && forgeAnyValid()) {
+const lv = gunLv(activeForgeGun());
 drawText("LV" + (lv + 1) + "  " + forgedSlotCount() + "/8 TRAITS (+" + forgedLatestTrait() + ")",
 W / 2, 168, P.muted, "f2", "mc");
 } else {
 drawText(forgeTab === 1 ? "NEW POWER-UP" : "NEW UPGRADE", W / 2, 168, P.muted, "f2", "mc");
 }
 if (forgeMsg) drawText(forgeMsg, W / 2, 204, P.accent, "f2", "mc");
-if (forgeTab === 0 && forgeValid() && gunLv(FORGE_GUN) < 5) {
-const lv = gunLv(FORGE_GUN);
+if (forgeTab === 0 && forgeAnyValid() && gunLv(activeForgeGun()) < 5) {
+const lv = gunLv(activeForgeGun());
 drawKey("UPGRADE $" + (50 * (lv + 1)), BOX.forgeRevealUp, false, P);
 reg(BOX.forgeRevealUp, () => forgeUpgradeGun());
 }
 drawKey(forgeTab === 0 ? "EQUIP" : "DONE", BOX.forgeEquip, false, P);
 drawKey("BACK", BOX.home, false, P);
 reg(BOX.forgeEquip, () => {
-if (forgeTab === 0 && forgeValid()) { save.gunEquip = FORGE_GUN; persist(); }
+if (forgeTab === 0 && forgeAnyValid()) { save.gunEquip = activeForgeGun(); persist(); }
 goMenu();
 });
 reg(BOX.home, () => forgeBack());
