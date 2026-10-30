@@ -575,9 +575,17 @@ R.foeGap = 40;
 setScr("play");
 }
 function fireFoe(x, y, kind, who, vx = 0) {
-if (kind === 2) R.foes.push({ x: x - 2, y, vx, vy: 4, w: 5, h: 6, kind: 2, who });
+if (kind === 3) {
+const phase = R.godEntrance ? 3 - R.godBars : 0;
+R.foes.push({ x: clamp(x, 0, W - 10), y, vx, vy: 4 + phase, w: 10, h: 10, kind: 3, who });
+} else if (kind === 2) R.foes.push({ x: x - 2, y, vx, vy: 4, w: 5, h: 6, kind: 2, who });
 else if (kind === 1) R.foes.push({ x: x - 1, y, vx, vy: 8, w: 2, h: 6, kind: 1, who });
 else R.foes.push({ x, y, vx, vy: 6, w: 3, h: 8, kind: 0, who });
+}
+function spawnGodHazard(x, y) {
+const dx = (R.px + SHIP_W / 2) - (x + 5);
+const vx = dx < -24 ? -2 : (dx < -6 ? -1 : (dx > 24 ? 2 : (dx > 6 ? 1 : 0)));
+fireFoe(x, y, 3, godName(), vx);
 }
 function unitLabel(u) {
 if (R.godEntrance) return godName();
@@ -588,6 +596,7 @@ if (u.kind === 2) return R.raid ? "RAID BOSS" : "BOSS";
 return "ALIEN";
 }
 function foeInk(f) {
+if (f.kind === 3) return godInk();
 if (f.kind === 2) return clr([255, 168, 56]);
 if (f.kind === 1) return clr([255, 140, 96]);
 if (R.god) return godInk();
@@ -604,6 +613,17 @@ function centerOf(x, y, w, h) { return [x + w / 2 - Math.floor(COIN_SIZE / 2), y
 function nextLockedGun() {
 for (let g = 1; g < 9; g++) if (!gunOwned(g)) return g;
 return 0;
+}
+function spawnDropAt(which, x, y) {
+R.drop_ = { which, x: clamp(Math.round(x), 16, W - 32), y: clamp(Math.round(y), 40, SHIP_Y - 40) };
+}
+function maybeMiniDrop(x, y) {
+if (R.drop_) return;
+if (rnd(100) < 5) { spawnDropAt(11, x, y); return; }
+const which = nextLockedGun();
+if (which !== 0 && rnd(10) === 0) { spawnDropAt(which, x, y); return; }
+const heart = 35 + (perk(PERK.heal) ? 15 : 0);
+spawnDropAt(rnd(100) < heart ? 9 : 10, x, y);
 }
 function maybeDrop(bossKill) {
 if (R.drop_) return;
@@ -636,6 +656,12 @@ setMsg("GUN +1");
 } else {
 setMsg("MAX");
 }
+} else if (d.which === 11) {
+if (save.shield < shieldCap()) {
+save.shield += 1;
+persist();
+}
+setMsg("SHIELD");
 }
 R.drop_ = null;
 }
@@ -656,7 +682,7 @@ const [cx, cy] = centerOf(R.ox + u.ox, R.oy + u.oy, sw, sh);
 if (u.kind === 6) {
 addScore(20);
 dropCoins(cx, cy, 2);
-maybeDrop(true);
+maybeMiniDrop(cx, cy);
 } else {
 addScore(10);
 if (rnd(100) < COIN_CHANCE) spawnCoin(cx, cy);
@@ -669,10 +695,12 @@ if (perk(PERK.damage)) dmg += 1;
 return dmg;
 }
 function hitUnit(u) {
-if (u.kind === 6 && u.hp > 1) {
+if (u.kind === 6) {
 u.hp -= playerDamage();
+if (u.hp > 0) {
 addScore(20);
 return;
+}
 }
 killUnit(u);
 }
@@ -693,6 +721,7 @@ const [cx, cy] = centerOf(R.boss.x, R.boss.y, BOSS_W, BOSS_H);
 dropCoins(cx, cy, 10);
 maybeDrop(true);
 R.boss = null;
+R.escorts = [];
 R.godEntrance = false;
 R.god = 0;
 }
@@ -842,7 +871,7 @@ if (overlapRect(bx, by, bw, bh, R.ox + u.ox, R.oy + u.oy, sw, sh)) hitUnit(u);
 for (let i = R.escorts.length - 1; i >= 0; i--) {
 const e = R.escorts[i];
 if (!overlapRect(bx, by, bw, bh, escortX(e), ESCORT_Y, ALLY_W, ALLY_H)) continue;
-e.hp -= 1;
+e.hp -= playerDamage();
 addScore(10);
 if (e.hp <= 0) R.escorts.splice(i, 1);
 }
@@ -881,7 +910,8 @@ R.beamOn = true;
 }
 function escortX(e) {
 const bx = R.boss ? R.boss.x : (W - BOSS_W) / 2;
-return e.side < 0 ? bx - 52 : bx + BOSS_W + 34;
+const raw = e.side < 0 ? bx - 52 : bx + BOSS_W + 34;
+return clamp(Math.round(raw), 8, W - ALLY_W - 8);
 }
 function barrierHitRect(x, y, w, h) {
 for (const b of R.barriers) {
@@ -936,7 +966,7 @@ for (const e of R.escorts) {
 if (b.hit.has(e)) continue;
 if (!overlapRect(x, y, b.w, b.h, escortX(e), ESCORT_Y, ALLY_W, ALLY_H)) continue;
 b.hit.add(e);
-e.hp -= 1;
+e.hp -= playerDamage();
 addScore(10);
 return true;
 }
@@ -1060,6 +1090,12 @@ function stepFoes() {
 const foes = R.foes;
 for (let i = foes.length - 1; i >= 0; i--) {
 const f = foes[i];
+if (f.kind === 3 && (R.spaceTick & 7) === 0 && f.y < SHIP_Y - 80) {
+const target = R.px + SHIP_W / 2;
+const center = f.x + f.w / 2;
+if (target < center - 6 && f.vx > -2) f.vx -= 1;
+else if (target > center + 6 && f.vx < 2) f.vx += 1;
+}
 const nx = f.x + f.vx, ny = f.y + f.vy;
 const hitShip = overlapRect(nx, ny, f.w, f.h, R.px, SHIP_Y, SHIP_W, SHIP_H);
 const blocked = nx < 0 || nx > W - f.w || ny >= BUTTON_Y || barrierHitRect(nx, ny, f.w, f.h);
@@ -1077,6 +1113,9 @@ f.x = nx; f.y = ny;
 }
 }
 function enemyShoot() {
+if (R.god && !R.godEntrance && (R.spaceTick & 1) === 0) {
+spawnGodHazard(24 + rnd(W - 58), 38);
+}
 const live = R.units.filter(u => u.alive && u.kind !== 2);
 if (live.length === 0) return;
 const u = live[rnd(live.length)];
@@ -1104,6 +1143,7 @@ const y = b.y + BOSS_H;
 const who = R.godEntrance ? godName() : (R.raid ? "RAID BOSS" : "BOSS");
 if (R.godEntrance) {
 const phase = 3 - R.godBars;
+spawnGodHazard(x - 5, y);
 if (phase === 0) {
 const dx = R.px + SHIP_W / 2 - x;
 fireFoe(x, y, 1, who, dx < -10 ? -1 : (dx > 10 ? 1 : 0));
@@ -1112,8 +1152,9 @@ fireFoe(x - 12, y, 1, who, -2); fireFoe(x, y, 1, who, 0); fireFoe(x + 12, y, 1, 
 } else {
 fireFoe(x - 16, y, 1, who, -3); fireFoe(x - 8, y, 1, who, -1); fireFoe(x, y, 2, who, 0);
 fireFoe(x + 8, y, 1, who, 1); fireFoe(x + 16, y, 1, who, 3);
+spawnGodHazard(20 + rnd(W - 50), 40);
 }
-for (const e of R.escorts) fireFoe(escortX(e) + ALLY_W / 2, ESCORT_Y + ALLY_H, 0, who, 0);
+for (const e of R.escorts) fireFoe(escortX(e) + ALLY_W / 2, ESCORT_Y + ALLY_H, 1, who, 0);
 return;
 }
 if (b.style === 1) {
@@ -1189,8 +1230,10 @@ moveFormation();
 if (R.boss) {
 const b = R.boss;
 b.x += b.dir * (b.style === 1 ? 2 : 1);
-if (b.x < 8) { b.x = 8; b.dir = 1; }
-if (b.x > W - BOSS_W - 8) { b.x = W - BOSS_W - 8; b.dir = -1; }
+const minX = R.escorts.length > 0 ? 60 : 8;
+const maxX = R.escorts.length > 0 ? W - BOSS_W - 60 : W - BOSS_W - 8;
+if (b.x < minX) { b.x = minX; b.dir = 1; }
+if (b.x > maxX) { b.x = maxX; b.dir = -1; }
 b.cool -= 1;
 if (b.cool <= 0) {
 fireBoss();
@@ -1879,7 +1922,17 @@ drawAlienAt(Math.round(b.x), b.y, 2, P, { max: 1, hp: 1 });
 drawAlienAt(Math.round(b.x), b.y, 2, P, { max: b.max, hp: b.hp });
 }
 }
-for (const f of R.foes) fillRect(Math.round(f.x), Math.round(f.y), f.w, f.h, foeInk(f));
+for (const f of R.foes) {
+const fx = Math.round(f.x), fy = Math.round(f.y);
+if (f.kind === 3) {
+const ink = foeInk(f);
+fillRect(fx + 2, fy, 6, 10, ink);
+fillRect(fx, fy + 2, 10, 6, ink);
+fillRect(fx + 3, fy + 3, 4, 4, clr([255, 255, 255]));
+} else {
+fillRect(fx, fy, f.w, f.h, foeInk(f));
+}
+}
 const lc = laserColour(save.laser);
 if (R.beamOn) fillRect(R.beamX, 36, 3, SHIP_Y - 36, lc);
 for (const bolt of R.bolts) fillRect(Math.round(bolt.x), Math.round(bolt.y), bolt.w, bolt.h, lc);
@@ -1888,6 +1941,7 @@ const d = R.drop_;
 let color = clr([255, 220, 80]);
 if (d.which === 9) color = clr([255, 64, 96]);
 else if (d.which === 10) color = clr([255, 210, 48]);
+else if (d.which === 11) color = clr([96, 200, 255]);
 else if (d.which >= 1 && d.which <= 8) color = clr(DROP_RGB[d.which - 1]);
 fillRect(d.x, d.y, 14, 14, color);
 fillRect(d.x + 4, d.y + 4, 6, 6, P.bg);
