@@ -1,0 +1,1397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invaders Machina</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #050505;
+    overflow: hidden;
+    font-family: monospace;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas {
+    height: min(100vh - 16px, 900px);
+    aspect-ratio: 320 / 480;
+    image-rendering: pixelated;
+    touch-action: none;
+    box-shadow: 0 0 30px #000;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<canvas id="c" width="320" height="480"></canvas>
+<script>
+"use strict";
+
+// Invaders Machina, web edition. A port of the CYD firmware's game rules to
+// the browser. Controls: arrows or A/D to move, Space, W or Up to fire, mouse
+// or trackpad to aim and click (click and hold to fire), Enter to confirm,
+// Esc to pause or go back.
+
+const W = 320, H = 480;
+const SHIP_Y = 368, SHIP_W = 32, SHIP_H = 16;
+const ALIEN_W = 18, ALIEN_H = 14;
+const BOSS_W = 44, BOSS_H = 30;
+const MINI_W = 30, MINI_H = 20;
+const ALLY_W = 18, ALLY_H = 16;
+const BLAST_R = 20;
+const LEVELS = 300;
+const SHIP_STEP = 5;
+const BUTTON_Y = 430;
+const COIN_MAX = 16;
+const TICK_MS = 1000 / 60;
+const ESCORT_Y = 54;
+
+const PAL_RGB = [
+  [[0,0,0],[255,255,255],[150,160,150],[48,230,86],[255,206,32],[46,228,72],[36,255,96],[28,186,64],[255,214,48],[48,116,255],[10,24,16],[18,78,42],[210,210,220]],
+  [[248,242,226],[28,22,16],[90,68,48],[16,110,42],[196,92,8],[12,112,36],[10,84,28],[18,122,40],[186,78,6],[28,78,168],[255,252,244],[186,214,168],[70,54,36]],
+  [[6,16,40],[220,236,255],[120,150,190],[80,180,255],[255,196,64],[64,220,255],[120,255,220],[40,140,220],[255,220,80],[40,90,220],[8,28,64],[16,64,120],[180,200,230]],
+  [[28,14,4],[255,236,210],[190,140,90],[255,170,40],[255,210,60],[255,120,40],[255,196,80],[180,90,20],[255,240,180],[120,60,20],[48,24,8],[120,64,16],[255,200,140]],
+  [[8,8,28],[230,230,255],[120,120,170],[120,110,255],[90,80,220],[70,60,190],[160,200,255],[60,60,140],[255,120,255],[40,40,110],[30,28,70],[60,56,120],[200,200,255]],
+  [[226,250,240],[16,60,48],[90,140,120],[20,170,120],[40,190,140],[30,160,120],[10,110,90],[40,140,110],[255,90,120],[160,230,200],[196,240,222],[120,220,180],[120,200,170]],
+  [[40,8,24],[255,226,236],[180,110,140],[255,80,150],[255,110,170],[230,70,140],[255,200,220],[170,40,100],[255,240,120],[110,30,70],[80,16,50],[140,30,84],[255,190,220]],
+  [[0,0,0],[255,255,0],[120,120,0],[0,255,255],[255,0,255],[0,200,255],[0,255,255],[255,0,0],[255,255,255],[60,0,60],[20,20,20],[60,60,0],[255,255,255]]
+];
+const PAL_KEYS = ["bg","ink","muted","accent","top","low","ship","barrier","shot","planet","button","buttonOn","star"];
+const THEME_NAMES = ["DARK NEON","LIGHT","BLUE","AMBER","MIDNIGHT","MINT","ROSE","ARCADE"];
+const THEME_PRICE = [0, 0, 0, 0, 60, 80, 100, 120];
+const LASERS = [
+  ["RED",[255,64,56]], ["GOLD",[255,210,48]], ["GREEN",[48,230,96]], ["CYAN",[80,210,255]],
+  ["WHITE",[255,255,255]], ["MAGENTA",[255,80,220]], ["ORANGE",[255,140,32]], ["BLUE",[64,96,255]],
+  ["LIME",[170,255,48]], ["PINK",[255,140,180]], ["ICE",[180,255,255]], ["VIOLET",[170,80,255]]
+];
+const GUNS = ["CANNON","SHOTGUN","ASSAULT","BEAM","TWIN","WAVE","RAIL","NOVA","HOMING"];
+const GUN_COOL = [12, 11, 6, 16, 12, 18, 24, 16, 14];
+const GODS = ["ZEUS","HERA","POSEIDON","DEMETER","ATHENA","ARES","APOLLO","ARTEMIS","APHRODITE","HEPHAESTUS","HERMES","DIONYSUS"];
+const GOD_INK = [[255,214,56],[226,170,255],[64,190,255],[120,220,96],[206,214,232],[255,72,60],[255,200,88],[176,220,255],[255,140,200],[255,128,40],[140,255,220],[190,96,255]];
+
+const cv = document.getElementById("c");
+const g = cv.getContext("2d");
+
+const rgb = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
+function pal(t) {
+  const p = PAL_RGB[t & 7];
+  const o = {};
+  PAL_KEYS.forEach((k, i) => { o[k] = rgb(p[i]); });
+  return o;
+}
+
+// ---- Save (localStorage) --------------------------------------------------
+
+const SAVE_KEY = "invaders-machina-web-v1";
+const DEFAULT_SAVE = {
+  level: 1, camp: 0, raidWon: false, coins: 0,
+  themes: 0x0f, lasers: 0x0001, guns: 0, gunEquip: 0,
+  gunLv: [0,0,0,0,0,0,0,0,0], laser: 0, theme: 0,
+  shield: 0, spare: 0, thrust: 0
+};
+let save = Object.assign({}, DEFAULT_SAVE);
+try {
+  const loaded = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}");
+  save = Object.assign({}, DEFAULT_SAVE, loaded);
+  save.gunLv = Object.assign([0,0,0,0,0,0,0,0,0], loaded.gunLv || []);
+} catch (e) { save = Object.assign({}, DEFAULT_SAVE); }
+function persist() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* private mode */ }
+}
+function themeOwned(t) { return ((save.themes >> (t & 7)) & 1) !== 0; }
+function laserOwned(c) { return ((save.lasers >> (c % 12)) & 1) !== 0; }
+function gunOwned(gun) { return gun === 0 || ((save.guns >> (gun - 1)) & 1) !== 0; }
+function gunLv(gun) { return Math.min(5, save.gunLv[gun] || 0); }
+if (!themeOwned(save.theme)) save.theme = 0;
+if (!laserOwned(save.laser)) save.laser = 0;
+if (!gunOwned(save.gunEquip)) save.gunEquip = 0;
+
+// ---- Input ----------------------------------------------------------------
+
+const KEY_NAMES = {
+  ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down",
+  ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right",
+  Space: "space", Enter: "enter", NumpadEnter: "enter",
+  Escape: "esc", Tab: "tab", KeyQ: "tab"
+};
+const held = new Set();
+const pressed = new Set();
+let mouse = { x: 0, y: 0, inside: false, down: false, moved: -1e9 };
+
+window.addEventListener("keydown", (e) => {
+  const name = KEY_NAMES[e.code];
+  if (!name) return;
+  e.preventDefault();
+  if (!e.repeat) pressed.add(name);
+  held.add(name);
+});
+window.addEventListener("keyup", (e) => {
+  const name = KEY_NAMES[e.code];
+  if (name) held.delete(name);
+});
+window.addEventListener("blur", () => { held.clear(); mouse.down = false; });
+
+function toLogical(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
+}
+cv.addEventListener("pointermove", (e) => {
+  const p = toLogical(e);
+  mouse.x = p.x; mouse.y = p.y; mouse.inside = true;
+  mouse.moved = performance.now();
+  const hit = btnAt(p.x, p.y);
+  if (hit >= 0) sel = hit;
+});
+cv.addEventListener("pointerleave", () => { mouse.inside = false; });
+cv.addEventListener("pointerdown", (e) => {
+  const p = toLogical(e);
+  mouse.x = p.x; mouse.y = p.y; mouse.inside = true;
+  mouse.down = true;
+  mouse.moved = performance.now();
+  cv.setPointerCapture(e.pointerId);
+  const i = btnAt(p.x, p.y);
+  if (i >= 0) { sel = i; btns[i].fn(); }
+});
+cv.addEventListener("pointerup", () => { mouse.down = false; });
+cv.addEventListener("pointercancel", () => { mouse.down = false; });
+
+// ---- UI state -------------------------------------------------------------
+
+let scr = "demo";
+let sel = 0;
+let btns = [];
+let shopTab = 0, shopPage = 0, shopMsg = "";
+let confirmBack = "menu";
+let pauseMsg = "";
+
+function setScr(s) {
+  scr = s;
+  sel = 0;
+  if (s !== "shop") { shopMsg = ""; }
+}
+function btnAt(x, y) {
+  for (let i = 0; i < btns.length; i++) {
+    const b = btns[i];
+    if (x >= b.x && y >= b.y && x < b.x + b.w && y < b.y + b.h) return i;
+  }
+  return -1;
+}
+function inside(b, x, y) { return x >= b.x && y >= b.y && x < b.x + b.w && y < b.y + b.h; }
+
+// ---- Run state ------------------------------------------------------------
+
+let R = null;      // the current run (campaign or demo)
+let demo = true;   // the attract loop is running
+
+function newRun(level) {
+  return {
+    level, score: 0, lives: 3, invuln: 0, shield: 0,
+    px: (W - SHIP_W) / 2,
+    ox: 0, oy: 34, dir: 1, mv: 1, drop: 8,
+    units: [], foes: [], bolts: [], coins: [], blasts: [], barriers: [],
+    boss: null, escorts: [], mini: false, raid: false,
+    god: 0, godWave: 0, godEntrance: false, godBars: 3, godHp: 0, godHpMax: 1,
+    cool: 0, foeCool: 0, foeGap: 40, hitBy: "ALIEN",
+    timer: 0, msg: "", msgT: 0, scoreFlash: 0
+  };
+}
+
+function rnd(n) { return Math.floor(Math.random() * n); }
+function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+function unitSize(u) {
+  if (u.kind === 2) return [BOSS_W, BOSS_H];
+  if (u.kind === 6) return [MINI_W, MINI_H];
+  if (u.kind === 5) return [ALIEN_W + 4, ALIEN_H + 2];
+  return [ALIEN_W, ALIEN_H];
+}
+
+function startLevel() {
+  const L = R.level;
+  const bestTier = Math.floor((L - 1) / 20);
+  R.foes = []; R.bolts = []; R.blasts = []; R.escorts = []; R.boss = null;
+  R.mini = false; R.raid = false; R.god = 0; R.godEntrance = false;
+  R.invuln = 0; R.cool = 0; R.foeCool = 0;
+  R.drop = Math.min(20, 8 + bestTier);
+  R.foeGap = Math.max(14, 42 - Math.floor(L / 20) - (L % 5 === 0 ? 6 : 0));
+  R.dir = 1; R.mv = 1;
+  R.barriers = []; R.units = [];
+  if (L % 25 === 0) buildGod();
+  else if (L % 5 === 0) buildBoss();
+  else if (save.raidWon && Math.random() < 0.4) buildMini();
+  else buildFormation();
+  if (!demo && L % 20 === 0) {
+    const bit = L / 20 - 1;
+    if (bit >= 0 && bit < 15) save.camp |= (1 << bit);
+  }
+  if (!demo) { save.level = L; persist(); }
+  setScr(demo ? "demo" : "play");
+}
+
+function buildBarriers(L) {
+  let n;
+  if (L < 40) n = 2 + rnd(2);
+  else if (L < 140) n = rnd(4);
+  else n = rnd(3);
+  const slot = n > 0 ? Math.floor((W - n * 36) / (n + 1)) : 0;
+  for (let i = 0; i < n; i++) {
+    const cols = [];
+    const notch = rnd(10);
+    for (let c = 0; c < 10; c++) {
+      let h = 4 + rnd(3);
+      if (c === notch) h = 1 + rnd(2);
+      cols.push(h);
+    }
+    R.barriers.push({ x: slot + i * (36 + slot), cols });
+  }
+}
+
+function buildFormation() {
+  const L = R.level;
+  const shape = rnd(5);
+  let cols = 4 + rnd(3);
+  if (L > 80) cols += 1;
+  if (L > 180) cols += rnd(2);
+  if (cols > 7) cols = 7;
+  let rows = 2 + rnd(2);
+  if (L > 40) rows += 1;
+  if (L > 120 && rnd(2)) rows += 1;
+  if (L > 220) rows += 1;
+  if (rows > 5) rows = 5;
+  const yellow = 1 + rnd(rows);
+  R.step = 2 + Math.floor(L / 50) + rnd(3);
+  if (R.step > 7) R.step = 7;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      let ox = col * 30;
+      const oy = row * 22;
+      let keep = true;
+      if (shape === 1) { if (col < row || col >= cols - row) keep = false; }
+      else if (shape === 2) { if (row & 1) ox += 15; }
+      else if (shape === 3) { if ((row === 0 || row === rows - 1) && (col === 0 || col === cols - 1)) keep = false; }
+      else if (shape === 4) { if (col === Math.floor(cols / 2)) keep = false; }
+      if (!keep) continue;
+      let kind = row < yellow ? 1 : 0;
+      if (rnd(5) === 0) kind ^= 1;
+      const roll = rnd(100);
+      if (L >= 3 && roll < 6 + Math.floor(L / 25)) kind = 4;
+      else if (L >= 8 && roll >= 90 - Math.floor(L / 30)) kind = 5;
+      R.units.push({ ox, oy, kind, hp: 1, alive: true });
+    }
+  }
+  if (R.units.length === 0) R.units.push({ ox: 0, oy: 0, kind: 1, hp: 1, alive: true });
+  centerFormation();
+  buildBarriers(L);
+}
+
+function centerFormation() {
+  let minX = 999, maxX = 0;
+  for (const u of R.units) {
+    if (u.ox < minX) minX = u.ox;
+    if (u.ox + ALIEN_W > maxX) maxX = u.ox + ALIEN_W;
+  }
+  R.ox = Math.floor((W - (maxX - minX)) / 2) - minX;
+  R.oy = 34;
+  R.dir = 1;
+}
+
+function buildBoss() {
+  const L = R.level;
+  const max = Math.min(22, 6 + Math.floor(L / 20));
+  R.raid = Math.random() < 0.25;
+  R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: max, max, style: L % 2, cool: 0 };
+  R.units = [];
+  if (R.raid) {
+    for (let i = 0; i < 4; i++) R.units.push({ ox: i * 30, oy: 0, kind: 0, hp: 1, alive: true });
+    R.ox = Math.floor((W - 120) / 2);
+    R.oy = 84;
+    R.dir = 1;
+    R.step = 2;
+  }
+  buildBarriers(L);
+}
+
+function buildMini() {
+  R.mini = true;
+  const L = R.level;
+  const cols = 4;
+  R.units = [];
+  for (let col = 0; col < cols; col++) {
+    R.units.push({ ox: col * 30, oy: 24 + (col & 1) * 20, kind: col & 1 ? 1 : 0, hp: 1, alive: true });
+  }
+  const mhp = Math.min(22, 6 + Math.floor(L / 20));
+  R.units.push({ ox: Math.floor((cols * 30 - MINI_W) / 2), oy: 0, kind: 6, hp: mhp, alive: true });
+  R.ox = Math.floor((W - cols * 30) / 2);
+  R.oy = 38;
+  R.dir = 1;
+  R.step = 2 + Math.floor(L / 70);
+  if (R.step > 5) R.step = 5;
+  buildBarriers(L);
+}
+
+// ---- Olympian gods --------------------------------------------------------
+
+function godIndex(L) { return ((Math.floor(L / 25) - 1) % 12) + 1; }
+function godName() { return GODS[R.god - 1] || "GOD"; }
+function godInkRgb() { return GOD_INK[(R.god - 1 + 12) % 12]; }
+function godBarHp() { return 12 + Math.floor(R.level / 12); }
+
+function buildGod() {
+  R.god = godIndex(R.level);
+  R.godWave = 0;
+  R.godBars = 3;
+  spawnGodWave();
+}
+
+function spawnGodWave() {
+  const wave = R.godWave;
+  const cols = 4 + wave;
+  const rows = 2 + (wave >= 2 ? 1 : 0);
+  R.units = [];
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      let kind = row === 0 ? 1 : 0;
+      const roll = rnd(100);
+      if (roll < 12) kind = 4;
+      else if (roll < 20) kind = 5;
+      R.units.push({ ox: col * 30, oy: row * 22, kind, hp: 1, alive: true });
+    }
+  }
+  R.units.push({ ox: Math.floor((cols * 30 - MINI_W) / 2), oy: -6, kind: 6, hp: 3 + wave, alive: true });
+  R.ox = Math.floor((W - cols * 30) / 2);
+  R.oy = 40;
+  R.dir = 1;
+  R.step = 2 + wave;
+  R.foeCool = 0;
+  R.foeGap = 30;
+  R.boss = null;
+  R.escorts = [];
+  R.foes = [];
+}
+
+function beginSplash() {
+  setScr("splash");
+  R.timer = 60;
+}
+
+function godFight() {
+  R.units = [];
+  R.godEntrance = true;
+  R.godBars = 3;
+  R.godHpMax = godBarHp();
+  R.godHp = R.godHpMax;
+  R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: 1, max: 1, style: 5, cool: 0 };
+  R.escorts = [
+    { side: -1, hp: 2, alive: true },
+    { side: 1, hp: 2, alive: true }
+  ];
+  R.foes = [];
+  R.bolts = [];
+  R.foeGap = 40;
+  R.foeCool = 0;
+  setScr("play");
+}
+
+// ---- Enemy fire -----------------------------------------------------------
+
+function fireFoe(x, y, kind, who, vx = 0) {
+  if (kind === 2) {
+    R.foes.push({ x: x - 2, y, vx, vy: 4, w: 5, h: 6, kind: 2, who });
+  } else if (kind === 1) {
+    R.foes.push({ x: x - 1, y, vx, vy: 8, w: 2, h: 6, kind: 1, who });
+  } else {
+    R.foes.push({ x, y, vx, vy: 6, w: 3, h: 8, kind: 0, who });
+  }
+}
+
+function unitLabel(u) {
+  if (R.godEntrance) return godName();
+  if (u.kind === 6) return "MINI BOSS";
+  if (u.kind === 4) return "ASSAULT";
+  if (u.kind === 5) return "CANNON";
+  if (u.kind === 2) return R.raid ? "RAID BOSS" : "BOSS";
+  return "ALIEN";
+}
+
+// ---- Coins ----------------------------------------------------------------
+
+function spawnCoin(x, y) {
+  if (demo || R.coins.length >= COIN_MAX) return;
+  R.coins.push({ x: clamp(x, 0, W - 6), y });
+}
+function dropCoins(x, y, n) {
+  for (let i = 0; i < n; i++) spawnCoin(x + (i - Math.floor(n / 2)) * 7, y);
+}
+function centerOf(x, y, w, h) { return [x + w / 2 - 3, y + h / 2 - 3]; }
+
+// ---- Hits -----------------------------------------------------------------
+
+function addScore(n) { R.score = Math.min(99999, R.score + n); }
+
+function killUnit(u) {
+  u.alive = false;
+  const [sw, sh] = unitSize(u);
+  const [cx, cy] = centerOf(R.ox + u.ox, R.oy + u.oy, sw, sh);
+  if (u.kind === 6) {
+    addScore(20);
+    dropCoins(cx, cy, 2);
+  } else {
+    addScore(10);
+    if (rnd(100) < 35) spawnCoin(cx, cy);
+  }
+}
+
+function hitUnit(u) {
+  if (u.kind === 6 && u.hp > 1) {
+    u.hp -= 1;
+    addScore(20);
+    return;
+  }
+  killUnit(u);
+}
+
+function bossHit() {
+  if (!R.boss) return false;
+  if (R.raid && R.units.some(u => u.alive)) return false;
+  if (R.godEntrance) {
+    addScore(10);
+    R.godHp -= 1;
+    if (R.godHp <= 0) {
+      R.godBars -= 1;
+      if (R.godBars > 0) {
+        R.godHpMax = godBarHp() + (3 - R.godBars) * 2;
+        R.godHp = R.godHpMax;
+        R.foes = [];
+      } else {
+        const [cx, cy] = centerOf(R.boss.x, R.boss.y, BOSS_W, BOSS_H);
+        dropCoins(cx, cy, 10);
+        R.boss = null;
+        R.godEntrance = false;
+        R.god = 0;
+      }
+    }
+    return true;
+  }
+  R.boss.hp -= 1;
+  addScore(10);
+  if (R.boss.hp <= 0) {
+    const [cx, cy] = centerOf(R.boss.x, R.boss.y, BOSS_W, BOSS_H);
+    dropCoins(cx, cy, R.raid ? 4 : 3);
+    if (R.raid) save.raidWon = true;
+    R.boss = null;
+    persist();
+  }
+  return true;
+}
+
+// ---- Player fire ----------------------------------------------------------
+
+function fireGun() {
+  if (R.cool > 0) return;
+  const gun = save.gunEquip;
+  const lv = gunLv(gun);
+  const cx = R.px + SHIP_W / 2;
+  const y = SHIP_Y - 6;
+  R.cool = GUN_COOL[gun];
+  const add = (x, vx, vy, w = 3, h = 8, pierce = false, home = false) =>
+    R.bolts.push({ x: x - w / 2, y, vx, vy, w, h, pierce, home, hit: new Set() });
+  switch (gun) {
+    case 1:
+      add(cx, -1.5, -8); add(cx, 0, -8); add(cx, 1.5, -8);
+      break;
+    case 2:
+      add(cx, 0, -12);
+      break;
+    case 3:
+      add(cx, 0, -16, 2, 12, true);
+      break;
+    case 4:
+      add(cx - 6, 0, -9); add(cx + 6, 0, -9);
+      break;
+    case 5:
+      add(cx, 0, -8, 14, 6, true);
+      break;
+    case 6:
+      add(cx, 0, -22, 2, 10, true);
+      break;
+    case 7:
+      add(cx, -3, -6); add(cx, -1.5, -7); add(cx, 0, -8); add(cx, 1.5, -7); add(cx, 3, -6);
+      break;
+    case 8:
+      add(cx, 0, -7, 3, 8, false, true);
+      break;
+    default:
+      add(cx, 0, -8);
+      if (lv >= 2) { add(cx - 5, 0, -8); add(cx + 5, 0, -8); }
+  }
+}
+
+function anyTargetAlive() {
+  return R.units.some(u => u.alive) || !!R.boss || R.escorts.length > 0;
+}
+
+function stepBolts() {
+  for (let i = R.bolts.length - 1; i >= 0; i--) {
+    const b = R.bolts[i];
+    if (b.home) {
+      let best = null, bd = 1e9;
+      for (const u of R.units) {
+        if (!u.alive) continue;
+        const [sw, sh] = unitSize(u);
+        const dx = R.ox + u.ox + sw / 2 - (b.x + b.w / 2);
+        const dy = R.oy + u.oy + sh / 2 - b.y;
+        const d = dx * dx + dy * dy;
+        if (dy < 0 && d < bd) { bd = d; best = dx; }
+      }
+      if (best !== null) b.vx = clamp(b.vx + best * 0.02, -4, 4);
+    }
+    b.x += b.vx;
+    b.y += b.vy;
+    if (b.y < 26 || b.x < -8 || b.x > W) { R.bolts.splice(i, 1); continue; }
+    if (barrierHitRect(b.x, b.y, b.w, b.h)) { R.bolts.splice(i, 1); continue; }
+    let consumed = false;
+    for (const u of R.units) {
+      if (!u.alive || b.hit.has(u)) continue;
+      const [sw, sh] = unitSize(u);
+      if (!overlapRect(b.x, b.y, b.w, b.h, R.ox + u.ox, R.oy + u.oy, sw, sh)) continue;
+      b.hit.add(u);
+      hitUnit(u);
+      consumed = true;
+      break;
+    }
+    if (!consumed) {
+      for (const e of R.escorts) {
+        if (b.hit.has(e)) continue;
+        const ex = escortX(e);
+        if (!overlapRect(b.x, b.y, b.w, b.h, ex, ESCORT_Y, ALLY_W, ALLY_H)) continue;
+        b.hit.add(e);
+        e.hp -= 1;
+        addScore(10);
+        if (e.hp <= 0) e.alive = false;
+        consumed = true;
+        break;
+      }
+      R.escorts = R.escorts.filter(e => e.alive);
+    }
+    if (!consumed && R.boss) {
+      if (overlapRect(b.x, b.y, b.w, b.h, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) {
+        bossHit();
+        consumed = true;
+      }
+    }
+    if (consumed && !b.pierce) R.bolts.splice(i, 1);
+  }
+}
+
+function escortX(e) {
+  const bx = R.boss ? R.boss.x : (W - BOSS_W) / 2;
+  return e.side < 0 ? bx - 52 : bx + BOSS_W + 34;
+}
+
+function overlapRect(ax, ay, aw, ah, bx, by, bw, bh) {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
+
+// ---- Barriers and blasts --------------------------------------------------
+
+function barrierHitRect(x, y, w, h) {
+  for (const b of R.barriers) {
+    for (let c = 0; c < 10; c++) {
+      const hgt = b.cols[c];
+      if (hgt <= 0) continue;
+      const cx = b.x + c * 3;
+      if (overlapRect(x, y, w, h, cx, 296 - hgt, 3, hgt)) {
+        b.cols[c] = 0;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function blastAt(cx, cy) {
+  R.blasts.push({ x: cx, y: cy, t: 12 });
+  for (const b of R.barriers) {
+    for (let c = 0; c < 10; c++) {
+      const bx = b.x + c * 3;
+      if (bx >= cx - BLAST_R && bx <= cx + BLAST_R) b.cols[c] = 0;
+    }
+  }
+  return cx > R.px - BLAST_R && cx < R.px + SHIP_W + BLAST_R &&
+         cy > SHIP_Y - BLAST_R && cy < SHIP_Y + SHIP_H + BLAST_R;
+}
+
+// ---- Ship damage ----------------------------------------------------------
+
+function shipHit(who) {
+  if (demo) {
+    R.lives = 3;
+    startLevel();
+    return;
+  }
+  if (R.invuln > 0) return;
+  R.foes = []; R.bolts = [];
+  if (save.shield > 0) {
+    save.shield -= 1;
+    R.invuln = 80;
+    liftFormation();
+    persist();
+    return;
+  }
+  R.lives -= 1;
+  R.hitBy = who;
+  if (R.lives <= 0) {
+    die();
+    return;
+  }
+  R.invuln = 80;
+  liftFormation();
+  persist();
+}
+
+function liftFormation() {
+  let bottom = 0;
+  for (const u of R.units) {
+    if (!u.alive) continue;
+    const [, sh] = unitSize(u);
+    bottom = Math.max(bottom, R.oy + u.oy + sh);
+  }
+  if (bottom > SHIP_Y - 28) R.oy -= bottom - (SHIP_Y - 28);
+}
+
+function die() {
+  save.level = R.level;
+  persist();
+  R.over = true;
+  setScr("over");
+}
+
+// ---- Formation and foes ---------------------------------------------------
+
+function moveFormation() {
+  let left = W, right = 0;
+  for (const u of R.units) {
+    if (!u.alive) continue;
+    const [sw] = unitSize(u);
+    left = Math.min(left, R.ox + u.ox);
+    right = Math.max(right, R.ox + u.ox + sw);
+  }
+  if (right <= 0) return;
+  const mv = Math.max(1, Math.ceil(R.step / 2));
+  if (R.dir > 0 && right + mv >= W - 4) { R.dir = -1; R.oy += R.drop; }
+  else if (R.dir < 0 && left - mv <= 4) { R.dir = 1; R.oy += R.drop; }
+  else R.ox += R.dir * mv;
+}
+
+function stepFoes() {
+  const foes = R.foes;
+  for (let i = foes.length - 1; i >= 0; i--) {
+    const f = foes[i];
+    const nx = f.x + f.vx, ny = f.y + f.vy;
+    const hitShip = overlapRect(nx, ny, f.w, f.h, R.px, SHIP_Y, SHIP_W, SHIP_H);
+    const blocked = nx < 0 || nx > W - f.w || ny >= BUTTON_Y || barrierHitRect(nx, ny, f.w, f.h);
+    if (hitShip || blocked) {
+      foes.splice(i, 1);
+      if (f.kind === 2) {
+        const ring = blastAt(nx + 2, ny + 3);
+        if (ring) shipHit(f.who);
+      } else if (hitShip) {
+        shipHit(f.who);
+      }
+      if (R.foes !== foes) return;
+      continue;
+    }
+    f.x = nx; f.y = ny;
+  }
+}
+
+function enemyShoot() {
+  const live = R.units.filter(u => u.alive && u.kind !== 2);
+  if (live.length === 0) return;
+  const u = live[rnd(live.length)];
+  const [sw, sh] = unitSize(u);
+  const mx = R.ox + u.ox + sw / 2;
+  const my = R.oy + u.oy + sh;
+  const who = unitLabel(u);
+  if (u.kind === 4) {
+    fireFoe(mx - 5, my, 1, who, -1);
+    fireFoe(mx + 5, my, 1, who, 1);
+  } else if (u.kind === 5) {
+    fireFoe(mx, my, 2, who, 0);
+  } else if (u.kind === 6) {
+    fireFoe(mx, my, 0, who, 0);
+    fireFoe(mx - 12, my, 0, who, -1);
+    fireFoe(mx + 12, my, 0, who, 1);
+  } else {
+    fireFoe(mx, my, 0, who, 0);
+  }
+}
+
+function fireBoss() {
+  const b = R.boss;
+  const x = b.x + BOSS_W / 2;
+  const y = b.y + BOSS_H;
+  const who = R.godEntrance ? godName() : (R.raid ? "RAID BOSS" : "BOSS");
+  if (R.godEntrance) {
+    const phase = 3 - R.godBars;
+    if (phase === 0) {
+      const dx = R.px + SHIP_W / 2 - x;
+      fireFoe(x, y, 1, who, dx < -10 ? -1 : (dx > 10 ? 1 : 0));
+    } else if (phase === 1) {
+      fireFoe(x - 12, y, 1, who, -2); fireFoe(x, y, 1, who, 0); fireFoe(x + 12, y, 1, who, 2);
+    } else {
+      fireFoe(x - 16, y, 1, who, -3); fireFoe(x - 8, y, 1, who, -1); fireFoe(x, y, 2, who, 0);
+      fireFoe(x + 8, y, 1, who, 1); fireFoe(x + 16, y, 1, who, 3);
+    }
+    for (const e of R.escorts) {
+      const ex = escortX(e) + ALLY_W / 2;
+      fireFoe(ex, ESCORT_Y + ALLY_H, 0, who, 0);
+    }
+    return;
+  }
+  if (b.style === 1) {
+    fireFoe(x - 8, y, 0, who, -2); fireFoe(x, y, 0, who, 0); fireFoe(x + 8, y, 0, who, 2);
+  } else {
+    const dx = R.px + SHIP_W / 2 - x;
+    fireFoe(x, y, 0, who, dx < -10 ? -1 : (dx > 10 ? 1 : 0));
+  }
+}
+
+// ---- Level flow -----------------------------------------------------------
+
+function levelClear() {
+  if (demo) {
+    R.level = R.level >= LEVELS ? 1 : R.level + 1;
+    startLevel();
+    return;
+  }
+  if (R.level >= LEVELS) {
+    save.level = LEVELS;
+    persist();
+    R.hitBy = "";
+    R.won = true;
+    setScr("over");
+    return;
+  }
+  R.level += 1;
+  save.level = R.level;
+  persist();
+  R.timer = 54;
+  R.foes = []; R.bolts = []; R.coins = [];
+  setScr("advance");
+}
+
+function stepPlay(input) {
+  const entry = scr;
+  if (R.invuln > 0) R.invuln -= 1;
+  if (R.cool > 0) R.cool -= 1;
+  if (input.left) R.px -= SHIP_STEP;
+  if (input.right) R.px += SHIP_STEP;
+  if (input.aim !== null) R.px = input.aim;
+  R.px = clamp(R.px, 4, W - SHIP_W - 4);
+  if (input.fire) fireGun();
+  stepBolts();
+  moveFormation();
+  if (R.boss) {
+    const b = R.boss;
+    const speed = b.style === 1 ? 2 : 1;
+    b.x += b.dir * speed;
+    if (b.x < 8) { b.x = 8; b.dir = 1; }
+    if (b.x > W - BOSS_W - 8) { b.x = W - BOSS_W - 8; b.dir = -1; }
+    b.cool -= 1;
+    if (b.cool <= 0) {
+      fireBoss();
+      b.cool = Math.max(18, R.foeGap + 10);
+    }
+  }
+  R.foeCool += 1;
+  if (R.foeCool >= R.foeGap) {
+    R.foeCool = 0;
+    enemyShoot();
+  }
+  stepFoes();
+  for (let i = R.blasts.length - 1; i >= 0; i--) {
+    if (--R.blasts[i].t <= 0) R.blasts.splice(i, 1);
+  }
+  stepCoins();
+  if (R.msgT > 0) R.msgT -= 1;
+  if (scr !== entry) return;
+
+  // Formation or ally reached the ship line.
+  for (const u of R.units) {
+    if (!u.alive) continue;
+    const [, sh] = unitSize(u);
+    if (R.oy + u.oy + sh >= SHIP_Y) {
+      shipHit(unitLabel(u));
+      if (scr !== entry) return;
+      break;
+    }
+  }
+
+  if (!anyTargetAlive() && !R.godEntrance) {
+    if (R.god && R.godWave < 4) {
+      R.godWave += 1;
+      if (R.godWave < 4) spawnGodWave();
+      else beginSplash();
+      return;
+    }
+    if (R.god) { R.god = 0; }
+    levelClear();
+    return;
+  }
+  if (R.godEntrance && !R.boss && R.escorts.length === 0) {
+    levelClear();
+  }
+}
+
+function stepCoins() {
+  for (let i = R.coins.length - 1; i >= 0; i--) {
+    const c = R.coins[i];
+    const ny = c.y + 2;
+    if (overlapRect(c.x, ny, 6, 6, R.px, SHIP_Y, SHIP_W, SHIP_H)) {
+      R.coins.splice(i, 1);
+      if (!demo && save.coins < 65535) save.coins += 1;
+      continue;
+    }
+    if (ny >= BUTTON_Y) { R.coins.splice(i, 1); continue; }
+    c.y = ny;
+  }
+}
+
+// Demo pilot: chase the lowest live unit and fire when lined up.
+function demoInput() {
+  let target = null, low = -1e9;
+  for (const u of R.units) {
+    if (!u.alive) continue;
+    const [sw] = unitSize(u);
+    const y = R.oy + u.oy;
+    if (y > low) { low = y; target = R.ox + u.ox + sw / 2; }
+  }
+  if (target === null && R.boss) target = R.boss.x + BOSS_W / 2;
+  if (target === null) return { left: false, right: false, fire: false, aim: null };
+  const cx = R.px + SHIP_W / 2;
+  return {
+    left: target < cx - 4,
+    right: target > cx + 4,
+    fire: Math.abs(target - cx) <= 6,
+    aim: null
+  };
+}
+
+function playerInput() {
+  const input = { left: held.has("left"), right: held.has("right"), fire: held.has("space") || held.has("up") || mouse.down, aim: null };
+  if (mouse.inside && performance.now() - mouse.moved < 1500) {
+    input.aim = mouse.x - SHIP_W / 2;
+  }
+  return input;
+}
+
+// ---- Shop helpers ---------------------------------------------------------
+
+function shopCount(tab) { return [8, 12, 9, 2, 2][tab]; }
+function shopPrice(tab, idx) {
+  if (tab === 0) return THEME_PRICE[idx];
+  if (tab === 1) return idx === 0 ? 0 : 15;
+  if (tab === 2) return idx === 0 ? 0 : 90;
+  if (tab === 3) return idx === 0 ? 40 : 60;
+  return idx === 0 ? 50 * (gunLv(save.gunEquip) + 1) : 60 * (save.thrust + 1);
+}
+function shopOwned(tab, idx) {
+  if (tab === 0) return themeOwned(idx);
+  if (tab === 1) return laserOwned(idx);
+  if (tab === 2) return gunOwned(idx);
+  return false;
+}
+function shopActive(tab, idx) {
+  if (tab === 0) return save.theme === idx;
+  if (tab === 1) return save.laser === idx;
+  if (tab === 2) return save.gunEquip === idx;
+  return false;
+}
+function shopName(tab, idx) {
+  if (tab === 0) return THEME_NAMES[idx];
+  if (tab === 1) return LASERS[idx][0];
+  if (tab === 2) return GUNS[idx];
+  if (tab === 3) return idx === 0 ? "SHIELD" : "SPARE HEART";
+  return idx === 0 ? "GUN POWER" : "THRUSTERS";
+}
+function shopStatus(tab, idx) {
+  if (tab <= 2) {
+    if (shopActive(tab, idx)) return "ON";
+    if (shopOwned(tab, idx)) return "OWNED";
+    return "$" + shopPrice(tab, idx);
+  }
+  if (tab === 3) return "x" + (idx === 0 ? save.shield : save.spare);
+  if (idx === 0) return "LV" + gunLv(save.gunEquip);
+  return "LV" + save.thrust;
+}
+function pay(price) {
+  if (save.coins < price) { shopMsg = "NOT ENOUGH COINS"; return false; }
+  save.coins -= price;
+  return true;
+}
+function shopAct(idx) {
+  const tab = shopTab;
+  if (idx < 0 || idx >= shopCount(tab)) return;
+  shopMsg = "";
+  if (tab <= 2) {
+    if (!shopOwned(tab, idx)) {
+      if (!pay(shopPrice(tab, idx))) return;
+      if (tab === 0) save.themes |= (1 << idx);
+      else if (tab === 1) save.lasers |= (1 << idx);
+      else save.guns |= (1 << (idx - 1));
+      shopMsg = "BOUGHT";
+    }
+    if (tab === 0) save.theme = idx;
+    else if (tab === 1) save.laser = idx;
+    else save.gunEquip = idx;
+    persist();
+    return;
+  }
+  if (tab === 3) {
+    if (!pay(shopPrice(tab, idx))) return;
+    if (idx === 0) save.shield = Math.min(9, save.shield + 1);
+    else save.spare = Math.min(9, save.spare + 1);
+    shopMsg = "BOUGHT";
+    persist();
+    return;
+  }
+  if (idx === 0 && gunLv(save.gunEquip) >= 5) { shopMsg = "MAXED"; return; }
+  if (idx === 1 && save.thrust >= 2) { shopMsg = "MAXED"; return; }
+  if (!pay(shopPrice(tab, idx))) return;
+  if (idx === 0) save.gunLv[save.gunEquip] = gunLv(save.gunEquip) + 1;
+  else save.thrust += 1;
+  shopMsg = "UPGRADED";
+  persist();
+}
+
+// ---- Screens --------------------------------------------------------------
+
+function startCampaign() {
+  demo = false;
+  R = newRun(save.level || 1);
+  if (save.spare > 0) { save.spare -= 1; R.lives = 4; persist(); }
+  startLevel();
+}
+
+function startDemo() {
+  demo = true;
+  R = newRun(1 + rnd(5));
+  R.lives = 3;
+  startLevel();
+  setScr("demo");
+}
+
+function restartGame() {
+  save.level = 1;
+  save.camp = 0;
+  save.raidWon = false;
+  persist();
+  startCampaign();
+}
+
+function goMenu() {
+  demo = false;
+  setScr("menu");
+  persist();
+}
+
+function gameOverUI() { return R && R.won ? "CLEARED" : "YOU DIED"; }
+
+// ---- Drawing --------------------------------------------------------------
+
+const STARS = [];
+(function makeStars() {
+  let s = 0x51a7;
+  for (let i = 0; i < 42; i++) {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    const x = s % W;
+    s = (s * 1664525 + 1013904223) >>> 0;
+    STARS.push([x, 28 + (s % 360), i & 1]);
+  }
+})();
+
+function text(str, x, y, color, size = 12, align = "center") {
+  g.font = `bold ${size}px monospace`;
+  g.fillStyle = color;
+  g.textAlign = align;
+  g.textBaseline = "middle";
+  g.fillText(str, x, y);
+}
+
+function rect(x, y, w, h, color) { g.fillStyle = color; g.fillRect(x, y, w, h); }
+function frame(x, y, w, h, color) {
+  g.strokeStyle = color; g.lineWidth = 1;
+  g.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+}
+
+function button(x, y, w, h, label, sub, fn, c) {
+  const i = btns.length;
+  btns.push({ x, y, w, h, fn });
+  const selected = i === sel;
+  rect(x, y, w, h, c.button);
+  frame(x, y, w, h, selected ? c.accent : c.buttonFrame || c.accent);
+  if (selected) frame(x + 2, y + 2, w - 4, h - 4, c.accent);
+  if (sub) {
+    text(label, x + w / 2, y + h / 2 - 8, c.ink);
+    text(sub, x + w / 2, y + h / 2 + 10, c.muted, 10);
+  } else {
+    text(label, x + w / 2, y + h / 2, c.ink);
+  }
+}
+
+function drawStars(c) {
+  for (const s of STARS) rect(s[0], s[1], 1, 1, c.star);
+}
+
+function heart(x, y, color) {
+  g.fillStyle = color;
+  g.beginPath();
+  g.arc(x + 3, y + 3, 3, Math.PI, 0);
+  g.arc(x + 8, y + 3, 3, Math.PI, 0);
+  g.lineTo(x + 5.5, y + 10);
+  g.closePath();
+  g.fill();
+}
+
+function drawHud(c) {
+  rect(0, 0, W, 24, c.bg);
+  let line;
+  if (R.msgT > 0) line = R.msg;
+  else if (R.godEntrance) line = godName();
+  else if (R.god) line = `${godName()} ${R.godWave + 1}/4`;
+  else if (R.mini) line = `MINI ${R.level} ${R.score}`;
+  else if (R.boss) line = `${R.raid ? "RAID" : "CORE"} ${R.level} ${R.score}`;
+  else line = `MACHINA ${R.level} ${R.score}`;
+  if (demo) line = `DEMO ${R.level}`;
+  text(line, 8, 12, c.ink, 12, "left");
+  const slots = Math.min(8, Math.max(3, R.lives));
+  const hx = W - 8 - slots * 14;
+  for (let i = 0; i < slots; i++) {
+    heart(hx + i * 14, 6, i < R.lives ? "rgb(255,64,96)" : c.button);
+  }
+  text("$" + save.coins, hx - 6, 12, c.accent, 12, "right");
+  if (R.boss || R.god) drawBossBar(c);
+}
+
+function drawBossBar(c) {
+  if (R.godEntrance) {
+    const w = 96;
+    const ink = rgb(godInkRgb());
+    for (let bar = 0; bar < 3; bar++) {
+      const x = 8 + bar * (w + 4);
+      rect(x, 26, w, 8, c.button);
+      const live = bar < R.godBars;
+      if (live) {
+        const pool = Math.max(1, R.godHpMax);
+        const left = bar === R.godBars - 1 ? clamp(R.godHp, 0, pool) : pool;
+        const fill = Math.floor((w - 4) * left / pool);
+        if (fill > 0) rect(x + 2, 28, fill, 4, ink);
+      }
+      frame(x, 26, w, 8, live ? ink : c.button);
+    }
+    return;
+  }
+  if (!R.boss) return;
+  const pool = Math.max(1, R.boss.max);
+  const left = clamp(R.boss.hp, 0, pool);
+  rect(8, 26, 160, 6, c.button);
+  rect(8, 26, Math.floor(160 * left / pool), 6, c.shot);
+}
+
+function drawUnit(u, c, lasers) {
+  const x = R.ox + u.ox, y = R.oy + u.oy;
+  if (u.kind === 4) {
+    rect(x + 4, y + 2, 10, 7, "rgb(255,120,96)");
+    rect(x + 1, y + 8, 16, 4, c.low);
+    rect(x + 2, y + 12, 3, 2, "rgb(255,120,96)");
+    rect(x + 13, y + 12, 3, 2, "rgb(255,120,96)");
+    rect(x + 5, y + 9, 2, 4, c.bg);
+    rect(x + 11, y + 9, 2, 4, c.bg);
+    return;
+  }
+  if (u.kind === 5) {
+    rect(x + 1, y + 4, 20, 9, c.low);
+    rect(x + 6, y + 1, 10, 4, "rgb(255,150,60)");
+    rect(x + 8, y + 13, 6, 3, "rgb(255,150,60)");
+    rect(x + 3, y + 6, 3, 3, c.bg);
+    rect(x + 15, y + 6, 3, 3, c.bg);
+    return;
+  }
+  if (u.kind === 6) {
+    const plate = scr === "play" && R.god ? rgb(godInkRgb()) : c.accent;
+    rect(x + 4, y + 4, MINI_W - 8, MINI_H - 8, c.top);
+    rect(x, y + 8, 5, 6, plate);
+    rect(x + MINI_W - 5, y + 8, 5, 6, plate);
+    rect(x + 9, y + 7, 4, 4, c.bg);
+    rect(x + MINI_W - 13, y + 7, 4, 4, c.bg);
+    return;
+  }
+  const body = u.kind === 0 ? c.low : c.top;
+  rect(x + 2, y + 2, 14, 8, body);
+  rect(x + 1, y + 8, 16, 4, body);
+  rect(x + 4, y + 11, 3, 3, body);
+  rect(x + 11, y + 11, 3, 3, body);
+  rect(x + 5, y + 5, 2, 3, c.bg);
+  rect(x + 11, y + 5, 2, 3, c.bg);
+}
+
+function drawBoss(c) {
+  const b = R.boss;
+  if (!b) return;
+  if (R.godEntrance) {
+    const ink = rgb(godInkRgb());
+    rect(b.x + 4, b.y + 4, BOSS_W - 8, BOSS_H - 8, ink);
+    rect(b.x + 12, b.y + 12, 20, 6, c.bg);
+    for (const e of R.escorts) {
+      const ex = escortX(e), ey = ESCORT_Y;
+      rect(ex + 4, ey + 4, 10, 7, ink);
+      rect(ex, ey + 2, 4, 4, ink);
+      rect(ex + ALLY_W - 4, ey + 2, 4, 4, ink);
+    }
+    return;
+  }
+  rect(b.x + 4, b.y + 4, BOSS_W - 8, BOSS_H - 8, c.top);
+  rect(b.x, b.y + 8, 6, 14, c.accent);
+  rect(b.x + BOSS_W - 6, b.y + 8, 6, 14, c.accent);
+  rect(b.x + 14, b.y + 12, 16, 6, c.bg);
+}
+
+function render() {
+  const c = pal(save.theme);
+  btns = [];
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  if (scr === "demo" || scr === "play" || scr === "advance" || scr === "splash" || scr === "pause" || scr === "over") {
+    drawPlayfield(c);
+  }
+  if (scr === "demo") {
+    rect(0, BUTTON_Y, W, H - BUTTON_Y, c.bg);
+    button(24, BUTTON_Y, 272, 44, "PLAY", null, () => goMenu(), c);
+  } else if (scr === "menu") drawMenu(c);
+  else if (scr === "checks") drawChecks(c);
+  else if (scr === "shop") drawShop(c);
+  else if (scr === "confirm") drawConfirm(c);
+  else if (scr === "pause") drawPause(c);
+  else if (scr === "advance") drawAdvance(c);
+  else if (scr === "splash") drawSplash(c);
+  else if (scr === "over") drawOver(c);
+}
+
+function drawPlayfield(c) {
+  rect(0, 0, W, H, c.bg);
+  drawStars(c);
+  if (R.god) {
+    const ink = rgb(godInkRgb());
+    for (let i = 0; i < 6; i++) {
+      const x = 18 + i * 56;
+      rect(x, 40, 6, SHIP_Y - 44, ink);
+    }
+    g.strokeStyle = ink;
+    g.beginPath(); g.arc(W / 2, 150, 78, 0, Math.PI * 2); g.stroke();
+  }
+  for (const b of R.barriers) {
+    for (let col = 0; col < 10; col++) {
+      const hgt = b.cols[col];
+      if (hgt > 0) rect(b.x + col * 3, 296 - hgt, 3, hgt, c.barrier);
+    }
+  }
+  for (const u of R.units) {
+    if (u.alive) drawUnit(u, c);
+  }
+  drawBoss(c);
+  for (const f of R.foes) rect(f.x, f.y, f.w, f.h, f.kind === 2 ? "rgb(255,168,56)" : (R.god ? rgb(godInkRgb()) : "rgb(255,72,64)"));
+  for (const bolt of R.bolts) rect(bolt.x, bolt.y, bolt.w, bolt.h, rgb(save.laser >= 0 ? LASERS[save.laser][1] : [255,64,56]));
+  for (const coin of R.coins) {
+    g.fillStyle = "rgb(255,210,48)";
+    g.beginPath(); g.arc(coin.x + 3, coin.y + 3, 3, 0, Math.PI * 2); g.fill();
+  }
+  for (const bl of R.blasts) {
+    g.strokeStyle = "rgb(255,176,60)";
+    g.beginPath(); g.arc(bl.x, bl.y, BLAST_R * (1 - bl.t / 24), 0, Math.PI * 2); g.stroke();
+  }
+  if (!(R.invuln > 0 && Math.floor(R.invuln / 6) % 2 === 1)) {
+    rect(R.px, SHIP_Y, SHIP_W, SHIP_H, c.ship);
+    rect(R.px + 12, SHIP_Y - 4, 8, 4, c.ship);
+  }
+  drawHud(c);
+}
+
+function drawMenu(c) {
+  rect(0, 0, W, H, c.bg);
+  text("INVADERS", W / 2, 24, c.ink, 22);
+  text("MACHINA", W / 2, 48, c.accent, 12);
+  text("$" + save.coins, W - 12, 48, c.accent, 12, "right");
+  const unlocked = popCount(save.camp);
+  button(16, 60, 288, 48, "PLAY", `level ${save.level}`, () => startCampaign(), c);
+  button(16, 116, 288, 40, "CHECKPOINTS", `${unlocked} unlocked`, () => setScr("checks"), c);
+  button(16, 164, 288, 40, "SHOP", "themes, guns, power-ups", () => { setScr("shop"); shopMsg = ""; }, c);
+  button(16, 212, 288, 40, THEME_NAMES[save.theme], "tap to switch", () => cycleTheme(), c);
+  button(16, 260, 288, 40, "HOME SCREEN", "CPU attract", () => startDemo(), c);
+  button(16, BUTTON_Y, 288, 44, "RESTART GAME", null, () => setScr("confirm"), c);
+}
+
+function popCount(n) { let k = 0; while (n) { k += n & 1; n >>= 1; } return k; }
+
+function cycleTheme() {
+  do { save.theme = (save.theme + 1) & 7; } while (!themeOwned(save.theme));
+  persist();
+}
+
+function drawChecks(c) {
+  rect(0, 0, W, H, c.bg);
+  text("CHECKPOINTS", W / 2, 26, c.ink, 12);
+  for (let i = 0; i < 15; i++) {
+    const col = i % 4, row = Math.floor(i / 4);
+    const x = 12 + col * 76, y = 48 + row * 70;
+    const open = (save.camp & (1 << i)) !== 0;
+    button(x, y, 70, 56, String((i + 1) * 20), null, () => {
+      if (!open) return;
+      demo = false;
+      R = newRun((i + 1) * 20);
+      startLevel();
+    }, Object.assign({}, c, { button: open ? c.button : c.bg, ink: open ? c.ink : c.muted, buttonFrame: c.button }));
+  }
+  button(24, BUTTON_Y, 272, 44, "BACK", null, () => goMenu(), c);
+}
+
+function drawShop(c) {
+  rect(0, 0, W, H, c.bg);
+  text("SHOP", 12, 18, c.ink, 12, "left");
+  text("$" + save.coins, W - 12, 18, c.accent, 12, "right");
+  const tabs = ["THEMES", "COLORS", "GUNS", "POWER", "UPGRADE"];
+  for (let t = 0; t < 5; t++) {
+    const x = 8 + t * 63;
+    button(x, 40, 60, 34, tabs[t], null, () => { shopTab = t; shopPage = 0; shopMsg = ""; }, Object.assign({}, c, { accent: t === shopTab ? c.accent : c.button }));
+  }
+  const count = shopCount(shopTab);
+  const pages = Math.ceil(count / 6);
+  if (shopPage >= pages) shopPage = 0;
+  for (let row = 0; row < 6; row++) {
+    const idx = shopPage * 6 + row;
+    if (idx >= count) break;
+    const x = 16, y = 84 + row * 52, w = 288, h = 46;
+    const active = shopActive(shopTab, idx);
+    button(x, y, w, h, "", null, () => shopAct(idx), Object.assign({}, c, { accent: active ? c.accent : c.button }));
+    if (shopTab === 0) rect(x + 8, y + 12, 22, 22, rgb(PAL_RGB[idx][3]));
+    if (shopTab === 1) rect(x + 8, y + 12, 22, 22, rgb(LASERS[idx][1]));
+    text(shopName(shopTab, idx), x + 38, y + h / 2, c.ink, 12, "left");
+    text(shopStatus(shopTab, idx), x + w - 10, y + h / 2, c.muted, 12, "right");
+  }
+  if (pages > 1) {
+    button(8, 396, 120, 28, `PAGE ${shopPage + 1}/${pages}`, null, () => { shopPage = (shopPage + 1) % pages; }, c);
+  }
+  if (shopMsg) text(shopMsg, 140, 410, c.accent, 12, "left");
+  button(24, BUTTON_Y, 272, 44, "BACK", null, () => goMenu(), c);
+}
+
+function drawConfirm(c) {
+  rect(0, 0, W, H, c.bg);
+  text("RESTART GAME?", W / 2, 120, c.ink, 16);
+  text("Are you sure?", W / 2, 156, c.muted, 12);
+  button(32, 190, 256, 52, "YES", null, () => restartGame(), c);
+  button(32, 260, 256, 52, "NO", null, () => goMenu(), c);
+}
+
+function drawPause(c) {
+  rect(24, 128, 272, 230, c.bg);
+  frame(24, 128, 272, 230, c.accent);
+  text("INVADERS MACHINA", W / 2, 152, c.ink, 12);
+  button(32, 176, 256, 46, "RESUME", null, () => resumeGame(), c);
+  button(32, 232, 256, 46, "HOME", null, () => goMenu(), c);
+}
+
+function resumeGame() { setScr("play"); }
+
+function drawAdvance(c) {
+  rect(16, 140, W - 32, 100, c.bg);
+  frame(16, 140, W - 32, 100, c.accent);
+  text("INVADERS MACHINA", W / 2, 164, c.ink, 12);
+  text("LEVEL " + R.level, W / 2, 200, c.accent, 14);
+}
+
+function drawSplash(c) {
+  rect(0, 0, W, H, c.bg);
+  const name = godName();
+  const size = name.length > 8 ? 18 : 26;
+  text(name, W / 2, 190, rgb(godInkRgb()), size);
+  text("DESCENDS", W / 2, 250, c.muted, 12);
+}
+
+function drawOver(c) {
+  rect(0, 0, W, H, c.bg);
+  text("INVADERS MACHINA", W / 2, 150, c.muted, 12);
+  text(R.won ? "CLEARED" : "YOU DIED", W / 2, 186, c.ink, 20);
+  if (!R.won) text(`${R.hitBy} Killed you`, W / 2, 214, c.accent, 12);
+  text(`LV ${R.level}   ${R.score}`, W / 2, 244, c.muted, 12);
+  button(24, BUTTON_Y, 272, 44, "HOME", null, () => goMenu(), c);
+}
+
+// ---- Main loop ------------------------------------------------------------
+
+function activate() {
+  const b = btns[sel];
+  if (b) b.fn();
+}
+
+function step() {
+  // Keyboard navigation for every menu-style screen.
+  const menuLike = scr !== "play" && scr !== "demo";
+  if (menuLike) {
+    if (pressed.has("up") && btns.length) sel = (sel + btns.length - 1) % btns.length;
+    if (pressed.has("down") && btns.length) sel = (sel + 1) % btns.length;
+    if (pressed.has("left") && scr === "shop") { shopTab = (shopTab + 4) % 5; shopPage = 0; }
+    if (pressed.has("right") && scr === "shop") { shopTab = (shopTab + 1) % 5; shopPage = 0; }
+    if (pressed.has("tab") && scr === "shop") { shopPage = (shopPage + 1) % Math.max(1, Math.ceil(shopCount(shopTab) / 6)); }
+    if (pressed.has("enter") || pressed.has("space")) activate();
+    if (pressed.has("esc")) {
+      if (scr === "pause") resumeGame();
+      else if (scr === "play" || scr === "advance") setScr("pause");
+      else if (scr === "over") goMenu();
+      else goMenu();
+    }
+  } else if (scr === "demo") {
+    if (pressed.has("enter") || pressed.has("space") || pressed.has("esc")) goMenu();
+  } else if (scr === "play") {
+    if (pressed.has("esc")) setScr("pause");
+  }
+  pressed.clear();
+
+  if (scr === "demo" || scr === "play") {
+    if (scr === "play" || scr === "demo") {
+      if (scr === "demo") stepPlay(demoInput());
+      else stepPlay(playerInput());
+    }
+  } else if (scr === "advance") {
+    if (--R.timer <= 0) startLevel();
+  } else if (scr === "splash") {
+    if (--R.timer <= 0) godFight();
+  }
+}
+
+// Mouse-driven menus need the active list to be current before clicks land.
+// The list is rebuilt every frame in render().
+
+let acc = 0;
+let last = performance.now();
+function loop(now) {
+  acc += Math.min(100, now - last);
+  last = now;
+  while (acc >= TICK_MS) {
+    step();
+    acc -= TICK_MS;
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+
+setScr("demo");
+startDemo();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
