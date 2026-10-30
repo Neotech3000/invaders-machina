@@ -246,6 +246,17 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       return;
     }
+    if (mode_ == Mode::Divine) {
+      if (!rose || !on) return;
+      if (std::strcmp(where, "BACK") == 0) beginMenu();
+      else if (std::strcmp(where, "PAGE") == 0) {
+        div_page_ ^= 1;
+        paintDivine();
+      } else if (std::strncmp(where, "ROW", 3) == 0) {
+        divineToggle(div_page_ * kShopRows + (where[3] - '0'));
+      }
+      return;
+    }
     if (mode_ == Mode::Shop) {
       if (!rose || !on) return;
       if (std::strcmp(where, "BACK") == 0) {
@@ -271,7 +282,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       else if (std::strcmp(where, "CUSTOM") == 0) beginCustom(false);
       else if (std::strcmp(where, "SHOP") == 0) beginShop();
       else if (std::strcmp(where, "FORGE") == 0) beginForge();
-      else if (std::strcmp(where, "HOME") == 0) beginDemo();
+      else if (std::strcmp(where, "DIVINE") == 0) beginDivine();
+      else if (std::strcmp(where, "LEAVE") == 0) beginDemo();
       else if (std::strcmp(where, "THEME") == 0) {
         do {
           theme_ = static_cast<uint8_t>((theme_ + 1) & 7);
@@ -343,7 +355,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
  private:
   enum class Mode : uint8_t {
-    Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom, Splash, Shop, Forge
+    Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom, Splash, Shop, Forge, Divine
   };
 
   struct Box {
@@ -436,6 +448,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kGunSlots = kGunCount + kMaxForged;
   static constexpr int kGunMaxLv = 5;
   static constexpr int kBoosts = 5;
+  static constexpr int kGods = 12;
   static constexpr int kAttrCount = 5;
   static constexpr int kScraps = 6;
   static constexpr int kDroneW = 16;
@@ -595,7 +608,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     return n;
   }
 
-  // Upgrade rows are one per owned gun, then one per forged gun, then thrusters.
+  // Upgrade rows are one per owned gun, then one per forged gun, then thrusters, then Multi.
   // A forged gun never shares a level slot with another weapon.
   int shopUpgradeCount() const {
     int n = 1;
@@ -605,9 +618,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     for (int i = 0; i < kMaxForged; ++i) {
       if (forged_[i].valid) n += 1;
     }
-    return n;
+    return n + 1;
   }
 
+  // -1 is thrusters, -2 is the Multi equip slot. Every other value is a gun id.
   int shopUpgradeGun(int idx) const {
     int seen = 0;
     for (int g = 0; g < kGunCount; ++g) {
@@ -620,7 +634,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (seen == idx) return kGunCount + i;
       seen += 1;
     }
-    return -1;
+    if (idx == seen) return -1;
+    return -2;
   }
 
   void loadCampaign() {
@@ -816,6 +831,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     int dmg = 1 + forgedCount(ATTR_POWER);
     if (perk(PERK_DAMAGE)) dmg += 1;
     if (boostOn(1)) dmg += 1;
+    if (berserk_ticks_ > 0) dmg += 10;
     return dmg;
   }
 
@@ -957,7 +973,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Box menuCustomBox() const { return {16, 164, 288, 40}; }
   Box menuShopBox() const { return {16, 212, 288, 40}; }
   Box menuThemeBox() const { return {16, 260, 288, 40}; }
-  Box menuHomeBox() const { return {16, 308, 288, 40}; }
+  Box menuDivineBox() const { return {16, 308, 288, 40}; }
   Box menuForgeBox() const { return {16, 356, 288, 40}; }
   Box forgeTab(int t) const { return {8 + t * 102, 40, 96, 32}; }
   Box forgeRow(int r) const { return {16, 88 + r * 50, 288, 44}; }
@@ -1000,14 +1016,27 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   const char* controlAt(int x, int y) const {
     if (demo_) return contains(playBox(), x, y) ? "PLAY" : "none";
     if (mode_ == Mode::Menu) {
+      if (contains(backBox(), x, y)) return "LEAVE";
       if (contains(menuPlayBox(), x, y)) return "PLAY";
       if (contains(menuCheckBox(), x, y)) return "CHECK";
       if (contains(menuCustomBox(), x, y)) return "CUSTOM";
       if (contains(menuShopBox(), x, y)) return "SHOP";
       if (contains(menuThemeBox(), x, y)) return "THEME";
-      if (contains(menuHomeBox(), x, y)) return "HOME";
+      if (contains(menuDivineBox(), x, y)) return "DIVINE";
       if (contains(menuForgeBox(), x, y)) return "FORGE";
       if (contains(menuRestartBox(), x, y)) return "RESTART";
+      return "none";
+    }
+    if (mode_ == Mode::Divine) {
+      if (contains(homeBox(), x, y)) return "BACK";
+      if (contains(shopPageBox(), x, y)) return "PAGE";
+      for (int r = 0; r < kShopRows; ++r) {
+        if (contains(shopRow(r), x, y)) {
+          static char row_token[8];
+          snprintf(row_token, sizeof row_token, "ROW%d", r);
+          return row_token;
+        }
+      }
       return "none";
     }
     if (mode_ == Mode::Forge) {
@@ -1368,6 +1397,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
     drawString("INVADERS", kPanelWidth / 2, 24);
+    drawKey("BACK", backBox(), false);
     setFont(&fonts::Font2);
     setTextColor(ink.accent);
     drawString("MACHINA", kPanelWidth / 2, 48);
@@ -1383,7 +1413,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawCard("CUSTOM", "ship, guns, laser", menuCustomBox());
     drawCard("SHOP", "themes, guns, power-ups", menuShopBox());
     drawCard(themeName(), "tap to switch", menuThemeBox());
-    drawCard("HOME SCREEN", "CPU attract", menuHomeBox());
+    drawCard("DIVINE MACHINES", divineMenuLine(), menuDivineBox());
     drawCard("FORGE", "combine attributes", menuForgeBox());
     drawKey("RESTART GAME", menuRestartBox(), false);
   }
@@ -1391,6 +1421,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   const char* continueLine() const {
     static char buf[20];
     snprintf(buf, sizeof buf, "level %d", level_);
+    return buf;
+  }
+
+  const char* divineMenuLine() const {
+    static char buf[20];
+    int open = 0;
+    for (int i = 0; i < kGods; ++i) {
+      if ((div_unlock_ & (1u << i)) != 0) open += 1;
+    }
+    snprintf(buf, sizeof buf, "%d unlocked", open);
     return buf;
   }
 
@@ -1434,6 +1474,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (thrust_ > 2) thrust_ = 2;
     forge_power_ = prefs_.getUInt("fpw", 0);
     forge_up_ = prefs_.getUInt("fup", 0);
+    div_unlock_ = prefs_.getUShort("gods", 0);
+    div_equip_ = prefs_.getUShort("dive", 0);
+    div_multi_ = prefs_.getUChar("dmul", 0);
+    trimDivine();
     for (int i = 0; i < kBoosts; ++i) boost_armed_[i] = 0;
     uint16_t armed[kBoosts] = {};
     if (prefs_.getBytes("bst", armed, sizeof armed) == sizeof armed) {
@@ -1459,6 +1503,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     prefs_.putUInt("fpw", forge_power_);
     prefs_.putUInt("fup", forge_up_);
     prefs_.putBytes("bst", boost_armed_, sizeof boost_armed_);
+    prefs_.putUShort("gods", div_unlock_);
+    prefs_.putUShort("dive", div_equip_);
+    prefs_.putUChar("dmul", div_multi_);
   }
 
   void drawCoin(int x, int y) {
@@ -1563,6 +1610,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         return boostPrice(idx - 2);
       default: {
         const int gun = shopUpgradeGun(idx);
+        if (gun == -2) return 300;
         if (gun < 0) return 60 * (thrust_ + 1);
         return 50 * (gunLv(gun) + 1);
       }
@@ -1606,6 +1654,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         return boostName(idx - 2);
       default: {
         const int gun = shopUpgradeGun(idx);
+        if (gun == -2) return "MULTI";
         if (gun < 0) return "THRUSTERS";
         return gunToken(gun);
       }
@@ -1629,6 +1678,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     const int gun = shopUpgradeGun(idx);
+    if (gun == -2) {
+      if (divineSlots() >= kGods) snprintf(buf, n, "MAX");
+      else snprintf(buf, n, "x%d $300", divineSlots());
+      return;
+    }
     if (gun < 0) {
       if (thrust_ >= 2) snprintf(buf, n, "MAX");
       else snprintf(buf, n, "LV%d $%d", static_cast<int>(thrust_), shopPrice(tab, idx));
@@ -1706,6 +1760,22 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     const int gun = shopUpgradeGun(idx);
+    if (gun == -2) {
+      if (divineSlots() >= kGods) {
+        shop_msg_ = "MAXED";
+        paintShop();
+        return;
+      }
+      if (!pay(300)) {
+        paintShop();
+        return;
+      }
+      div_multi_ = static_cast<uint8_t>(div_multi_ + 1);
+      shop_msg_ = "MULTI";
+      saveShop();
+      paintShop();
+      return;
+    }
     if (gun < 0) {
       if (thrust_ >= 2) {
         shop_msg_ = "MAXED";
@@ -2150,7 +2220,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   // ---- Who killed you ----------------------------------------------------
 
   const char* foeKiller(const FoeBolt& foe) const {
-    if (god_ != 0 && (god_entrance_ || foe.kind == 3)) return godName();
+    if (god_ != 0 && (god_entrance_ || foe.kind >= 3)) return godName();
     if (mini_) return "MINI BOSS";
     if (foe.kind == 2) return "CANNON";
     if (foe.kind == 1) return "ASSAULT";
@@ -2282,14 +2352,187 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     beginCampaign();
   }
 
+  // ---- Divine Machines ---------------------------------------------------
+
+  int divineSlots() const {
+    int slots = 1 + static_cast<int>(div_multi_);
+    if (slots > kGods) slots = kGods;
+    return slots;
+  }
+
+  int divineEquipped() const {
+    int n = 0;
+    for (int i = 0; i < kGods; ++i) {
+      if ((div_equip_ & (1u << i)) != 0) n += 1;
+    }
+    return n;
+  }
+
+  bool divineOn(int i) const {
+    return i >= 0 && i < kGods && (div_equip_ & (1u << i)) != 0;
+  }
+
+  void trimDivine() {
+    div_unlock_ = static_cast<uint16_t>(div_unlock_ & 0x0FFF);
+    if (div_multi_ > 11) div_multi_ = 11;
+    div_equip_ = static_cast<uint16_t>(div_equip_ & div_unlock_);
+    const int cap = divineSlots();
+    int n = 0;
+    uint16_t keep = 0;
+    for (int i = 0; i < kGods; ++i) {
+      if ((div_equip_ & (1u << i)) == 0) continue;
+      if (n >= cap) break;
+      keep = static_cast<uint16_t>(keep | (1u << i));
+      n += 1;
+    }
+    div_equip_ = keep;
+  }
+
+  const char* machineName(int i) const {
+    static const char* names[kGods] = {
+        "LIGHTNING", "DOUBLE", "TSUNAMI", "HEAL RAY", "AEGIS", "BERSERKER",
+        "SOLARIS", "SILVER", "CHARM", "ANVIL", "CADUCEUS", "REVEL"};
+    if (i < 0 || i >= kGods) return "MACHINE";
+    return names[i];
+  }
+
+  const char* machineHint(int i) const {
+    static const char* hints[kGods] = {
+        "stun zap 5s", "clone ship", "wave blocks 8s", "+3 then +1",
+        "3s shield x2", "1-life proc", "burn beam 5s", "homing 6s",
+        "stop fire 9s", "blast 6s", "dash 6s", "slow shots 8s"};
+    if (i < 0 || i >= kGods) return "";
+    return hints[i];
+  }
+
+  int machineCool(int i) const {
+    static const int cool[kGods] = {312, 0, 500, 625, 437, 0, 312, 375, 562, 375, 375, 500};
+    if (i < 0 || i >= kGods) return 0;
+    return cool[i];
+  }
+
+  void grantDivine(int god) {
+    if (god < 1 || god > kGods) return;
+    div_unlock_ = static_cast<uint16_t>(div_unlock_ | (1u << (god - 1)));
+    saveShop();
+    noteUnlock(machineName(god - 1));
+  }
+
+  void resetMachines() {
+    demeter_uses_ = 0;
+    athena_uses_ = 0;
+    aegis_ticks_ = 0;
+    aegis_hits_ = 0;
+    aegis_box_ = false;
+    stun_ticks_ = 0;
+    charm_ticks_ = 0;
+    revel_ticks_ = 0;
+    hermes_ticks_ = 0;
+    berserk_ticks_ = 0;
+    wave_y_ = -1;
+    sun_ticks_ = 0;
+    god_beam_ticks_ = 0;
+    god_ward_ = 0;
+    drone_drawn_ = false;
+    drone_n_ = 0;
+    clone_alive_ = !demo_ && divineOn(1);
+    clone_drawn_ = false;
+    clone_cool_ = 0;
+    clone_x_ = 16;
+    for (int i = 0; i < kGods; ++i) div_cool_[i] = 24;
+  }
+
+  void tryBerserk() {
+    if (lives_ != 1 || !divineOn(5)) return;
+    if ((nextRng() % 10) != 0) return;
+    berserk_ticks_ = 500;
+    for (int i = 0; i < kGods; ++i) {
+      div_cool_[i] = div_cool_[i] > 125 ? div_cool_[i] - 125 : 0;
+    }
+    if (gun_cool_ > 125) gun_cool_ -= 125;
+    else gun_cool_ = 0;
+    if (beam_cool_ > 125) beam_cool_ -= 125;
+    else beam_cool_ = 0;
+    noteUnlock("BERSERK");
+  }
+
+  void paintDivine() {
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.ink);
+    drawString("DIVINE MACHINES", kPanelWidth / 2, 18);
+    char head[28];
+    snprintf(head, sizeof head, "%d/%d EQUIPPED", divineEquipped(), divineSlots());
+    setTextColor(ink.accent);
+    drawString(head, kPanelWidth / 2, 40);
+    if (div_msg_[0] != '\0') {
+      setTextColor(ink.muted);
+      drawString(div_msg_, kPanelWidth / 2, 62);
+    }
+    for (int row = 0; row < kShopRows; ++row) {
+      const int idx = div_page_ * kShopRows + row;
+      if (idx >= kGods) break;
+      const Box b = shopRow(row);
+      const bool on = divineOn(idx);
+      const bool owned = (div_unlock_ & (1u << idx)) != 0;
+      fillRect(b.x, b.y, b.w, b.h, on ? ink.buttonOn : ink.button);
+      drawRect(b.x, b.y, b.w, b.h, on ? ink.accent : ink.muted);
+      setTextDatum(lgfx::middle_left);
+      setTextColor(owned ? ink.ink : ink.muted);
+      char line[28];
+      snprintf(line, sizeof line, "%s %s", godNameOf(idx + 1), machineName(idx));
+      drawString(line, b.x + 8, b.y + 14);
+      setTextColor(ink.muted);
+      drawString(machineHint(idx), b.x + 8, b.y + 32);
+      setTextDatum(lgfx::middle_right);
+      setTextColor(on ? ink.accent : ink.muted);
+      drawString(on ? "ON" : (owned ? "READY" : "LOCKED"), b.x + b.w - 8, b.y + b.h / 2);
+    }
+    drawKey("PAGE", shopPageBox(), false);
+    drawKey("BACK", homeBox(), false);
+  }
+
+  void beginDivine() {
+    div_page_ = 0;
+    div_msg_[0] = '\0';
+    fadeOut();
+    mode_ = Mode::Divine;
+    paintDivine();
+    fadeIn();
+  }
+
+  void divineToggle(int idx) {
+    if (idx < 0 || idx >= kGods) return;
+    div_msg_[0] = '\0';
+    const uint16_t bit = static_cast<uint16_t>(1u << idx);
+    if ((div_unlock_ & bit) == 0) {
+      snprintf(div_msg_, sizeof div_msg_, "LOCKED");
+      paintDivine();
+      return;
+    }
+    if ((div_equip_ & bit) != 0) {
+      div_equip_ = static_cast<uint16_t>(div_equip_ & static_cast<uint16_t>(~bit));
+    } else if (divineEquipped() >= divineSlots()) {
+      snprintf(div_msg_, sizeof div_msg_, "NEED MULTI");
+      paintDivine();
+      return;
+    } else {
+      div_equip_ = static_cast<uint16_t>(div_equip_ | bit);
+    }
+    saveShop();
+    paintDivine();
+  }
+
   // ---- Olympian gods -----------------------------------------------------
 
   bool isGodLevel(int lv) const { return lv % 25 == 0; }
 
   int godForLevel(int lv) const { return ((lv / 25 - 1) % 12) + 1; }
 
-  const char* godName() const {
-    switch (god_) {
+  const char* godNameOf(int god) const {
+    switch (god) {
       case 1: return "ZEUS";
       case 2: return "HERA";
       case 3: return "POSEIDON";
@@ -2306,8 +2549,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
-  uint16_t godInk() const {
-    switch (god_) {
+  const char* godName() const { return godNameOf(god_); }
+
+  uint16_t godInkOf(int god) const {
+    switch (god) {
       case 1: return color565(255, 214, 56);
       case 2: return color565(226, 170, 255);
       case 3: return color565(64, 190, 255);
@@ -2323,6 +2568,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       default: return palette().accent;
     }
   }
+
+  uint16_t godInk() const { return godInkOf(god_); }
 
   int godBarHp() const { return 12 + level_ / 12; }
 
@@ -2442,8 +2689,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     form_dir_ = 1;
     step_px_ = 2;
     mode_ = Mode::Play;
+    god_ward_ = god_ == 5 ? 8 : 0;
+    god_beam_ticks_ = 0;
     paintLevel();
-    noteUnlock("GOD");
+    noteUnlock(god_ == 5 ? "WARD" : "GOD");
   }
 
 
@@ -2999,6 +3248,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       drawAlienAt(origin_x_ + units_[i].ox, origin_y_ + units_[i].oy, units_[i].kind);
     }
     drawShipAt(player_x_);
+    if (clone_alive_) {
+      clone_drawn_ = true;
+      drawShipAt(clone_x_);
+    }
+    paintDrones();
+    if (aegis_hits_ > 0) {
+      aegis_box_x_ = player_x_ - 3;
+      aegis_box_ = true;
+      drawRect(aegis_box_x_, kShipY - 3, kShipW + 6, kShipH + 6, color565(220, 230, 245));
+    }
     if (buddy_) {
       buddy_x_ = player_x_ - 14;
       if (buddy_x_ < 4) buddy_x_ = player_x_ + kShipW + 4;
@@ -3034,6 +3293,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     invuln_ = 0;
     clearBolts();
     player_x_ = (kPanelWidth - kShipW) / 2;
+    resetMachines();
     buildLevel();
     paintLevel();
     // A checkpoint opens every 20 levels and is kept in flash.
@@ -3187,6 +3447,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     beam_on_ = false;
     beam_burst_ = 0;
     clearBolts();
+    if (aegis_hits_ > 0) {
+      aegis_hits_ -= 1;
+      invuln_ = 36;
+      liftFormation();
+      paintLevel();
+      blinkShip();
+      drawHud();
+      return;
+    }
     if (shield_ > 0) {
       shield_ -= 1;
       invuln_ = inv;
@@ -3202,6 +3471,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (perk(PERK_REVIVE) && !revived_) {
         revived_ = true;
         lives_ = 1;
+        tryBerserk();
         invuln_ = inv;
         liftFormation();
         paintLevel();
@@ -3212,6 +3482,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       endRound(false);
       return;
     }
+    tryBerserk();
     invuln_ = inv;
     liftFormation();
     paintLevel();
@@ -3792,6 +4063,28 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (bolt.vx == 0) bolt.vx = 2;
       return;
     }
+    if (bolt.tag == 4) {
+      int best = -1;
+      int best_rank = -1;
+      for (int u = 0; u < unit_n_; ++u) {
+        if (!units_[u].alive) continue;
+        const int ay = origin_y_ + units_[u].oy;
+        if (ay > bolt.y + 8) continue;
+        int rank = 1 + units_[u].hp;
+        if (units_[u].kind == 2) rank += 1000;
+        else if (units_[u].kind == 6) rank += 400;
+        else if (units_[u].kind == 7) rank += 40;
+        if (rank > best_rank) {
+          best_rank = rank;
+          best = origin_x_ + units_[u].ox + unitW(units_[u]) / 2;
+        }
+      }
+      if (best < 0) return;
+      const int cx = bolt.x + bolt.w / 2;
+      if (best < cx - 2 && bolt.vx > -4) bolt.vx = static_cast<int8_t>(bolt.vx - 1);
+      else if (best > cx + 2 && bolt.vx < 4) bolt.vx = static_cast<int8_t>(bolt.vx + 1);
+      return;
+    }
     if (bolt.tag != 3) return;
     int best = -1;
     int best_d = 9999;
@@ -3915,7 +4208,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (unit.kind == 2) {
       if (god_ != 0 && god_entrance_) {
         // Three bars, three styles. Emptying a bar advances the phase.
+        // Athena's ward has to break before those bars take damage.
         addScore(10);
+        if (god_ == 5 && god_ward_ > 0) {
+          god_ward_ -= 1;
+          if (god_ward_ == 0) noteUnlock("BROKEN");
+          drawAlienAt(origin_x_ + unit.ox, origin_y_ + unit.oy, unit.kind);
+          drawHud();
+          return false;
+        }
         if (god_hp_ > 0) god_hp_ -= playerDamage();
         if (god_hp_ <= 0) {
           if (god_bar_ > 1) {
@@ -3926,6 +4227,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
             clearFoe();
             noteUnlock("PHASE");
           } else {
+            const int slain = god_;
             unit.alive = false;
             for (int u = 0; u < unit_n_; ++u) {
               if (u != index && units_[u].alive) {
@@ -3937,6 +4239,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
             boss_ = false;
             god_ = 0;
             god_entrance_ = false;
+            god_ward_ = 0;
+            god_beam_ticks_ = 0;
+            grantDivine(slain);
             dropCoins(origin_x_ + unit.ox + kBossW / 2 - kCoinW / 2, origin_y_ + unit.oy + kBossH / 2 - kCoinW / 2, 10);
             maybeDrop(true);
             return true;
@@ -4281,13 +4586,26 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       fillRect(foe.x + 3, foe.y + 3, 4, 4, color565(255, 255, 255));
       return;
     }
+    if (foe.kind == 4) {
+      const uint16_t ink = god_ != 0 ? godInk() : color565(120, 220, 96);
+      fillRect(foe.x, foe.y, foe.w, foe.h, ink);
+      if (foe.w > 6 && foe.h > 6) fillRect(foe.x + 3, foe.y + 3, foe.w - 6, foe.h - 6, color565(255, 255, 255));
+      return;
+    }
+    if (foe.kind == 5) {
+      fillRect(foe.x, foe.y, foe.w, foe.h, color565(255, 140, 200));
+      return;
+    }
     fillRect(foe.x, foe.y, foe.w, foe.h, foeInk(foe.kind));
   }
 
-  bool spawnFoe(int x, int y, int vx, uint8_t kind = 0) {
-    const int w = kind == 3 ? 10 : (kind == 2 ? 5 : (kind == 1 ? 2 : kShotW));
-    const int h = kind == 3 ? 10 : (kind == 2 ? 6 : (kind == 1 ? 6 : kShotH));
-    const int vy = kind == 3 ? (4 + (god_entrance_ ? god_phase_ : 0))
+  bool spawnFoe(int x, int y, int vx, uint8_t kind = 0, int vy_override = -1) {
+    const int w = kind == 3 ? 10 : (kind == 4 ? 14 : (kind == 5 ? 4 : (kind == 2 ? 5 : (kind == 1 ? 2 : kShotW))));
+    const int h = kind == 3 ? 10 : (kind == 4 ? 10 : (kind == 5 ? 8 : (kind == 2 ? 6 : (kind == 1 ? 6 : kShotH))));
+    const int vy = vy_override >= 0 ? vy_override
+                             : kind == 3 ? (4 + (god_entrance_ ? god_phase_ : 0))
+                             : kind == 4 ? 2
+                             : kind == 5 ? 3
                              : (kind == 2 ? 4 : (kind == 1 ? 8 : 6));
     if (x < 0) x = 0;
     if (x > kPanelWidth - w) x = kPanelWidth - w;
@@ -4305,6 +4623,391 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return true;
     }
     return false;
+  }
+
+  int countFoeKind(int kind) const {
+    int n = 0;
+    for (int i = 0; i < kFoeBolts; ++i) {
+      if (foes_[i].on && foes_[i].kind == kind) n += 1;
+    }
+    return n;
+  }
+
+  // Each Olympian attacks differently. Only Ares homes onto the ship.
+  void fireGodGimmick(int x, int y) {
+    const int px = player_x_ + kShipW / 2;
+    switch (god_) {
+      case 1:
+        for (int i = 0; i < 3; ++i) spawnFoe(px - 1, 28 + i * 28, 0, 1, 10);
+        break;
+      case 2:
+        spawnFoe(4, 80, 3, 1, 2);
+        spawnFoe(kPanelWidth - 8, 80, -3, 1, 2);
+        spawnFoe(x - 10, y, -2, 1);
+        spawnFoe(x + 10, y, 2, 1);
+        break;
+      case 3: {
+        if (countFoeKind(4) >= 6) break;
+        const int gap = 24 + static_cast<int>(nextRng() % (kPanelWidth - 80));
+        for (int sx = 8; sx < kPanelWidth - 16; sx += 40) {
+          if (sx > gap - 18 && sx < gap + 18) continue;
+          spawnFoe(sx, 36, 0, 4, 2);
+        }
+        break;
+      }
+      case 4:
+        if (countFoeKind(4) >= 4) break;
+        spawnFoe(16 + static_cast<int>(nextRng() % (kPanelWidth - 40)), 32, 0, 4, 1);
+        break;
+      case 5: {
+        for (int sx = 20; sx < kPanelWidth - 20; sx += 50) {
+          if (sx > px - 28 && sx < px + 28) continue;
+          spawnFoe(sx, y, 0, 0, 3);
+        }
+        break;
+      }
+      case 6:
+        spawnGodHazard(x - 5, y);
+        if (god_phase_ >= 1) spawnGodHazard(x - 28, y);
+        if (god_phase_ >= 2) {
+          spawnGodHazard(20 + static_cast<int>(nextRng() % (kPanelWidth - 50)), 36);
+        }
+        break;
+      case 7:
+        if (god_beam_ticks_ <= 0) {
+          god_beam_x_ = px - 2;
+          if (god_beam_x_ < 4) god_beam_x_ = 4;
+          if (god_beam_x_ > kPanelWidth - 8) god_beam_x_ = kPanelWidth - 8;
+          god_beam_ticks_ = 28;
+        }
+        break;
+      case 8: {
+        const int dx = px - x;
+        const int vx = dx < -40 ? -2 : (dx < -12 ? -1 : (dx > 40 ? 2 : (dx > 12 ? 1 : 0)));
+        spawnFoe(x, y, vx, 1);
+        if (god_phase_ >= 2) spawnFoe(x, y + 8, vx, 1);
+        break;
+      }
+      case 9: {
+        const int dx = px - x;
+        const int vx = dx < -8 ? -2 : (dx > 8 ? 2 : 0);
+        spawnFoe(x - 6, y, vx, 5, 3);
+        spawnFoe(x + 6, y, -vx, 5, 3);
+        break;
+      }
+      case 10:
+        spawnFoe(12 + static_cast<int>(nextRng() % (kPanelWidth - 30)), 28, 0, 2);
+        if (god_phase_ >= 1) {
+          spawnFoe(12 + static_cast<int>(nextRng() % (kPanelWidth - 30)), 28, 0, 2);
+        }
+        break;
+      case 11:
+        spawnFoe(6, 30, 3, 1);
+        spawnFoe(kPanelWidth - 10, 30, -3, 1);
+        spawnFoe(x, y, god_phase_ >= 1 ? -3 : 3, 1);
+        break;
+      default:
+        if (countFoeKind(4) < 4) {
+          const int vx = static_cast<int>(nextRng() % 3) - 1;
+          spawnFoe(20 + static_cast<int>(nextRng() % (kPanelWidth - 50)), 34, vx, 4, 1);
+        }
+        break;
+    }
+  }
+
+  void restoreRect(int x, int y, int w, int h) {
+    repair(x, y, w, h);
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive) continue;
+      const int ax = origin_x_ + units_[i].ox;
+      const int ay = origin_y_ + units_[i].oy;
+      if (overlap(x, y, w, h, ax, ay, unitW(units_[i]), unitH(units_[i]))) {
+        drawAlienAt(ax, ay, units_[i].kind);
+      }
+    }
+    for (int i = 0; i < scrap_n_; ++i) {
+      const Scrap& scrap = scraps_[i];
+      const int sx = terrain_ == 2 ? 0 : scrap.x;
+      const int sw = terrain_ == 2 ? kPanelWidth : scrap.w;
+      const int sh = terrain_ == 2 ? 2 : scrap.h;
+      if (!overlap(x, y, w, h, sx, scrap.y, sw, sh)) continue;
+      if (terrain_ == 2) fillRect(x, scrap.y, w, 2, palette().planet);
+      else drawScrap(scrap);
+    }
+    for (int i = 0; i < barrier_n_; ++i) {
+      if (!barriers_[i].on) continue;
+      if (overlap(x, y, w, h, barriers_[i].x, barriers_[i].y, kBarCols * 3, 21)) drawBarrier(i);
+    }
+    for (int i = 0; i < kFoeBolts; ++i) {
+      if (!foes_[i].on) continue;
+      if (overlap(x, y, w, h, foes_[i].x, foes_[i].y, foes_[i].w, foes_[i].h)) drawFoe(foes_[i]);
+    }
+    if (sky_on_) drawSky();
+    if (drop_on_ && overlap(x, y, w, h, drop_x_, drop_y_, 14, 14)) drawDrop();
+    drawShipAt(player_x_);
+    if (clone_alive_ && clone_drawn_) drawShipAt(clone_x_);
+    if (buddy_drawn_) drawBuddy();
+  }
+
+  void stepWave() {
+    if (wave_y_ < 0) return;
+    const int old = wave_y_;
+    restoreRect(0, old, kPanelWidth, 14);
+    wave_y_ -= 6;
+    if (wave_y_ < 28) {
+      wave_y_ = -1;
+      return;
+    }
+    fillRect(0, wave_y_, kPanelWidth, 12, color565(48, 160, 255));
+    fillRect(0, wave_y_ + 4, kPanelWidth, 4, color565(190, 230, 255));
+  }
+
+  void stepSun() {
+    if (sun_ticks_ <= 0) return;
+    const uint16_t ink = (sun_ticks_ & 2) ? color565(255, 250, 220) : color565(255, 196, 64);
+    fillRect(sun_x_, 36, 6, kShipY - 36, ink);
+    if ((sun_ticks_ % 8) == 1) {
+      for (int i = unit_n_ - 1; i >= 0; --i) {
+        if (!units_[i].alive) continue;
+        const int ax = origin_x_ + units_[i].ox;
+        const int ay = origin_y_ + units_[i].oy;
+        if (!overlap(sun_x_, 36, 6, kShipY - 36, ax, ay, unitW(units_[i]), unitH(units_[i]))) continue;
+        applyHit(i);
+      }
+    }
+    sun_ticks_ -= 1;
+    if (sun_ticks_ == 0) restoreRect(sun_x_, 36, 6, kShipY - 36);
+  }
+
+  bool stepGodBeam() {
+    if (god_beam_ticks_ <= 0) return false;
+    fillRect(god_beam_x_, 36, 4, kShipY - 36, color565(255, 214, 80));
+    god_beam_ticks_ -= 1;
+    if (god_beam_ticks_ > 0) return false;
+    restoreRect(god_beam_x_ - 1, 36, 6, kShipY - 36);
+    return overlap(god_beam_x_, kShipY, 4, kShipH, player_x_, kShipY, kShipW, kShipH);
+  }
+
+  void eraseDrones() {
+    if (!drone_drawn_) return;
+    for (int i = 0; i < drone_n_; ++i) repair(drone_x_[i], kShipY - 14, 8, 8);
+    drone_drawn_ = false;
+    drone_n_ = 0;
+  }
+
+  void paintDrones() {
+    eraseDrones();
+    if (demo_) return;
+    int n = 0;
+    for (int i = 0; i < kGods; ++i) {
+      if (!divineOn(i)) continue;
+      int x = player_x_ - 6 + n * 10;
+      if (x < 2) x = 2;
+      if (x > kPanelWidth - 10) x = kPanelWidth - 10;
+      drone_x_[n] = x;
+      fillRect(x, kShipY - 14, 8, 6, godInkOf(i + 1));
+      fillRect(x + 2, kShipY - 12, 4, 2, color565(255, 255, 255));
+      n += 1;
+    }
+    drone_n_ = n;
+    drone_drawn_ = n > 0;
+  }
+
+  void stepClone() {
+    if (demo_ || !divineOn(1)) {
+      if (clone_drawn_) eraseShipAt(clone_x_);
+      clone_drawn_ = false;
+      clone_alive_ = false;
+      return;
+    }
+    if (!clone_alive_) return;
+    int want = (kPanelWidth - kShipW) - player_x_;
+    if (want < 4) want = 4;
+    if (want > kPanelWidth - kShipW - 4) want = kPanelWidth - kShipW - 4;
+    if (want > player_x_ - kShipW && want < player_x_ + kShipW) {
+      want = player_x_ > (kPanelWidth / 2) ? 8 : kPanelWidth - kShipW - 8;
+    }
+    if (clone_drawn_ && clone_x_ != want) eraseShipAt(clone_x_);
+    clone_x_ = want;
+    clone_drawn_ = true;
+    drawShipAt(clone_x_);
+    if (clone_cool_ > 0) clone_cool_ -= 1;
+    else if (spawnBoltAt(clone_x_ + kShipW / 2, kShipY - 10, 0, -8, 3, 8, 0)) {
+      clone_cool_ = fireGap();
+    }
+  }
+
+  void stepAegisBox() {
+    if (aegis_box_) {
+      repair(aegis_box_x_, kShipY - 3, kShipW + 6, kShipH + 6);
+      aegis_box_ = false;
+    }
+    if (aegis_hits_ <= 0) return;
+    aegis_box_x_ = player_x_ - 3;
+    drawRect(aegis_box_x_, kShipY - 3, kShipW + 6, kShipH + 6, color565(220, 230, 245));
+    aegis_box_ = true;
+  }
+
+  bool castLightning() {
+    int best = -1;
+    int best_y = -999;
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive) continue;
+      const int ay = origin_y_ + units_[i].oy;
+      if (ay > best_y) {
+        best_y = ay;
+        best = i;
+      }
+    }
+    stun_ticks_ = 94;
+    const int zx = best >= 0 ? origin_x_ + units_[best].ox + unitW(units_[best]) / 2
+                             : player_x_ + kShipW / 2;
+    if (best >= 0) applyHit(best);
+    fillRect(zx, 30, 2, kShipY - 30, color565(255, 240, 120));
+    delay(20);
+    restoreRect(zx, 30, 2, kShipY - 30);
+    return true;
+  }
+
+  bool castTsunami() {
+    if (wave_y_ >= 0) return false;
+    wave_y_ = kShipY - 20;
+    return true;
+  }
+
+  bool castHeal() {
+    if (demeter_uses_ >= 2 || lives_ >= 9) return false;
+    demeter_uses_ += 1;
+    lives_ += demeter_uses_ == 1 ? 3 : 1;
+    if (lives_ > 9) lives_ = 9;
+    noteUnlock(demeter_uses_ == 1 ? "+3 LIFE" : "+1 LIFE");
+    return true;
+  }
+
+  bool castAegis() {
+    if (athena_uses_ >= 2 || aegis_hits_ > 0) return false;
+    athena_uses_ += 1;
+    aegis_ticks_ = 188;
+    aegis_hits_ = 3;
+    noteUnlock("AEGIS");
+    return true;
+  }
+
+  bool castSolaris() {
+    sun_x_ = player_x_ + kShipW / 2 - 2;
+    if (sun_x_ < 4) sun_x_ = 4;
+    if (sun_x_ > kPanelWidth - 10) sun_x_ = kPanelWidth - 10;
+    sun_ticks_ = 36;
+    return true;
+  }
+
+  bool castArrow() {
+    bool any = false;
+    for (int i = 0; i < unit_n_; ++i) {
+      if (units_[i].alive) any = true;
+    }
+    if (!any) return false;
+    return spawnBoltAt(player_x_ + kShipW / 2, kShipY - 12, 0, -8, 3, 10, 4);
+  }
+
+  bool castCharm() {
+    charm_ticks_ = 188;
+    return true;
+  }
+
+  bool castAnvil() {
+    int best_n = 0;
+    int bx = 0;
+    int by = 0;
+    bool found = false;
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive) continue;
+      const int ax = origin_x_ + units_[i].ox + unitW(units_[i]) / 2;
+      const int ay = origin_y_ + units_[i].oy + unitH(units_[i]) / 2;
+      int n = 0;
+      for (int j = 0; j < unit_n_; ++j) {
+        if (!units_[j].alive) continue;
+        const int jx = origin_x_ + units_[j].ox + unitW(units_[j]) / 2;
+        const int jy = origin_y_ + units_[j].oy + unitH(units_[j]) / 2;
+        const int dx = ax - jx;
+        const int dy = ay - jy;
+        if (dx * dx + dy * dy <= 48 * 48) n += 1;
+      }
+      if (!found || n > best_n) {
+        found = true;
+        best_n = n;
+        bx = ax;
+        by = ay;
+      }
+    }
+    if (!found) return false;
+    for (int r = 6; r <= kBlastR; r += 7) drawCircle(bx, by, r, color565(255, 140, 40));
+    for (int i = unit_n_ - 1; i >= 0; --i) {
+      if (!units_[i].alive) continue;
+      const int ax = origin_x_ + units_[i].ox;
+      const int ay = origin_y_ + units_[i].oy;
+      if (!overlap(bx - kBlastR, by - kBlastR, kBlastR * 2, kBlastR * 2, ax, ay, unitW(units_[i]),
+                   unitH(units_[i]))) {
+        continue;
+      }
+      applyHit(i);
+    }
+    delay(30);
+    restoreRect(bx - kBlastR - 1, by - kBlastR - 1, kBlastR * 2 + 2, kBlastR * 2 + 2);
+    return true;
+  }
+
+  bool castHermes() {
+    hermes_ticks_ = 94;
+    if (invuln_ < 94) invuln_ = 94;
+    return true;
+  }
+
+  bool castRevel() {
+    revel_ticks_ = 188;
+    return true;
+  }
+
+  bool triggerMachine(int i) {
+    switch (i) {
+      case 0: return castLightning();
+      case 2: return castTsunami();
+      case 3: return castHeal();
+      case 4: return castAegis();
+      case 6: return castSolaris();
+      case 7: return castArrow();
+      case 8: return castCharm();
+      case 9: return castAnvil();
+      case 10: return castHermes();
+      case 11: return castRevel();
+      default: return false;
+    }
+  }
+
+  void stepMachines() {
+    if (demo_ || mode_ != Mode::Play) return;
+    if (stun_ticks_ > 0) stun_ticks_ -= 1;
+    if (charm_ticks_ > 0) charm_ticks_ -= 1;
+    if (revel_ticks_ > 0) revel_ticks_ -= 1;
+    if (hermes_ticks_ > 0) hermes_ticks_ -= 1;
+    if (berserk_ticks_ > 0) berserk_ticks_ -= 1;
+    if (aegis_ticks_ > 0) {
+      aegis_ticks_ -= 1;
+      if (aegis_ticks_ == 0) aegis_hits_ = 0;
+    }
+    stepAegisBox();
+    stepWave();
+    stepSun();
+    stepClone();
+    paintDrones();
+    for (int i = 0; i < kGods; ++i) {
+      if (!divineOn(i)) continue;
+      if (div_cool_[i] > 0) {
+        div_cool_[i] -= 1;
+        continue;
+      }
+      if (triggerMachine(i)) div_cool_[i] = machineCool(i);
+    }
   }
 
   void spawnGodHazard(int x, int y) {
@@ -4351,6 +5054,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
     }
     drawShipAt(player_x_);
+    if (clone_alive_ && clone_drawn_) drawShipAt(clone_x_);
+    if (clone_alive_ && cx > clone_x_ - kBlastR && cx < clone_x_ + kShipW + kBlastR &&
+        cy > kShipY - kBlastR && cy < kShipY + kShipH + kBlastR) {
+      clone_alive_ = false;
+      if (clone_drawn_) eraseShipAt(clone_x_);
+      clone_drawn_ = false;
+    }
     drawHud();
     return hit;
   }
@@ -4366,22 +5076,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (units_[i].kind != 2) continue;
       const int x = origin_x_ + units_[i].ox + kBossW / 2;
       const int y = origin_y_ + units_[i].oy + kBossH;
-      spawnGodHazard(x - 5, y);
-      if (god_phase_ == 0) {
-        const int dx = player_x_ + kShipW / 2 - x;
-        spawnFoe(x, y, dx < -10 ? -1 : (dx > 10 ? 1 : 0), 1);
-      } else if (god_phase_ == 1) {
-        spawnFoe(x - 12, y, -2, 1);
-        spawnFoe(x, y, 0, 1);
-        spawnFoe(x + 12, y, 2, 1);
-      } else {
-        spawnFoe(x - 16, y, -3, 1);
-        spawnFoe(x - 8, y, -1, 1);
-        spawnFoe(x, y, 0, 2);
-        spawnFoe(x + 8, y, 1, 1);
-        spawnFoe(x + 16, y, 3, 1);
-        spawnGodHazard(20 + static_cast<int>(nextRng() % (kPanelWidth - 50)), 40);
-      }
+      fireGodGimmick(x, y);
     }
   }
 
@@ -4392,18 +5087,54 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (!foe.on) continue;
       const int ox = foe.x;
       const int oy = foe.y;
-      if (foe.kind == 3 && (space_tick_ & 7) == 0 && oy < kShipY - 80) {
+      const int w0 = foe.w;
+      const int h0 = foe.h;
+      if (wave_y_ >= 0 && overlap(ox, oy, w0, h0, 0, wave_y_, kPanelWidth, 14)) {
+        repair(ox, oy, w0, h0);
+        foe.on = false;
+        continue;
+      }
+      if (stun_ticks_ > 0) continue;
+      if (revel_ticks_ > 0 && (space_tick_ & 15) == 0 && foe.kind != 3) {
+        int nv = foe.vx + static_cast<int>(nextRng() % 3) - 1;
+        if (nv > 3) nv = 3;
+        if (nv < -3) nv = -3;
+        foe.vx = static_cast<int8_t>(nv);
+      }
+      // Homing orbs belong to Ares alone. Other gods never steer a shot onto the ship.
+      if (foe.kind == 3 && god_ == 6 && (space_tick_ & 7) == 0 && oy < kShipY - 80) {
         const int target = player_x_ + kShipW / 2;
         const int center = ox + foe.w / 2;
         if (target < center - 6 && foe.vx > -2) foe.vx = static_cast<int8_t>(foe.vx - 1);
         else if (target > center + 6 && foe.vx < 2) foe.vx = static_cast<int8_t>(foe.vx + 1);
       }
+      if (foe.kind == 5 && (space_tick_ & 3) == 0) {
+        if (foe.vx > 0) foe.vx = static_cast<int8_t>(foe.vx - 1);
+        else if (foe.vx < 0) foe.vx = static_cast<int8_t>(foe.vx + 1);
+      }
+      if (foe.kind == 4 && god_ == 12 && (space_tick_ & 15) == 0) {
+        foe.vx = static_cast<int8_t>(static_cast<int>(nextRng() % 3) - 1);
+      }
+      if (revel_ticks_ > 0 && (space_tick_ & 1) != 0) continue;
       const int nx = foe.x + foe.vx;
       const int ny = foe.y + foe.vy;
       const int w = foe.w;
       const int h = foe.h;
       const bool hit_ship = overlap(nx, ny, w, h, player_x_, kShipY, kShipW, kShipH);
+      const bool hit_clone = clone_alive_ && overlap(nx, ny, w, h, clone_x_, kShipY, kShipW, kShipH);
       const bool blocked = nx < 0 || nx > kPanelWidth - w || ny >= kButtonY || hitBarrier(nx, ny, w, h);
+      if (hit_clone && !hit_ship) {
+        repair(ox, oy, w, h);
+        foe.on = false;
+        if (foe.kind == 2 && blastAt(nx, ny)) {
+          lost = true;
+          hit_by_ = foeKiller(foe);
+        }
+        clone_alive_ = false;
+        if (clone_drawn_) eraseShipAt(clone_x_);
+        clone_drawn_ = false;
+        continue;
+      }
       if (hit_ship || blocked) {
         repair(ox, oy, w, h);
         foe.on = false;
@@ -4419,7 +5150,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       } else {
         foe.x = static_cast<int16_t>(nx);
         foe.y = static_cast<int16_t>(ny);
-        if (foe.kind == 3) {
+        if (foe.kind >= 3) {
           repair(ox, oy, w, h);
           drawFoe(foe);
         } else {
@@ -4432,12 +5163,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     foe_cool_ += 1;
     if (foe_cool_ < foe_gap_) return lost;
     foe_cool_ = 0;
+    if (stun_ticks_ > 0 || charm_ticks_ > 0) return lost;
     if (god_ != 0 && god_entrance_ && bossAlive()) {
       fireGodVolley();
       return lost;
     }
     if (god_ != 0 && (space_tick_ & 1) == 0) {
-      spawnGodHazard(24 + static_cast<int>(nextRng() % (kPanelWidth - 58)), 38);
+      fireGodGimmick(kPanelWidth / 2, 40);
     }
     if (boss_ && boss_style_ == 3 && bossAlive()) {
       for (int i = 0; i < unit_n_; ++i) {
@@ -4572,10 +5304,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       held_ = held;
     }
     const int old_player = player_x_;
+    const int pace = ship_step_ + (hermes_ticks_ > 0 ? 4 : 0);
     if (held != nullptr && std::strcmp(held, "LEFT") == 0) {
-      player_x_ -= ship_step_;
+      player_x_ -= pace;
     } else if (held != nullptr && std::strcmp(held, "RIGHT") == 0) {
-      player_x_ += ship_step_;
+      player_x_ += pace;
     }
     if (player_x_ < 4) player_x_ = 4;
     if (player_x_ > kPanelWidth - kShipW - 4) player_x_ = kPanelWidth - kShipW - 4;
@@ -4596,6 +5329,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       drawShipAt(player_x_);
     }
     stepBuddy();
+    stepMachines();
     if (baseGun() == 3) stepBeam(firing, next_beam);
     else {
       if (beam_on_) {
@@ -4613,9 +5347,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       boss_tick_ += 1;
       boss_open_ = (boss_tick_ % 80) >= 40;
     }
-    if (mode_ == Mode::Play) moveFormation();
+    if (mode_ == Mode::Play && stun_ticks_ == 0) moveFormation();
     if (was_open != boss_open_) drawHud();
     bool lost = stepFoe();
+    if (!lost && stepGodBeam()) {
+      lost = true;
+      hit_by_ = godName();
+    }
     if (!lost && stepBossLaser()) {
       lost = true;
       hit_by_ = "LASER";
@@ -4780,6 +5518,36 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   uint8_t god_wave_ = 0;
   uint8_t god_bar_ = 3;
   uint8_t god_phase_ = 0;
+  uint16_t div_unlock_ = 0;
+  uint16_t div_equip_ = 0;
+  uint8_t div_multi_ = 0;
+  int div_page_ = 0;
+  int div_cool_[kGods] = {};
+  int demeter_uses_ = 0;
+  int athena_uses_ = 0;
+  int stun_ticks_ = 0;
+  int charm_ticks_ = 0;
+  int revel_ticks_ = 0;
+  int hermes_ticks_ = 0;
+  int berserk_ticks_ = 0;
+  int aegis_ticks_ = 0;
+  int aegis_hits_ = 0;
+  int aegis_box_x_ = 0;
+  bool aegis_box_ = false;
+  int wave_y_ = -1;
+  int sun_ticks_ = 0;
+  int sun_x_ = 0;
+  int god_beam_ticks_ = 0;
+  int god_beam_x_ = 0;
+  int god_ward_ = 0;
+  bool clone_alive_ = false;
+  bool clone_drawn_ = false;
+  int clone_x_ = 0;
+  int clone_cool_ = 0;
+  bool drone_drawn_ = false;
+  int drone_n_ = 0;
+  int drone_x_[kGods] = {};
+  char div_msg_[16] = {};
   uint16_t camp_ = 0;
   bool buddy_ = false;
   bool laser_live_ = false;
