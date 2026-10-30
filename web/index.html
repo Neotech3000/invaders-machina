@@ -472,6 +472,7 @@ units: [], foes: [], bolts: [], coins: [], blasts: [], barriers: [],
 scraps: [], terrain: 0, sky: null,
 boss: null, escorts: [], mini: false, raid: false,
 god: 0, godWave: 0, godEntrance: false, godBars: 3, godHp: 0, godHpMax: 1,
+raidMates: [],
 cool: 0, foeCool: 0, foeGap: 40, hitBy: "ALIEN", gunCool: 0,
 beamOn: false, beamX: 0, beamBurst: 0, beamCool: 0, beamTick: 0, spaceTick: 0,
 spreadSide: false, revived: false,
@@ -498,7 +499,7 @@ return [ALIEN_W, ALIEN_H];
 }
 function startLevel() {
 const L = R.level;
-R.foes = []; R.bolts = []; R.blasts = []; R.escorts = []; R.boss = null;
+R.foes = []; R.bolts = []; R.blasts = []; R.escorts = []; R.raidMates = []; R.boss = null;
 R.mini = false; R.raid = false; R.god = 0; R.godEntrance = false;
 R.invuln = 0; R.cool = 0; R.foeCool = 0; R.gunCool = 0;
 R.beamOn = false; R.beamBurst = 0; R.beamCool = 0; R.beamTick = 0;
@@ -580,10 +581,14 @@ if (rnd(5) === 0) kind ^= 1;
 const roll = rnd(100);
 if (L >= 3 && roll < 6 + Math.floor(L / 25)) kind = 4;
 else if (L >= 8 && roll >= 90 - Math.floor(L / 30)) kind = 5;
-R.units.push({ ox, oy, kind, hp: 1, max: 1, alive: true });
+const life = 1 + enemyLife(L);
+R.units.push({ ox, oy, kind, hp: life, max: life, alive: true });
 }
 }
-if (R.units.length === 0) R.units.push({ ox: 0, oy: 0, kind: 1, hp: 1, max: 1, alive: true });
+if (R.units.length === 0) {
+const life = 1 + enemyLife(L);
+R.units.push({ ox: 0, oy: 0, kind: 1, hp: life, max: life, alive: true });
+}
 centerFormation();
 buildBarriers(L);
 }
@@ -599,12 +604,13 @@ R.dir = 1;
 }
 function buildBoss() {
 const L = R.level;
-const max = Math.min(22, 6 + Math.floor(L / 20));
-R.raid = Math.random() < 0.25;
+const max = Math.min(22, 6 + Math.floor(L / 20)) + enemyLife(L);
+R.raid = Math.random() * 100 < raidChance(L);
 R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: max, max, style: L % 2, cool: 0 };
 R.units = [];
 if (R.raid) {
-for (let i = 0; i < 4; i++) R.units.push({ ox: i * 30, oy: 0, kind: 0, hp: 1, max: 1, alive: true });
+const life = 1 + enemyLife(L);
+for (let i = 0; i < 4; i++) R.units.push({ ox: i * 30, oy: 0, kind: 0, hp: life, max: life, alive: true });
 R.ox = Math.floor((W - 120) / 2);
 R.oy = 84;
 R.dir = 1;
@@ -618,9 +624,10 @@ const L = R.level;
 const cols = 4;
 R.units = [];
 for (let col = 0; col < cols; col++) {
-R.units.push({ ox: col * 30, oy: 24 + (col & 1) * 20, kind: col & 1 ? 1 : 0, hp: 1, max: 1, alive: true });
+const life = 1 + enemyLife(L);
+R.units.push({ ox: col * 30, oy: 24 + (col & 1) * 20, kind: col & 1 ? 1 : 0, hp: life, max: life, alive: true });
 }
-const mhp = Math.min(22, 6 + Math.floor(L / 20));
+const mhp = Math.min(22, 6 + Math.floor(L / 20)) + enemyLife(L);
 R.units.push({ ox: Math.floor((cols * 30 - MINI_W) / 2), oy: 0, kind: 6, hp: mhp, max: mhp, alive: true });
 R.ox = Math.floor((W - cols * 30) / 2);
 R.oy = 38;
@@ -631,7 +638,31 @@ buildBarriers(L);
 function godIndex(L) { return ((Math.floor(L / 25) - 1) % 12) + 1; }
 function godName() { return GODS[(R.god - 1 + 12) % 12] || "GOD"; }
 function godInk() { return clr(GOD_INK[(R.god - 1 + 12) % 12]); }
-function godBarHp() { return 12 + Math.floor(R.level / 12); }
+function enemyLife(level) {
+const L = level === undefined ? R.level : level;
+if (L < 30) return 0;
+const bonus = 1 + Math.floor((L - 30) / 20);
+return bonus > 3 ? 3 : bonus;
+}
+function raidChance(level) {
+const L = level === undefined ? R.level : level;
+let pct = 20;
+if (L >= 25) pct += 5 * (1 + Math.floor((L - 25) / 10));
+return Math.min(100, pct);
+}
+function godWaveTotal(level) {
+const L = level === undefined ? R.level : level;
+const n = Math.floor(L / 25);
+if (n < 1) return 4;
+return 4 + 2 * (n - 1);
+}
+function raidCoreHp(level) {
+const L = level === undefined ? R.level : level;
+let core = 36 + Math.floor(L / 3);
+if (core > 99) core = 99;
+return core + enemyLife(L);
+}
+function godBarHp() { return 12 + Math.floor(R.level / 12) + enemyLife(); }
 function buildGod() {
 R.god = godIndex(R.level);
 R.godWave = 0;
@@ -640,7 +671,8 @@ spawnGodWave();
 }
 function spawnGodWave() {
 const wave = R.godWave;
-const cols = 4 + wave;
+let cols = 4 + wave;
+if (cols > 8) cols = 8;
 const rows = 2 + (wave >= 2 ? 1 : 0);
 R.units = [];
 for (let row = 0; row < rows; row++) {
@@ -649,10 +681,11 @@ let kind = row === 0 ? 1 : 0;
 const roll = rnd(100);
 if (roll < 12) kind = 4;
 else if (roll < 20) kind = 5;
-R.units.push({ ox: col * 30, oy: row * 22, kind, hp: 1, max: 1, alive: true });
+const life = 1 + enemyLife();
+R.units.push({ ox: col * 30, oy: row * 22, kind, hp: life, max: life, alive: true });
 }
 }
-const mhp = 3 + wave;
+const mhp = 3 + wave + enemyLife();
 R.units.push({ ox: Math.floor((cols * 30 - MINI_W) / 2), oy: -6, kind: 6, hp: mhp, max: mhp, alive: true });
 R.ox = Math.floor((W - cols * 30) / 2);
 R.oy = 40;
@@ -671,7 +704,9 @@ R.godBars = 3;
 R.godHpMax = godBarHp();
 R.godHp = R.godHpMax;
 R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: 1, max: 1, style: 5, cool: 0 };
-R.escorts = [{ side: -1, hp: 2 }, { side: 1, hp: 2 }];
+const mateHp = raidCoreHp();
+R.raidMates = [{ x: 8, y: 44, hp: mateHp, max: mateHp, stun: 0, cool: 20 }];
+R.escorts = [{ side: -1, hp: 2 + enemyLife() }, { side: 1, hp: 2 + enemyLife() }];
 R.foes = [];
 R.bolts = [];
 R.foeCool = 0;
@@ -837,6 +872,10 @@ const [sw, sh] = unitSize(u);
 if (overlapRect(R.sunX, 36, 6, SHIP_Y - 36, R.ox + u.ox, R.oy + u.oy, sw, sh)) hitUnit(u);
 }
 if (R.boss && overlapRect(R.sunX, 36, 6, SHIP_Y - 36, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) bossHit();
+for (let mi = R.raidMates.length - 1; mi >= 0; mi--) {
+const m = R.raidMates[mi];
+if (overlapRect(R.sunX, 36, 6, SHIP_Y - 36, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidMate(mi);
+}
 }
 R.sunT -= 1;
 }
@@ -869,6 +908,9 @@ if (overlapRect(rx, 30, rw, rh, R.ox + u.ox, R.oy + u.oy, sw, sh)) u.stun = 94;
 if (R.boss && overlapRect(rx, 30, rw, rh, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) R.boss.stun = 94;
 for (const e of R.escorts) {
 if (overlapRect(rx, 30, rw, rh, escortX(e), ESCORT_Y, ALLY_W, ALLY_H)) e.stun = 94;
+}
+for (const m of R.raidMates) {
+if (overlapRect(rx, 30, rw, rh, m.x, m.y, BOSS_W, BOSS_H)) m.stun = 94;
 }
 if (best) hitUnit(best);
 else bossHit();
@@ -930,6 +972,10 @@ const [sw, sh] = unitSize(u);
 if (overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, R.ox + u.ox, R.oy + u.oy, sw, sh)) hitUnit(u);
 }
 if (R.boss && overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) bossHit();
+for (let mi = R.raidMates.length - 1; mi >= 0; mi--) {
+const m = R.raidMates[mi];
+if (overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidMate(mi);
+}
 return true;
 }
 if (i === 10) {
@@ -1092,14 +1138,28 @@ if (boostOn(1)) dmg += 1;
 if (R && R.berserk > 0) dmg += 10;
 return dmg;
 }
+function hurtRaidMate(i) {
+const m = R.raidMates[i];
+if (!m) return;
+m.hp -= playerDamage();
+addScore(10);
+if (m.hp <= 0) {
+const [cx, cy] = centerOf(m.x, m.y, BOSS_W, BOSS_H);
+dropCoins(cx, cy, 3);
+R.raidMates.splice(i, 1);
+}
+}
 function hitUnit(u) {
-if (u.kind === 6) {
 u.hp -= playerDamage();
+if (u.kind === 6) {
 if (u.hp > 0) {
 addScore(20);
 return;
 }
+killUnit(u);
+return;
 }
+if (u.hp > 0) return;
 killUnit(u);
 }
 function bossHit() {
@@ -1121,10 +1181,10 @@ dropCoins(cx, cy, 10);
 maybeDrop(true);
 R.boss = null;
 R.escorts = [];
-R.godEntrance = false;
+R.godBars = 0;
+R.godHp = 0;
 R.godWard = 0;
 R.godBeamT = 0;
-R.god = 0;
 grantDivine(slain);
 }
 }
@@ -1319,6 +1379,10 @@ addScore(10);
 if (e.hp <= 0) R.escorts.splice(i, 1);
 }
 if (R.boss && overlapRect(bx, by, bw, bh, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) bossHit();
+for (let mi = R.raidMates.length - 1; mi >= 0; mi--) {
+const m = R.raidMates[mi];
+if (overlapRect(bx, by, bw, bh, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidMate(mi);
+}
 }
 }
 function stepBeam(firing) {
@@ -1439,6 +1503,14 @@ return true;
 if (R.boss && !b.hit.has(R.boss) && overlapRect(x, y, b.w, b.h, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) {
 b.hit.add(R.boss);
 bossHit();
+return true;
+}
+for (let mi = 0; mi < R.raidMates.length; mi++) {
+const m = R.raidMates[mi];
+if (b.hit.has(m)) continue;
+if (!overlapRect(x, y, b.w, b.h, m.x, m.y, BOSS_W, BOSS_H)) continue;
+b.hit.add(m);
+hurtRaidMate(mi);
 return true;
 }
 return false;
@@ -1653,7 +1725,7 @@ const x = b.x + BOSS_W / 2;
 const y = b.y + BOSS_H;
 const who = R.godEntrance ? godName() : (R.raid ? "RAID BOSS" : "BOSS");
 if (R.godEntrance) {
-if (!(R.boss.stun > 0)) fireGodGimmick(x, y);
+if (R.boss && !(R.boss.stun > 0)) fireGodGimmick(x, y);
 for (const e of R.escorts) {
 if (e.stun > 0) continue;
 if (countFoeKind(3) >= 2) break;
@@ -1739,6 +1811,14 @@ moveFormation();
 for (const u of R.units) if (u.stun > 0) u.stun -= 1;
 for (const e of R.escorts) if (e.stun > 0) e.stun -= 1;
 if (R.boss && R.boss.stun > 0) R.boss.stun -= 1;
+for (const m of R.raidMates) {
+if (m.stun > 0) m.stun -= 1;
+m.cool -= 1;
+if (m.cool <= 0) {
+if (R.charm <= 0 && !(m.stun > 0)) fireFoe(m.x + BOSS_W / 2, m.y + BOSS_H, 0, "RAID BOSS", 0);
+m.cool = Math.max(18, R.foeGap + 10);
+}
+}
 if (R.boss) {
 const b = R.boss;
 if (!(b.stun > 0)) {
@@ -1777,18 +1857,18 @@ if (scr !== entry) return;
 break;
 }
 }
-const anyLeft = R.units.some(u => u.alive) || !!R.boss || R.escorts.length > 0;
+const anyLeft = R.units.some(u => u.alive) || !!R.boss || R.escorts.length > 0 || R.raidMates.length > 0;
 if (!anyLeft && !R.godEntrance) {
-if (R.god && R.godWave < 4) {
+if (R.god && R.godWave < godWaveTotal()) {
 R.godWave += 1;
-if (R.godWave < 4) spawnGodWave();
+if (R.godWave < godWaveTotal()) spawnGodWave();
 else { setScr("splash"); R.timer = 60; }
 return;
 }
 levelClear();
 return;
 }
-if (R.godEntrance && !R.boss && R.escorts.length === 0) levelClear();
+if (R.godEntrance && !R.boss && R.escorts.length === 0 && R.raidMates.length === 0) levelClear();
 }
 function demoInput() {
 let target = null, low = -1e9;
@@ -2414,8 +2494,8 @@ const boosts = boostHud();
 let line;
 if (R.msgT > 0) line = R.msg;
 else if (R.god && R.godEntrance) line = godName();
-else if (R.god && boosts) line = boosts + " " + (R.godWave + 1) + "/4";
-else if (R.god) line = godName() + " " + (R.godWave + 1) + "/4";
+else if (R.god && boosts) line = boosts + " " + (R.godWave + 1) + "/" + godWaveTotal();
+else if (R.god) line = godName() + " " + (R.godWave + 1) + "/" + godWaveTotal();
 else if (boosts) line = boosts + " " + R.level + " " + R.score;
 else if (R.mini) line = "MINI " + R.level + " " + R.score;
 else if (R.boss) {
@@ -2436,19 +2516,16 @@ if (R.boss || R.godEntrance) drawBossBar(P);
 }
 function drawBossBar(P) {
 if (R.godEntrance) {
-const w = 96;
+const bh = 4;
 const ink = godInk();
 for (let bar = 0; bar < 3; bar++) {
-const x = 8 + bar * (w + 4);
-fillRect(x, 26, w, 8, P.button);
-const live = bar < R.godBars;
-if (live) {
+const y = 24 + (2 - bar) * bh;
+fillRect(0, y, W, bh, P.button);
+if (bar >= R.godBars) continue;
 const pool = Math.max(1, R.godHpMax);
 const left = bar === R.godBars - 1 ? clamp(R.godHp, 0, pool) : pool;
-const fill = Math.floor((w - 4) * left / pool);
-if (fill > 0) fillRect(x + 2, 28, fill, 4, ink);
-}
-drawRect(x, 26, w, 8, live ? ink : P.button);
+const fill = Math.floor(W * left / pool);
+if (fill > 0) fillRect(0, y, fill, bh, ink);
 }
 return;
 }
@@ -2485,6 +2562,7 @@ for (const u of R.units) {
 if (!u.alive) continue;
 drawAlienAt(R.ox + u.ox, R.oy + u.oy, u.kind, P, { god: !!R.god, max: u.max, hp: u.hp });
 }
+for (const m of R.raidMates) drawAlienAt(m.x, m.y, 2, P, { max: m.max, hp: m.hp });
 if (R.boss) {
 const b = R.boss;
 if (R.godEntrance) {
