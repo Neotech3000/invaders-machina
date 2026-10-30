@@ -20,7 +20,7 @@ int main() {
   int sx = 0;
   int sy = 0;
 
-  // Low raw Y is the bottom PLAY key on this panel. The unflipped scale of
+  // Low raw Y is the bottom PLAY key on the 320x480 panel. The unflipped scale of
   // that sample sits at the top; the mirror is what puts it on the key.
   touch_to_screen(2000, 585, width, height, sx, sy);
   expect(sy >= bar && sy < height, "low raw Y lands on the bottom");
