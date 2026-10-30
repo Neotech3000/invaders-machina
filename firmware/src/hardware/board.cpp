@@ -2575,19 +2575,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void paintGodArena() {
     const uint16_t ink = godInk();
-    for (int i = 0; i < 6; ++i) {
-      const int x = 18 + i * 56;
-      fillRect(x, 40, 6, kShipY - 44, ink);
-      fillRect(x - 6, 40, 18, 5, ink);
-    }
-    drawCircle(kPanelWidth / 2, 150, 78, ink);
-    drawCircle(kPanelWidth / 2, 150, 60, ink);
+    fillRect(24, 30, kPanelWidth - 48, 3, ink);
     setFont(&fonts::Font2);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink);
     char line[24];
     snprintf(line, sizeof line, "%s DOMAIN", godName());
-    drawString(line, kPanelWidth / 2, 150);
+    drawString(line, kPanelWidth / 2, 48);
   }
 
   void buildGodArena() {
@@ -2689,10 +2683,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     form_dir_ = 1;
     step_px_ = 2;
     mode_ = Mode::Play;
-    god_ward_ = god_ == 5 ? 8 : 0;
+    god_ward_ = 0;
     god_beam_ticks_ = 0;
     paintLevel();
-    noteUnlock(god_ == 5 ? "WARD" : "GOD");
+    noteUnlock("GOD");
   }
 
 
@@ -4208,15 +4202,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (unit.kind == 2) {
       if (god_ != 0 && god_entrance_) {
         // Three bars, three styles. Emptying a bar advances the phase.
-        // Athena's ward has to break before those bars take damage.
         addScore(10);
-        if (god_ == 5 && god_ward_ > 0) {
-          god_ward_ -= 1;
-          if (god_ward_ == 0) noteUnlock("BROKEN");
-          drawAlienAt(origin_x_ + unit.ox, origin_y_ + unit.oy, unit.kind);
-          drawHud();
-          return false;
-        }
         if (god_hp_ > 0) god_hp_ -= playerDamage();
         if (god_hp_ <= 0) {
           if (god_bar_ > 1) {
@@ -4574,7 +4560,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (kind == 3) return godInk();
     if (kind == 2) return color565(255, 168, 56);
     if (kind == 1) return color565(255, 140, 96);
-    if (god_ != 0) return godInk();
     return color565(255, 72, 64);
   }
 
@@ -4633,85 +4618,78 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     return n;
   }
 
-  // Each Olympian attacks differently. Only Ares homes onto the ship.
+  // A god hazard is the same cross the player can see. It only hurts where it is drawn.
+  void spawnGodOrb(int x, int y, int vx, int vy) {
+    const int w = 10;
+    const int h = 10;
+    if (x < 4) x = 4;
+    if (x > kPanelWidth - w - 4) x = kPanelWidth - w - 4;
+    if (y < 32) y = 32;
+    if (y > kShipY - 90) y = kShipY - 90;
+    if (overlap(x, y, w, h, player_x_, kShipY, kShipW, kShipH)) return;
+    spawnFoe(x, y, vx, 3, vy);
+  }
+
+  // Each Olympian throws a slow, visible orb. Only Ares homes onto the ship.
   void fireGodGimmick(int x, int y) {
+    const int have = countFoeKind(3);
+    if (have >= 2) return;
     const int px = player_x_ + kShipW / 2;
     switch (god_) {
       case 1:
-        for (int i = 0; i < 3; ++i) spawnFoe(px - 1, 28 + i * 28, 0, 1, 10);
+        spawnGodOrb(x - 5, y, 0, 2);
         break;
       case 2:
-        spawnFoe(4, 80, 3, 1, 2);
-        spawnFoe(kPanelWidth - 8, 80, -3, 1, 2);
-        spawnFoe(x - 10, y, -2, 1);
-        spawnFoe(x + 10, y, 2, 1);
+        if (have > 0) break;
+        spawnGodOrb(12, 44, 1, 2);
+        spawnGodOrb(kPanelWidth - 22, 44, -1, 2);
         break;
       case 3: {
-        if (countFoeKind(4) >= 6) break;
-        const int gap = 24 + static_cast<int>(nextRng() % (kPanelWidth - 80));
-        for (int sx = 8; sx < kPanelWidth - 16; sx += 40) {
-          if (sx > gap - 18 && sx < gap + 18) continue;
-          spawnFoe(sx, 36, 0, 4, 2);
+        if (have > 0) break;
+        const int gap = 48 + static_cast<int>(nextRng() % (kPanelWidth - 140));
+        for (int sx = 20; sx < kPanelWidth - 30; sx += 84) {
+          if (sx > gap - 28 && sx < gap + 28) continue;
+          spawnGodOrb(sx, 40, 0, 2);
         }
         break;
       }
       case 4:
-        if (countFoeKind(4) >= 4) break;
-        spawnFoe(16 + static_cast<int>(nextRng() % (kPanelWidth - 40)), 32, 0, 4, 1);
+        spawnGodOrb(20 + static_cast<int>(nextRng() % (kPanelWidth - 50)), 40, 0, 1);
         break;
-      case 5: {
-        for (int sx = 20; sx < kPanelWidth - 20; sx += 50) {
-          if (sx > px - 28 && sx < px + 28) continue;
-          spawnFoe(sx, y, 0, 0, 3);
-        }
+      case 5:
+        if (have > 0) break;
+        spawnGodOrb(x - 40, y, 0, 2);
+        spawnGodOrb(x + 30, y, 0, 2);
         break;
-      }
       case 6:
         spawnGodHazard(x - 5, y);
-        if (god_phase_ >= 1) spawnGodHazard(x - 28, y);
-        if (god_phase_ >= 2) {
-          spawnGodHazard(20 + static_cast<int>(nextRng() % (kPanelWidth - 50)), 36);
-        }
         break;
       case 7:
-        if (god_beam_ticks_ <= 0) {
-          god_beam_x_ = px - 2;
-          if (god_beam_x_ < 4) god_beam_x_ = 4;
-          if (god_beam_x_ > kPanelWidth - 8) god_beam_x_ = kPanelWidth - 8;
-          god_beam_ticks_ = 28;
-        }
+        spawnGodOrb(x - 5, y, (space_tick_ & 32) ? 1 : -1, 2);
         break;
       case 8: {
         const int dx = px - x;
-        const int vx = dx < -40 ? -2 : (dx < -12 ? -1 : (dx > 40 ? 2 : (dx > 12 ? 1 : 0)));
-        spawnFoe(x, y, vx, 1);
-        if (god_phase_ >= 2) spawnFoe(x, y + 8, vx, 1);
+        const int vx = dx < -24 ? -1 : (dx > 24 ? 1 : 0);
+        spawnGodOrb(x - 5, y, vx, 2);
         break;
       }
       case 9: {
         const int dx = px - x;
-        const int vx = dx < -8 ? -2 : (dx > 8 ? 2 : 0);
-        spawnFoe(x - 6, y, vx, 5, 3);
-        spawnFoe(x + 6, y, -vx, 5, 3);
+        const int vx = dx < -8 ? -1 : (dx > 8 ? 1 : 0);
+        spawnGodOrb(x - 5, y, vx, 2);
         break;
       }
       case 10:
-        spawnFoe(12 + static_cast<int>(nextRng() % (kPanelWidth - 30)), 28, 0, 2);
-        if (god_phase_ >= 1) {
-          spawnFoe(12 + static_cast<int>(nextRng() % (kPanelWidth - 30)), 28, 0, 2);
-        }
+        spawnGodOrb(16 + static_cast<int>(nextRng() % (kPanelWidth - 42)), 36, 0, 2);
         break;
       case 11:
-        spawnFoe(6, 30, 3, 1);
-        spawnFoe(kPanelWidth - 10, 30, -3, 1);
-        spawnFoe(x, y, god_phase_ >= 1 ? -3 : 3, 1);
+        spawnGodOrb(x - 5, y, (nextRng() & 1) ? 1 : -1, 2);
         break;
-      default:
-        if (countFoeKind(4) < 4) {
-          const int vx = static_cast<int>(nextRng() % 3) - 1;
-          spawnFoe(20 + static_cast<int>(nextRng() % (kPanelWidth - 50)), 34, vx, 4, 1);
-        }
+      default: {
+        const int vx = static_cast<int>(nextRng() % 3) - 1;
+        spawnGodOrb(24 + static_cast<int>(nextRng() % (kPanelWidth - 58)), 40, vx, 1);
         break;
+      }
     }
   }
 
@@ -4780,12 +4758,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   bool stepGodBeam() {
-    if (god_beam_ticks_ <= 0) return false;
-    fillRect(god_beam_x_, 36, 4, kShipY - 36, color565(255, 214, 80));
-    god_beam_ticks_ -= 1;
-    if (god_beam_ticks_ > 0) return false;
-    restoreRect(god_beam_x_ - 1, 36, 6, kShipY - 36);
-    return overlap(god_beam_x_, kShipY, 4, kShipH, player_x_, kShipY, kShipW, kShipH);
+    god_beam_ticks_ = 0;
+    return false;
   }
 
   void eraseDrones() {
@@ -5012,8 +4986,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void spawnGodHazard(int x, int y) {
     const int dx = (player_x_ + kShipW / 2) - (x + 5);
-    const int vx = dx < -24 ? -2 : (dx < -6 ? -1 : (dx > 24 ? 2 : (dx > 6 ? 1 : 0)));
-    spawnFoe(x, y, vx, 3);
+    const int vx = dx < -6 ? -1 : (dx > 6 ? 1 : 0);
+    spawnGodOrb(x, y, vx, 2);
   }
 
   // A cannon shell bursts on contact. On this panel 3 mm is about 20 px,
@@ -5069,8 +5043,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     for (int i = 0; i < unit_n_; ++i) {
       if (!units_[i].alive) continue;
       if (units_[i].kind == 7) {
-        spawnFoe(origin_x_ + units_[i].ox + kAllyW / 2,
-                 origin_y_ + units_[i].oy + kAllyH, 0, 1);
+        if (countFoeKind(3) < 2) {
+          spawnGodOrb(origin_x_ + units_[i].ox + kAllyW / 2 - 5,
+                      origin_y_ + units_[i].oy + kAllyH, 0, 2);
+        }
         continue;
       }
       if (units_[i].kind != 2) continue;
@@ -5107,6 +5083,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         const int center = ox + foe.w / 2;
         if (target < center - 6 && foe.vx > -2) foe.vx = static_cast<int8_t>(foe.vx - 1);
         else if (target > center + 6 && foe.vx < 2) foe.vx = static_cast<int8_t>(foe.vx + 1);
+      }
+      if (foe.kind == 3 && god_ == 9 && (space_tick_ & 7) == 0) {
+        if (foe.vx > 0) foe.vx = static_cast<int8_t>(foe.vx - 1);
+        else if (foe.vx < 0) foe.vx = static_cast<int8_t>(foe.vx + 1);
+      }
+      if (foe.kind == 3 && god_ == 12 && (space_tick_ & 15) == 0) {
+        foe.vx = static_cast<int8_t>(static_cast<int>(nextRng() % 3) - 1);
       }
       if (foe.kind == 5 && (space_tick_ & 3) == 0) {
         if (foe.vx > 0) foe.vx = static_cast<int8_t>(foe.vx - 1);
