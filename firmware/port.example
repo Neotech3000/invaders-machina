@@ -1,0 +1,10 @@
+# Copy this file to port.local in the same folder, OR set INVADERS_SERIAL_PORT.
+# port.local is git-ignored. Do not commit a filled-in copy.
+#
+# firmware/scripts/handoff_once.py reads the port from the environment
+# variable first, then from port.local. One port name, no quotes.
+#
+# Windows: COM5
+# macOS:   /dev/cu.wchusbserial110
+# Linux:   /dev/ttyUSB0
+REPLACE_WITH_YOUR_PORT
