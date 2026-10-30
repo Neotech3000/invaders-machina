@@ -200,7 +200,7 @@ level: 1, camp: 0, raidWon: false, coins: 0,
 themes: 0x0f, ships: 0x01, ship: 0, lasers: 0x0001, guns: 0, gunEquip: 0,
 gunLv: blankLevels(), laser: 0, theme: 0,
 shield: 0, spare: 0, thrust: 0, forges: blankForges(), fpw: 0, fup: 0,
-armed: [0, 0, 0, 0, 0]
+armed: [0, 0, 0, 0, 0], gods: 0, dive: 0, dmul: 0
 };
 let loadedSave = {};
 try { loadedSave = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}") || {}; }
@@ -229,6 +229,20 @@ for (let i = 0; i < 5 && i < loadedSave.armed.length; i++) save.armed[i] = loade
 }
 save.fpw = (save.fpw | 0) >>> 0;
 save.fup = (save.fup | 0) >>> 0;
+save.gods = (loadedSave.gods | 0) & 0xfff;
+save.dmul = Math.max(0, Math.min(11, loadedSave.dmul | 0));
+save.dive = (loadedSave.dive | 0) & save.gods;
+{
+  let n = 0, keep = 0;
+  const cap = Math.min(12, 1 + save.dmul);
+  for (let i = 0; i < 12; i++) {
+    if ((save.dive & (1 << i)) === 0) continue;
+    if (n >= cap) break;
+    keep |= (1 << i);
+    n += 1;
+  }
+  save.dive = keep;
+}
 save.ships = ((save.ships | 0) | 1) & 0x3f;
 save.ship = (save.ship | 0) % SHIPS.length;
 function persist() {
@@ -266,7 +280,7 @@ function shopUpgradeCount() {
 let n = 1;
 for (let g = 0; g < GUN_COUNT; g++) if (gunOwned(g)) n += 1;
 for (let i = 0; i < MAX_FORGED; i++) if (save.forges[i]) n += 1;
-return n;
+return n + 1;
 }
 function shopUpgradeGun(idx) {
 let seen = 0;
@@ -280,7 +294,8 @@ if (!save.forges[i]) continue;
 if (seen === idx) return GUN_COUNT + i;
 seen += 1;
 }
-return -1;
+if (idx === seen) return -1;
+return -2;
 }
 function gunOwned(gun) {
   if (isForgedId(gun)) return forgedAt(gun) !== null;
@@ -414,6 +429,7 @@ let scr = "demo";
 let sel = 0;
 let btns = [];
 let shopTab = 0, shopPage = 0, shopMsg = "";
+let divPage = 0, divMsg = "";
 let forgeTab = 0, forgeStep = 0, forgePage = 0;
 let forgeFirst = 0, forgeSecond = 0, forgeAttrA = 0, forgeAttrB = 0;
 let forgeMsg = "", forgeFlash = 0;
@@ -447,7 +463,12 @@ cool: 0, foeCool: 0, foeGap: 40, hitBy: "ALIEN", gunCool: 0,
 beamOn: false, beamX: 0, beamBurst: 0, beamCool: 0, beamTick: 0, spaceTick: 0,
 spreadSide: false, revived: false,
 drop_: null, msg: "", msgT: 0, timer: 0, won: false, over: false,
-boost: [0, 0, 0, 0, 0]
+boost: [0, 0, 0, 0, 0],
+divCool: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+demeterUses: 0, athenaUses: 0, aegisT: 0, aegisHits: 0,
+stun: 0, charm: 0, revel: 0, hermes: 0, berserk: 0,
+waveY: -1, sunT: 0, sunX: 0, godBeamT: 0, godBeamX: 0, godWard: 0,
+cloneAlive: false, cloneX: 16, cloneCool: 0
 };
 }
 function rnd(n) { return Math.floor(Math.random() * n); }
@@ -485,6 +506,7 @@ if (bit >= 0 && bit < 15) save.camp |= (1 << bit);
 if (perk(PERK.shieldRepair) && save.shield < shieldCap()) save.shield += 1;
 }
 if (!demo) { save.level = L; persist(); }
+resetMachines();
 setScr(demo ? "demo" : "play");
 }
 function buildTerrain() {
@@ -641,20 +663,247 @@ R.foes = [];
 R.bolts = [];
 R.foeCool = 0;
 R.foeGap = 40;
+R.godWard = R.god === 5 ? 8 : 0;
+R.godBeamT = 0;
+R.msg = R.god === 5 ? "WARD" : "GOD";
+R.msgT = 45;
 setScr("play");
 }
-function fireFoe(x, y, kind, who, vx = 0) {
-if (kind === 3) {
+function fireFoe(x, y, kind, who, vx = 0, vy = null) {
+if (R.foes.length >= 10) return;
 const phase = R.godEntrance ? 3 - R.godBars : 0;
-R.foes.push({ x: clamp(x, 0, W - 10), y, vx, vy: 4 + phase, w: 10, h: 10, kind: 3, who });
-} else if (kind === 2) R.foes.push({ x: x - 2, y, vx, vy: 4, w: 5, h: 6, kind: 2, who });
-else if (kind === 1) R.foes.push({ x: x - 1, y, vx, vy: 8, w: 2, h: 6, kind: 1, who });
-else R.foes.push({ x, y, vx, vy: 6, w: 3, h: 8, kind: 0, who });
+let w = 3, h = 8, speed = 6, ox = x;
+if (kind === 3) { w = 10; h = 10; speed = 4 + phase; ox = clamp(x, 0, W - 10); }
+else if (kind === 4) { w = 14; h = 10; speed = 2; }
+else if (kind === 5) { w = 4; h = 8; speed = 3; }
+else if (kind === 2) { w = 5; h = 6; speed = 4; ox = x - 2; }
+else if (kind === 1) { w = 2; h = 6; speed = 8; ox = x - 1; }
+R.foes.push({ x: ox, y, vx, vy: vy == null ? speed : vy, w, h, kind, who });
 }
 function spawnGodHazard(x, y) {
 const dx = (R.px + SHIP_W / 2) - (x + 5);
 const vx = dx < -24 ? -2 : (dx < -6 ? -1 : (dx > 24 ? 2 : (dx > 6 ? 1 : 0)));
 fireFoe(x, y, 3, godName(), vx);
+}
+const MACHINES = [
+{ name: "LIGHTNING", hint: "stun zap 5s", cool: 312 },
+{ name: "DOUBLE", hint: "clone ship", cool: 0 },
+{ name: "TSUNAMI", hint: "wave blocks 8s", cool: 500 },
+{ name: "HEAL RAY", hint: "+3 then +1", cool: 625 },
+{ name: "AEGIS", hint: "3s shield x2", cool: 437 },
+{ name: "BERSERKER", hint: "1-life proc", cool: 0 },
+{ name: "SOLARIS", hint: "burn beam 5s", cool: 312 },
+{ name: "SILVER", hint: "homing 6s", cool: 375 },
+{ name: "CHARM", hint: "stop fire 9s", cool: 562 },
+{ name: "ANVIL", hint: "blast 6s", cool: 375 },
+{ name: "CADUCEUS", hint: "dash 6s", cool: 375 },
+{ name: "REVEL", hint: "slow shots 8s", cool: 500 }
+];
+function divineSlots() { return Math.min(12, 1 + (save.dmul | 0)); }
+function divineOn(i) { return i >= 0 && i < 12 && ((save.dive >> i) & 1) !== 0; }
+function resetMachines() {
+R.demeterUses = 0; R.athenaUses = 0; R.aegisT = 0; R.aegisHits = 0;
+R.stun = 0; R.charm = 0; R.revel = 0; R.hermes = 0; R.berserk = 0;
+R.waveY = -1; R.sunT = 0; R.sunX = 0; R.godBeamT = 0; R.godBeamX = 0; R.godWard = 0;
+R.cloneAlive = !demo && divineOn(1); R.cloneX = 16; R.cloneCool = 0;
+R.divCool = [];
+for (let i = 0; i < 12; i++) R.divCool[i] = 24;
+}
+function grantDivine(god) {
+if (god < 1 || god > 12) return;
+save.gods = (save.gods | (1 << (god - 1))) & 0xfff;
+persist();
+R.msg = MACHINES[god - 1].name;
+R.msgT = 45;
+}
+function tryBerserk() {
+if (R.lives !== 1 || !divineOn(5) || rnd(10) !== 0) return;
+R.berserk = 500;
+for (let i = 0; i < 12; i++) R.divCool[i] = R.divCool[i] > 125 ? R.divCool[i] - 125 : 0;
+R.gunCool = R.gunCool > 125 ? R.gunCool - 125 : 0;
+R.beamCool = R.beamCool > 125 ? R.beamCool - 125 : 0;
+R.msg = "BERSERK"; R.msgT = 45;
+}
+function countFoeKind(kind) { return R.foes.filter(f => f.kind === kind).length; }
+function fireGodGimmick(x, y) {
+const px = R.px + SHIP_W / 2;
+const who = godName();
+const phase = R.godEntrance ? 3 - R.godBars : 0;
+switch (R.god) {
+case 1:
+for (let i = 0; i < 3; i++) fireFoe(px - 1, 28 + i * 28, 1, who, 0, 10);
+break;
+case 2:
+fireFoe(4, 80, 1, who, 3, 2); fireFoe(W - 8, 80, 1, who, -3, 2);
+fireFoe(x - 10, y, 1, who, -2); fireFoe(x + 10, y, 1, who, 2);
+break;
+case 3: {
+if (countFoeKind(4) >= 6) break;
+const gap = 24 + rnd(W - 80);
+for (let sx = 8; sx < W - 16; sx += 40) {
+if (sx > gap - 18 && sx < gap + 18) continue;
+fireFoe(sx, 36, 4, who, 0, 2);
+}
+break;
+}
+case 4:
+if (countFoeKind(4) < 4) fireFoe(16 + rnd(W - 40), 32, 4, who, 0, 1);
+break;
+case 5:
+for (let sx = 20; sx < W - 20; sx += 50) {
+if (sx > px - 28 && sx < px + 28) continue;
+fireFoe(sx, y, 0, who, 0, 3);
+}
+break;
+case 6:
+spawnGodHazard(x - 5, y);
+if (phase >= 1) spawnGodHazard(x - 28, y);
+if (phase >= 2) spawnGodHazard(20 + rnd(W - 50), 36);
+break;
+case 7:
+if (R.godBeamT <= 0) {
+R.godBeamX = clamp(px - 2, 4, W - 8);
+R.godBeamT = 28;
+}
+break;
+case 8: {
+const dx = px - x;
+const vx = dx < -40 ? -2 : (dx < -12 ? -1 : (dx > 40 ? 2 : (dx > 12 ? 1 : 0)));
+fireFoe(x, y, 1, who, vx);
+if (phase >= 2) fireFoe(x, y + 8, 1, who, vx);
+break;
+}
+case 9: {
+const dx = px - x;
+const vx = dx < -8 ? -2 : (dx > 8 ? 2 : 0);
+fireFoe(x - 6, y, 5, who, vx, 3);
+fireFoe(x + 6, y, 5, who, -vx, 3);
+break;
+}
+case 10:
+fireFoe(12 + rnd(W - 30), 28, 2, who, 0);
+if (phase >= 1) fireFoe(12 + rnd(W - 30), 28, 2, who, 0);
+break;
+case 11:
+fireFoe(6, 30, 1, who, 3); fireFoe(W - 10, 30, 1, who, -3);
+fireFoe(x, y, 1, who, phase >= 1 ? -3 : 3);
+break;
+default:
+if (countFoeKind(4) < 4) fireFoe(20 + rnd(W - 50), 34, 4, who, rnd(3) - 1, 1);
+break;
+}
+}
+function stepMachines() {
+if (demo || scr !== "play") return;
+if (R.stun > 0) R.stun -= 1;
+if (R.charm > 0) R.charm -= 1;
+if (R.revel > 0) R.revel -= 1;
+if (R.hermes > 0) R.hermes -= 1;
+if (R.berserk > 0) R.berserk -= 1;
+if (R.aegisT > 0) {
+R.aegisT -= 1;
+if (R.aegisT === 0) R.aegisHits = 0;
+}
+if (R.waveY >= 0) {
+R.waveY -= 6;
+if (R.waveY < 28) R.waveY = -1;
+}
+if (R.sunT > 0) {
+if ((R.sunT % 8) === 1) {
+for (let i = R.units.length - 1; i >= 0; i--) {
+const u = R.units[i];
+if (!u.alive) continue;
+const [sw, sh] = unitSize(u);
+if (overlapRect(R.sunX, 36, 6, SHIP_Y - 36, R.ox + u.ox, R.oy + u.oy, sw, sh)) hitUnit(u);
+}
+if (R.boss && overlapRect(R.sunX, 36, 6, SHIP_Y - 36, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) bossHit();
+}
+R.sunT -= 1;
+}
+if (R.cloneAlive && divineOn(1) && !demo) {
+let want = (W - SHIP_W) - R.px;
+want = clamp(want, 4, W - SHIP_W - 4);
+if (want > R.px - SHIP_W && want < R.px + SHIP_W) want = R.px > W / 2 ? 8 : W - SHIP_W - 8;
+R.cloneX = want;
+if (R.cloneCool > 0) R.cloneCool -= 1;
+else if (spawnBoltAt(R.cloneX + SHIP_W / 2, SHIP_Y - 10, 0, -8, 3, 8, 0)) R.cloneCool = fireGap();
+} else R.cloneAlive = false;
+for (let i = 0; i < 12; i++) {
+if (!divineOn(i)) continue;
+if (R.divCool[i] > 0) { R.divCool[i] -= 1; continue; }
+if (triggerMachine(i)) R.divCool[i] = MACHINES[i].cool;
+}
+}
+function triggerMachine(i) {
+if (i === 0) {
+let best = null, bestY = -999;
+for (const u of R.units) {
+if (!u.alive) continue;
+if (R.oy + u.oy > bestY) { bestY = R.oy + u.oy; best = u; }
+}
+R.stun = 94;
+if (best) hitUnit(best);
+else if (R.boss) bossHit();
+return true;
+}
+if (i === 2) {
+if (R.waveY >= 0) return false;
+R.waveY = SHIP_Y - 20;
+return true;
+}
+if (i === 3) {
+if (R.demeterUses >= 2 || R.lives >= 9) return false;
+R.demeterUses += 1;
+R.lives = Math.min(9, R.lives + (R.demeterUses === 1 ? 3 : 1));
+R.msg = R.demeterUses === 1 ? "+3 LIFE" : "+1 LIFE";
+R.msgT = 45;
+return true;
+}
+if (i === 4) {
+if (R.athenaUses >= 2 || R.aegisHits > 0) return false;
+R.athenaUses += 1; R.aegisT = 188; R.aegisHits = 3;
+R.msg = "AEGIS"; R.msgT = 45;
+return true;
+}
+if (i === 6) {
+R.sunX = clamp(R.px + SHIP_W / 2 - 2, 4, W - 10);
+R.sunT = 36;
+return true;
+}
+if (i === 7) {
+if (!R.units.some(u => u.alive) && !R.boss) return false;
+return spawnBoltAt(R.px + SHIP_W / 2, SHIP_Y - 12, 0, -8, 3, 10, 4);
+}
+if (i === 8) { R.charm = 188; return true; }
+if (i === 9) {
+let best = null, bestN = 0;
+const spots = R.units.filter(u => u.alive).map(u => {
+const [sw, sh] = unitSize(u);
+return { x: R.ox + u.ox + sw / 2, y: R.oy + u.oy + sh / 2, u };
+});
+if (R.boss) spots.push({ x: R.boss.x + BOSS_W / 2, y: R.boss.y + BOSS_H / 2, u: null });
+for (const s of spots) {
+let n = 0;
+for (const o of spots) if ((s.x - o.x) ** 2 + (s.y - o.y) ** 2 <= 48 * 48) n += 1;
+if (!best || n > bestN) { best = s; bestN = n; }
+}
+if (!best) return false;
+R.blasts.push({ x: best.x, y: best.y, t: 24 });
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw, sh] = unitSize(u);
+if (overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, R.ox + u.ox, R.oy + u.oy, sw, sh)) hitUnit(u);
+}
+if (R.boss && overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) bossHit();
+return true;
+}
+if (i === 10) {
+R.hermes = 94;
+if (R.invuln < 94) R.invuln = 94;
+return true;
+}
+if (i === 11) { R.revel = 188; return true; }
+return false;
 }
 function unitLabel(u) {
 if (R.godEntrance) return godName();
@@ -806,6 +1055,7 @@ function playerDamage() {
 let dmg = 1 + forgedCount("power");
 if (perk(PERK.damage)) dmg += 1;
 if (boostOn(1)) dmg += 1;
+if (R && R.berserk > 0) dmg += 10;
 return dmg;
 }
 function hitUnit(u) {
@@ -823,6 +1073,11 @@ if (!R.boss) return false;
 if (R.raid && R.units.some(u => u.alive)) return false;
 if (R.godEntrance) {
 addScore(10);
+if (R.god === 5 && R.godWard > 0) {
+R.godWard -= 1;
+if (R.godWard === 0) { R.msg = "BROKEN"; R.msgT = 45; }
+return true;
+}
 R.godHp -= playerDamage();
 if (R.godHp <= 0) {
 R.godBars -= 1;
@@ -831,13 +1086,17 @@ R.godHpMax = godBarHp() + (3 - R.godBars) * 2;
 R.godHp = R.godHpMax;
 R.foes = [];
 } else {
+const slain = R.god;
 const [cx, cy] = centerOf(R.boss.x, R.boss.y, BOSS_W, BOSS_H);
 dropCoins(cx, cy, 10);
 maybeDrop(true);
 R.boss = null;
 R.escorts = [];
 R.godEntrance = false;
+R.godWard = 0;
+R.godBeamT = 0;
 R.god = 0;
+grantDivine(slain);
 }
 }
 return true;
@@ -1051,6 +1310,28 @@ if ((R.spaceTick & 3) === 0) b.vx = -b.vx;
 if (b.vx === 0) b.vx = 2;
 return;
 }
+if (b.tag === 4) {
+const cx = b.x + b.w / 2;
+let best = null, bestRank = -1;
+const consider = (ax, ay, rank) => {
+if (ay > b.y + 8) return;
+if (rank > bestRank) { bestRank = rank; best = ax; }
+};
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw] = unitSize(u);
+let rank = 1 + (u.hp || 0);
+if (u.kind === 2) rank += 1000;
+else if (u.kind === 6) rank += 400;
+else if (u.kind === 7) rank += 40;
+consider(R.ox + u.ox + Math.floor(sw / 2), R.oy + u.oy, rank);
+}
+if (R.boss) consider(R.boss.x + Math.floor(BOSS_W / 2), R.boss.y, 1000);
+if (best === null) return;
+if (best < cx - 2 && b.vx > -4) b.vx -= 1;
+else if (best > cx + 2 && b.vx < 4) b.vx += 1;
+return;
+}
 if (b.tag !== 3) return;
 const cx = b.x + b.w / 2;
 let best = null, bestD = 9999;
@@ -1136,6 +1417,8 @@ const bx = b.x + c * 3;
 if (bx >= cx - BLAST_R && bx <= cx + BLAST_R) b.cols[c] = 0;
 }
 }
+if (R.cloneAlive && cx > R.cloneX - BLAST_R && cx < R.cloneX + SHIP_W + BLAST_R &&
+cy > SHIP_Y - BLAST_R && cy < SHIP_Y + SHIP_H + BLAST_R) R.cloneAlive = false;
 return cx > R.px - BLAST_R && cx < R.px + SHIP_W + BLAST_R &&
 cy > SHIP_Y - BLAST_R && cy < SHIP_Y + SHIP_H + BLAST_R;
 }
@@ -1152,6 +1435,11 @@ R.beamOn = false;
 R.beamBurst = 0;
 R.invuln = inv;
 liftFormation();
+if (R.aegisHits > 0) {
+R.aegisHits -= 1;
+R.invuln = 36;
+return;
+}
 if (save.shield > 0) {
 save.shield -= 1;
 persist();
@@ -1163,6 +1451,7 @@ if (R.lives <= 0) {
 if (perk(PERK.revive) && !R.revived) {
 R.revived = true;
 R.lives = 1;
+tryBerserk();
 R.invuln = inv;
 persist();
 return;
@@ -1170,6 +1459,7 @@ return;
 die();
 return;
 }
+tryBerserk();
 persist();
 }
 function liftFormation() {
@@ -1207,15 +1497,37 @@ function stepFoes() {
 const foes = R.foes;
 for (let i = foes.length - 1; i >= 0; i--) {
 const f = foes[i];
-if (f.kind === 3 && (R.spaceTick & 7) === 0 && f.y < SHIP_Y - 80) {
+if (R.waveY >= 0 && overlapRect(f.x, f.y, f.w, f.h, 0, R.waveY, W, 14)) {
+foes.splice(i, 1);
+continue;
+}
+if (R.stun > 0) continue;
+if (R.revel > 0 && (R.spaceTick & 15) === 0 && f.kind !== 3) {
+f.vx = clamp(f.vx + rnd(3) - 1, -3, 3);
+}
+if (f.kind === 3 && R.god === 6 && (R.spaceTick & 7) === 0 && f.y < SHIP_Y - 80) {
 const target = R.px + SHIP_W / 2;
 const center = f.x + f.w / 2;
 if (target < center - 6 && f.vx > -2) f.vx -= 1;
 else if (target > center + 6 && f.vx < 2) f.vx += 1;
 }
+if (f.kind === 5 && (R.spaceTick & 3) === 0) {
+if (f.vx > 0) f.vx -= 1;
+else if (f.vx < 0) f.vx += 1;
+}
+if (f.kind === 4 && R.god === 12 && (R.spaceTick & 15) === 0) f.vx = rnd(3) - 1;
+if (R.revel > 0 && (R.spaceTick & 1) !== 0) continue;
 const nx = f.x + f.vx, ny = f.y + f.vy;
 const hitShip = overlapRect(nx, ny, f.w, f.h, R.px, SHIP_Y, SHIP_W, SHIP_H);
+const hitClone = R.cloneAlive && overlapRect(nx, ny, f.w, f.h, R.cloneX, SHIP_Y, SHIP_W, SHIP_H);
 const blocked = nx < 0 || nx > W - f.w || ny >= BUTTON_Y || barrierHitRect(nx, ny, f.w, f.h);
+if (hitClone && !hitShip) {
+foes.splice(i, 1);
+if (f.kind === 2 && blastAt(nx + 2, ny + 3)) shipHit(f.who);
+R.cloneAlive = false;
+if (R.foes !== foes) return;
+continue;
+}
 if (hitShip || blocked) {
 foes.splice(i, 1);
 if (f.kind === 2) {
@@ -1231,7 +1543,7 @@ f.x = nx; f.y = ny;
 }
 function enemyShoot() {
 if (R.god && !R.godEntrance && (R.spaceTick & 1) === 0) {
-spawnGodHazard(24 + rnd(W - 58), 38);
+fireGodGimmick(W / 2, 40);
 }
 const live = R.units.filter(u => u.alive && u.kind !== 2);
 if (live.length === 0) return;
@@ -1259,18 +1571,7 @@ const x = b.x + BOSS_W / 2;
 const y = b.y + BOSS_H;
 const who = R.godEntrance ? godName() : (R.raid ? "RAID BOSS" : "BOSS");
 if (R.godEntrance) {
-const phase = 3 - R.godBars;
-spawnGodHazard(x - 5, y);
-if (phase === 0) {
-const dx = R.px + SHIP_W / 2 - x;
-fireFoe(x, y, 1, who, dx < -10 ? -1 : (dx > 10 ? 1 : 0));
-} else if (phase === 1) {
-fireFoe(x - 12, y, 1, who, -2); fireFoe(x, y, 1, who, 0); fireFoe(x + 12, y, 1, who, 2);
-} else {
-fireFoe(x - 16, y, 1, who, -3); fireFoe(x - 8, y, 1, who, -1); fireFoe(x, y, 2, who, 0);
-fireFoe(x + 8, y, 1, who, 1); fireFoe(x + 16, y, 1, who, 3);
-spawnGodHazard(20 + rnd(W - 50), 40);
-}
+fireGodGimmick(x, y);
 for (const e of R.escorts) fireFoe(escortX(e) + ALLY_W / 2, ESCORT_Y + ALLY_H, 1, who, 0);
 return;
 }
@@ -1331,7 +1632,7 @@ if (R.invuln > 0) R.invuln -= 1;
 stepBoosts();
 if (R.gunCool > 0) R.gunCool -= 1;
 R.spaceTick += 1;
-const step = SHIP_STEP + save.thrust + (perk(PERK.speed) ? 1 : 0);
+const step = SHIP_STEP + save.thrust + (perk(PERK.speed) ? 1 : 0) + (R.hermes > 0 ? 4 : 0);
 if (input.left) R.px -= step;
 if (input.right) R.px += step;
 if (input.aim !== null) R.px = input.aim;
@@ -1344,7 +1645,8 @@ if (input.fire) fireGun();
 }
 stepBolts();
 stepDrop();
-moveFormation();
+stepMachines();
+if (R.stun <= 0) moveFormation();
 if (R.boss) {
 const b = R.boss;
 b.x += b.dir * (b.style === 1 ? 2 : 1);
@@ -1354,16 +1656,22 @@ if (b.x < minX) { b.x = minX; b.dir = 1; }
 if (b.x > maxX) { b.x = maxX; b.dir = -1; }
 b.cool -= 1;
 if (b.cool <= 0) {
-fireBoss();
+if (R.stun <= 0 && R.charm <= 0) fireBoss();
 b.cool = Math.max(18, R.foeGap + 10);
 }
 }
 R.foeCool += 1;
 if (R.foeCool >= R.foeGap) {
 R.foeCool = 0;
-enemyShoot();
+if (R.stun <= 0 && R.charm <= 0) enemyShoot();
 }
 stepFoes();
+if (R.godBeamT > 0) {
+R.godBeamT -= 1;
+if (R.godBeamT === 0 && overlapRect(R.godBeamX, SHIP_Y, 4, SHIP_H, R.px, SHIP_Y, SHIP_W, SHIP_H)) {
+shipHit(godName());
+}
+}
 if (scr !== entry) return;
 for (let i = R.blasts.length - 1; i >= 0; i--) {
 if (--R.blasts[i].t <= 0) R.blasts.splice(i, 1);
@@ -1473,6 +1781,7 @@ if (idx === 1) return 15;
 return BOOSTS[idx - 2].price;
 }
 const gun = shopUpgradeGun(idx);
+if (gun === -2) return 300;
 if (gun < 0) return 60 * (save.thrust + 1);
 return 50 * (gunLv(gun) + 1);
 }
@@ -1506,6 +1815,7 @@ if (idx === 1) return "SPARE HEART";
 return BOOSTS[idx - 2].name;
 }
 const gun = shopUpgradeGun(idx);
+if (gun === -2) return "MULTI";
 return gun < 0 ? "THRUSTERS" : gunToken(gun);
 }
 function shopStatus(tab, idx) {
@@ -1519,6 +1829,10 @@ if (idx >= 2) return save.armed && save.armed[idx - 2] > 0 ? "READY" : "$" + sho
 return "$" + shopPrice(tab, idx) + " x" + (idx === 0 ? save.shield : save.spare);
 }
 const gun = shopUpgradeGun(idx);
+if (gun === -2) {
+const slots = Math.min(12, 1 + (save.dmul | 0));
+return slots >= 12 ? "MAX" : "x" + slots + " $300";
+}
 if (gun < 0) {
 if (save.thrust >= 2) return "MAX";
 return "LV" + save.thrust + " $" + shopPrice(tab, idx);
@@ -1566,6 +1880,14 @@ persist();
 return;
 }
 const gun = shopUpgradeGun(idx);
+if (gun === -2) {
+if (Math.min(12, 1 + (save.dmul | 0)) >= 12) { shopMsg = "MAXED"; return; }
+if (!pay(300)) return;
+save.dmul = (save.dmul | 0) + 1;
+shopMsg = "MULTI";
+persist();
+return;
+}
 if (gun < 0) {
 if (save.thrust >= 2) { shopMsg = "MAXED"; return; }
 } else if (gunLv(gun) >= 5) { shopMsg = "MAXED"; return; }
@@ -2090,12 +2412,24 @@ const ink = foeInk(f);
 fillRect(fx + 2, fy, 6, 10, ink);
 fillRect(fx, fy + 2, 10, 6, ink);
 fillRect(fx + 3, fy + 3, 4, 4, clr([255, 255, 255]));
+} else if (f.kind === 4) {
+const ink = R.god ? godInk() : clr([120, 220, 96]);
+fillRect(fx, fy, f.w, f.h, ink);
+if (f.w > 6 && f.h > 6) fillRect(fx + 3, fy + 3, f.w - 6, f.h - 6, clr([255, 255, 255]));
+} else if (f.kind === 5) {
+fillRect(fx, fy, f.w, f.h, clr([255, 140, 200]));
 } else {
 fillRect(fx, fy, f.w, f.h, foeInk(f));
 }
 }
 const lc = laserColour(save.laser);
 if (R.beamOn) fillRect(R.beamX, 36, 3, SHIP_Y - 36, lc);
+if (R.godBeamT > 0) fillRect(R.godBeamX, 36, 4, SHIP_Y - 36, clr([255, 214, 80]));
+if (R.sunT > 0) fillRect(R.sunX, 36, 6, SHIP_Y - 36, (R.sunT & 2) ? clr([255, 250, 220]) : clr([255, 196, 64]));
+if (R.waveY >= 0) {
+fillRect(0, R.waveY, W, 12, clr([48, 160, 255]));
+fillRect(0, R.waveY + 4, W, 4, clr([190, 230, 255]));
+}
 for (const bolt of R.bolts) fillRect(Math.round(bolt.x), Math.round(bolt.y), bolt.w, bolt.h, lc);
 if (R.drop_) {
 const d = R.drop_;
@@ -2117,6 +2451,18 @@ for (let rr = 5; rr <= r; rr += 5) drawCircle(bl.x, bl.y, rr, clr([255, 176, 60]
 }
 const blinkOff = R.invuln > 50 && Math.floor((80 - R.invuln) / 5) % 2 === 1;
 if (!blinkOff) drawShipAt(R.px, P);
+if (R.cloneAlive) drawShipAt(R.cloneX, P);
+if (!demo) {
+let dn = 0;
+for (let i = 0; i < 12; i++) {
+if (!divineOn(i)) continue;
+const x = clamp(R.px - 6 + dn * 10, 2, W - 10);
+fillRect(x, SHIP_Y - 14, 8, 6, clr(GOD_INK[i]));
+fillRect(x + 2, SHIP_Y - 12, 4, 2, clr([255, 255, 255]));
+dn += 1;
+}
+}
+if (R.aegisHits > 0) drawRect(R.px - 3, SHIP_Y - 3, SHIP_W + 6, SHIP_H + 6, clr([220, 230, 245]));
 if (!blinkOff) drawShieldBubble(R.px);
 drawHud(P);
 if (demo) {
@@ -2145,6 +2491,8 @@ drawText(godName() + " DOMAIN", W / 2, 150, ink, "f2", "mc");
 function paintMenu(P) {
 FB.fill(P.bg);
 drawText("INVADERS", W / 2, 24, P.ink, "f4", "mc");
+drawKey("BACK", BOX.back, false, P);
+reg(BOX.back, () => startDemo());
 drawText("MACHINA", W / 2, 48, P.accent, "f2", "mc");
 drawText("$" + save.coins, W - 12, 48, P.accent, "f2", "mr");
 drawCard("PLAY", "level " + save.level, BOX.menuPlay, P);
@@ -2152,7 +2500,7 @@ drawCard("CHECKPOINTS", popCount(save.camp) + " unlocked", BOX.menuCheck, P);
 drawCard("CUSTOM", "ship, guns, laser", BOX.menuCustom, P);
 drawCard("SHOP", "themes, guns, power-ups", BOX.menuShop, P);
 drawCard(THEME_NAMES[save.theme], "tap to switch", BOX.menuTheme, P);
-drawCard("HOME SCREEN", "CPU attract", BOX.menuHome, P);
+drawCard("DIVINE MACHINES", popCount(save.gods) + " unlocked", BOX.menuHome, P);
 drawCard("FORGE", "combine attributes", BOX.menuForge, P);
 drawKey("RESTART GAME", BOX.menuRestart, false, P);
 reg(BOX.menuPlay, () => startCampaign());
@@ -2160,11 +2508,44 @@ reg(BOX.menuCheck, () => setScr("checks"));
 reg(BOX.menuCustom, () => { customFromPause = false; customPage = 0; setScr("custom"); });
 reg(BOX.menuShop, () => { setScr("shop"); });
 reg(BOX.menuTheme, () => cycleTheme());
-reg(BOX.menuHome, () => startDemo());
+reg(BOX.menuHome, () => { divPage = 0; divMsg = ""; setScr("divine"); });
 reg(BOX.menuForge, () => beginForge());
 reg(BOX.menuRestart, () => setScr("confirm"));
 }
-function popCount(n) { let k = 0; while (n) { k += n & 1; n >>= 1; } return k; }
+function popCount(n) { let k = 0; n = n | 0; while (n) { k += n & 1; n >>>= 1; } return k; }
+function paintDivine(P) {
+FB.fill(P.bg);
+drawText("DIVINE MACHINES", W / 2, 18, P.ink, "f2", "mc");
+drawText(popCount(save.dive) + "/" + divineSlots() + " EQUIPPED", W / 2, 40, P.accent, "f2", "mc");
+if (divMsg) drawText(divMsg, W / 2, 62, P.muted, "f2", "mc");
+for (let row = 0; row < 6; row++) {
+const idx = divPage * 6 + row;
+if (idx >= 12) break;
+const b = shopRowBox(row);
+const on = divineOn(idx);
+const owned = ((save.gods >> idx) & 1) !== 0;
+fillRect(b.x, b.y, b.w, b.h, on ? P.buttonOn : P.button);
+drawRect(b.x, b.y, b.w, b.h, on ? P.accent : P.muted);
+drawText(GODS[idx] + " " + MACHINES[idx].name, b.x + 8, b.y + 14, owned ? P.ink : P.muted, "f2", "ml");
+drawText(MACHINES[idx].hint, b.x + 8, b.y + 32, P.muted, "f2", "ml");
+drawText(on ? "ON" : (owned ? "READY" : "LOCKED"), b.x + b.w - 8, b.y + Math.floor(b.h / 2), on ? P.accent : P.muted, "f2", "mr");
+reg(b, () => divineToggle(idx));
+}
+drawKey("PAGE", BOX.shopPage, false, P);
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.shopPage, () => { divPage ^= 1; });
+reg(BOX.home, () => goMenu());
+}
+function divineToggle(idx) {
+divMsg = "";
+const bit = 1 << idx;
+if ((save.gods & bit) === 0) { divMsg = "LOCKED"; return; }
+if ((save.dive & bit) !== 0) save.dive = (save.dive & ~bit) & 0xfff;
+else if (popCount(save.dive) >= divineSlots()) { divMsg = "NEED MULTI"; return; }
+else save.dive = (save.dive | bit) & 0xfff;
+save.dive &= save.gods;
+persist();
+}
 function paintChecks(P) {
 FB.fill(P.bg);
 drawText("CHECKPOINTS", W / 2, 26, P.ink, "f2", "mc");
@@ -2439,6 +2820,7 @@ paintAdvance(P);
 paintLevel(P, scr === "demo" ? { left: false, right: false, fire: false } : playerInput());
 }
 } else if (scr === "menu") paintMenu(P);
+else if (scr === "divine") paintDivine(P);
 else if (scr === "checks") paintChecks(P);
 else if (scr === "shop") paintShop(P);
 else if (scr === "forge") paintForge(P);
