@@ -329,7 +329,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kShotH = 8;
   static constexpr int kShipStep = 5;
   static constexpr int kCoins = 16;
-  static constexpr int kCoinW = 6;
+  static constexpr int kCoinW = 11;
   static constexpr int kShopRows = 6;
   static constexpr uint16_t kThemePrice[8] = {0, 0, 0, 0, 60, 80, 100, 120};
 
@@ -978,8 +978,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void drawCoin(int x, int y) {
-    fillCircle(x + 3, y + 3, 3, color565(255, 210, 48));
-    fillRect(x + 2, y + 2, 2, 2, color565(255, 246, 170));
+    fillCircle(x + kCoinW / 2, y + kCoinW / 2, kCoinW / 2, color565(196, 204, 214));
+    fillCircle(x + kCoinW / 2, y + kCoinW / 2, kCoinW / 2 - 1, color565(222, 228, 236));
+    fillRect(x + 3, y + 3, 3, 3, color565(255, 255, 255));
   }
 
   void spawnCoin(int x, int y) {
@@ -998,7 +999,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   // A boss scatters its coins over the spot where it fell.
   void dropCoins(int x, int y, int n) {
-    for (int i = 0; i < n; ++i) spawnCoin(x + (i - n / 2) * 7, y);
+    for (int i = 0; i < n; ++i) spawnCoin(x + (i - n / 2) * (kCoinW + 2), y);
   }
 
   void paintCoins() {
@@ -2697,7 +2698,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       addScore(20);
       if (boss_hp_ <= 0) {
         unit.alive = false;
-        dropCoins(origin_x_ + unit.ox + unitW(unit) / 2 - 3, origin_y_ + unit.oy + unitH(unit) / 2 - 3, 2);
+        dropCoins(origin_x_ + unit.ox + unitW(unit) / 2 - kCoinW / 2, origin_y_ + unit.oy + unitH(unit) / 2 - kCoinW / 2, 2);
         maybeDrop(true);
         return true;
       }
@@ -2733,7 +2734,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
             boss_ = false;
             god_ = 0;
             god_entrance_ = false;
-            dropCoins(origin_x_ + unit.ox + kBossW / 2 - 3, origin_y_ + unit.oy + kBossH / 2 - 3, 10);
+            dropCoins(origin_x_ + unit.ox + kBossW / 2 - kCoinW / 2, origin_y_ + unit.oy + kBossH / 2 - kCoinW / 2, 10);
             maybeDrop(true);
             return true;
           }
@@ -2765,7 +2766,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
           raid_won_ = true;
           saveCampaign();
         }
-        dropCoins(origin_x_ + unit.ox + unitW(unit) / 2 - 3, origin_y_ + unit.oy + unitH(unit) / 2 - 3, raid_ ? 4 : 3);
+        dropCoins(origin_x_ + unit.ox + unitW(unit) / 2 - kCoinW / 2, origin_y_ + unit.oy + unitH(unit) / 2 - kCoinW / 2, raid_ ? 4 : 3);
         maybeDrop(true);
         return true;
       }
@@ -2775,7 +2776,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     unit.alive = false;
     addScore(10);
     if ((nextRng() % 100) < 20) {
-      spawnCoin(origin_x_ + unit.ox + unitW(unit) / 2 - 3, origin_y_ + unit.oy + unitH(unit) / 2 - 3);
+      spawnCoin(origin_x_ + unit.ox + unitW(unit) / 2 - kCoinW / 2, origin_y_ + unit.oy + unitH(unit) / 2 - kCoinW / 2);
     }
     maybeDrop(false);
     return true;
