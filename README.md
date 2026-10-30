@@ -19,6 +19,22 @@ The panel boots into an attract demo where a CPU plays the game. Tap PLAY to ope
 - Every 5th level is a boss. Bosses can turn into a raid. After the first raid boss is beaten, each level has a 40% chance of a mini boss.
 - Every 25 levels a god appears: a themed arena, four waves of goons with mini bosses, then the god. The god has three health bars and changes fighting style as each bar empties.
 
+## Play on a laptop (web version)
+
+`web/index.html` is one self-contained file. It runs in any modern browser on Windows, macOS, Linux, ChromeOS, or phones, and needs no install or internet connection.
+
+1. Download or clone this repo.
+2. Double-click `web/index.html` (or drag it into Chrome, Edge, Firefox, or Safari).
+
+Controls:
+
+- **Move:** Left/Right arrows or A/D, or move the mouse or trackpad (the ship follows the pointer).
+- **Fire:** Space, W or Up arrow, or hold the mouse or trackpad button.
+- **Menus:** click, or Up/Down and Enter.
+- **Pause / back:** Esc.
+
+Saves are kept in the browser (localStorage) on that machine.
+
 ## Build
 
 From `firmware/`:
