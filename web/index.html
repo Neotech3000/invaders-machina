@@ -521,7 +521,7 @@ level, score: 0, lives: 3, invuln: 0,
 px: (W - SHIP_W) / 2,
 ox: 0, oy: 34, dir: 1, step: 2, drop: 8,
 units: [], foes: [], bolts: [], coins: [], blasts: [], barriers: [],
-scraps: [], terrain: 0, sky: null,
+scraps: [], terrain: 0, sky: null, floats: [],
 boss: null, escorts: [], mini: false, raid: false,
 god: 0, godWave: 0, godEntrance: false, godBars: 3, godHp: 0, godHpMax: 1,
 raidMates: [],
@@ -574,7 +574,7 @@ return [ALIEN_W, ALIEN_H];
 }
 function startLevel() {
 const L = R.level;
-R.foes = []; R.bolts = []; R.blasts = []; R.escorts = []; R.raidMates = []; R.boss = null;
+R.foes = []; R.bolts = []; R.blasts = []; R.escorts = []; R.raidMates = []; R.boss = null; R.floats = [];
 R.mini = false; R.raid = false; R.god = 0; R.godEntrance = false;
 R.hurt = false;
 R.raidSplash = false; R.shieldHole = 0; R.raidBeamT = 0; R.playerStun = 0; R.apolloT = 0; R.hephT = 0;
@@ -839,12 +839,6 @@ save.clearedGw.push(id);
 persist();
 }
 // COIN_RULES_END
-function nextGodLevel(from) { return Math.floor((from + 24) / 25) * 25; }
-function nextGodName(from) {
-const g = nextGodLevel(from);
-const idx = ((Math.floor(g / 25) - 1) % 12 + 12) % 12;
-return GODS[idx];
-}
 function hitFlash(who) {
 if (who === "LASER" || who === "GOD BEAM" || who === "BEAM") return "GOD BEAM";
 if (GODS.indexOf(who) >= 0) return "ORB";
@@ -1061,7 +1055,7 @@ fillRect(x + 1, 52, 8, 2, ink);
 }
 }
 function stepPoseidonRain() {
-if (!R || R.god !== 3 || scr !== "play") { quietPoseidon(); if (R) R.poseidonCool = 0; return; }
+if (!R || R.god !== 3 || !R.godEntrance || scr !== "play") { quietPoseidon(); if (R) R.poseidonCool = 0; return; }
 if (R.poseidonCool > 0) R.poseidonCool -= 1;
 if (R.poseidonWarn > 0) {
 R.poseidonWarn -= 1;
@@ -1264,7 +1258,7 @@ const BOOSTS = [
 ];
 const BOOST_RGB = [[255, 140, 32], [255, 60, 48], [80, 220, 255], [230, 230, 255], [255, 80, 220]];
 function powerRGB(idx) {
-if (idx === 0) return [255, 210, 48];
+if (idx === 0) return [96, 200, 255];
 if (idx === 1) return [255, 64, 96];
 return BOOST_RGB[idx - 2];
 }
@@ -1352,7 +1346,15 @@ if (!R.boost) R.boost = [0, 0, 0, 0, 0];
 R.boost[i] = BOOSTS[i].len;
 setMsg(BOOSTS[i].name);
 }
+floatText(R.msg, dropInk(d.which));
 R.drop_ = null;
+}
+function dropInk(which) {
+if (which === 9) return clr([255, 64, 96]);
+if (which === 10) return clr([255, 210, 48]);
+if (which === 11) return clr([96, 200, 255]);
+if (which >= 12 && which < 12 + BOOSTS.length) return clr(BOOST_RGB[which - 12]);
+return clr([255, 220, 80]);
 }
 function setMsg(m) { R.msg = m; R.msgT = 45; }
 function stepDrop() {
@@ -1955,9 +1957,6 @@ f.x = nx; f.y = ny;
 }
 }
 function enemyShoot() {
-if (R.god && !R.godEntrance && (R.spaceTick & 1) === 0) {
-fireGodGimmick(W / 2, 40);
-}
 const live = R.units.filter(u => u.alive && u.kind !== 2 && u.kind !== 8 && !(u.stun > 0));
 if (live.length === 0) return;
 const u = live[rnd(live.length)];
@@ -2023,6 +2022,7 @@ const ny = c.y + 2;
 if (overlapRect(c.x, ny, COIN_SIZE, COIN_SIZE, R.px, SHIP_Y, SHIP_W, SHIP_H)) {
 R.coins.splice(i, 1);
 if (!demo && save.coins < 65535) save.coins += 1;
+floatText("Coin!", clr([222, 228, 236]));
 noteCoin();
 beep(1046, 45);
 continue;
@@ -2131,6 +2131,8 @@ return phase === 36 && overlapRect(R.raidBeamX - 1, SHIP_Y, 4, SHIP_H, R.px, SHI
 function stepPlay(input) {
 const entry = scr;
 if (R.zapT > 0) R.zapT -= 1;
+for (const f of R.floats) { f.y -= 1; f.t -= 1; }
+R.floats = R.floats.filter(f => f.t > 0);
 if (R.invuln > 0) R.invuln -= 1;
 if (R.playerStun > 0) R.playerStun -= 1;
 if (R.shieldHole > 0) R.shieldHole -= 1;
@@ -2288,7 +2290,6 @@ forgeRevealUp: { x: 32, y: 238, w: 256, h: 48 },
 forgeEquip: { x: 32, y: 300, w: 256, h: 48 }
 };
 function gunBox(slot) { return { x: 16, y: 88 + slot * 34, w: 288, h: 32 }; }
-function checkCell(i) { return { x: 12 + (i % 4) * 76, y: 48 + Math.floor(i / 4) * 70, w: 70, h: 56 }; }
 function shopTabBox(t) { return { x: 4 + t * 52, y: 40, w: 50, h: 34 }; }
 function shopRowBox(r) { return { x: 16, y: 84 + r * 52, w: 288, h: 46 }; }
 function forgeTabBox(t) { return { x: 8 + t * 102, y: 40, w: 96, h: 32 }; }
@@ -3018,6 +3019,33 @@ drawText(line, 8, 12, P.ink, "f2", "ml");
 const hr = drawHearts(P);
 drawText("$" + save.coins, hr.x - 6, 12, P.accent, "f2", "mr");
 if (R.boss || R.godEntrance) drawBossBar(P);
+drawPowerStatus(P);
+}
+function powerStatusRows() {
+const rows = [];
+for (let i = 0; i < BOOSTS.length; i++) {
+if (R.boost && R.boost[i] > 0) rows.push({ name: BOOSTS[i].name, left: R.boost[i], max: BOOSTS[i].len, rgb: BOOST_RGB[i] });
+}
+const timed = [[4, R.aegisT, 188], [8, R.charm, 188], [11, R.revel, 188], [10, R.hermes, 94], [5, R.berserk, 500]];
+for (const [i, left, max] of timed) {
+if (left > 0) rows.push({ name: MACHINES[i].name, left, max, rgb: GOD_INK[i] });
+}
+return rows;
+}
+function drawPowerStatus(P) {
+const rows = powerStatusRows();
+const w = 96;
+let y = 30;
+for (const r of rows.slice(0, 6)) {
+const ink = clr(r.rgb);
+drawText(r.name, W - 8, y + 5, ink, "f2", "mr");
+fillRect(W - 8 - w, y + 10, w, 3, P.button);
+fillRect(W - 8 - w, y + 10, Math.floor(w * clamp(r.left / r.max, 0, 1)), 3, ink);
+y += 15;
+}
+}
+function floatText(text, c) {
+R.floats.push({ text, x: R.px + SHIP_W / 2, y: SHIP_Y - 14, t: 40, c });
 }
 function drawBossBar(P) {
 if (R.godEntrance) {
@@ -3233,6 +3261,7 @@ const r = Math.min(BLAST_R, 5 * Math.ceil((24 - bl.t + 1) / 6));
 for (let rr = 5; rr <= r; rr += 5) drawCircle(bl.x, bl.y, rr, clr([255, 176, 60]));
 }
 drawShipAt(R.px, P);
+for (const f of R.floats) drawText(f.text, f.x, f.y, f.c, "f2", "mc");
 if (R.invuln > 0) {
 const step = Math.floor(R.invuln / 15) % 8;
 const up = step < 4 ? step : 7 - step;
@@ -3376,7 +3405,7 @@ divine: [
 "DIVINE MACHINES","","Beat each Olympian to unlock","its machine. Tap a row to equip","or unequip. PAGE shows more.","MULTI from the shop adds slots.","","ZEUS LIGHTNING - stun zap 5s.","HERA DOUBLE - clone ship that","mirrors you and fires with you.","POSEIDON TSUNAMI - wave that","blocks shots 8s.","DEMETER HEAL RAY - +2 life,","then +1, temporary.","ATHENA AEGIS - brief shield.","ARES BERSERKER - triggers at","one life: faster fire and cool.","APOLLO SOLARIS - burn beam.","ARTEMIS SILVER - homing bolts.","APHRODITE CHARM - stop enemy","fire for 9s.","HEPHAESTUS ANVIL - blast.","HERMES CADUCEUS - dash speed.","DIONYSUS REVEL - slow enemy","shots."
 ],
 checks: [
-"CHECKPOINTS","","Every 20 levels opens a cell.","OPEN cells are reachable.","LOCKED cells stay dark until","you pass that mark in a run.","Tap an OPEN cell to jump there","and continue the campaign.","BACK returns to the menu.","Jumping does not erase shop","gear or divine unlocks."
+"CHECKPOINTS","","The path links the Olympians in","order, ZEUS to DIONYSUS.","Tap an OPEN god to list levels","every 5, up to 20 above and","below its level.","Tap an OPEN level to jump there.","LOCKED levels stay dark until","you pass their checkpoint in a","run. BACK returns to the path.","Jumping does not erase shop","gear or divine unlocks."
 ],
 confirm: [
 "RESTART CONFIRM","","YES wipes this campaign run:","level, coins, bought guns,","forged gear, shop stock, armed","boosts, and divine machines.","Best scores and achievements","stay. NO cancels and returns","to the menu unchanged."
@@ -3479,7 +3508,7 @@ drawCard("DIVINE MACHINES", popCount(save.gods) + " unlocked", BOX.menuHome, P);
 drawCard("FORGE", "combine attributes", BOX.menuForge, P);
 drawKey("RESTART GAME", BOX.menuRestart, false, P);
 reg(BOX.menuPlay, () => startCampaign());
-reg(BOX.menuCheck, () => setScr("checks"));
+reg(BOX.menuCheck, () => { checkGod = -1; setScr("checks"); });
 reg(BOX.menuCustom, () => { customFromPause = false; customPage = 0; setScr("custom"); });
 reg(BOX.menuShop, () => { setScr("shop"); });
 reg(BOX.menuScores, () => { scorePage = 0; setScr("scores"); });
@@ -3524,30 +3553,72 @@ else save.dive = (save.dive | bit) & 0xfff;
 save.dive &= save.gods;
 persist();
 }
+let checkGod = -1;
+function checkLevelOpen(L) {
+const cp = Math.floor(L / 20) * 20;
+if (cp < 20) return true;
+return (save.camp & (1 << (cp / 20 - 1))) !== 0;
+}
+function checkNodeBox(g) {
+const row = Math.floor(g / 3);
+const col = g % 3;
+const c = row % 2 ? 2 - col : col;
+return { x: 16 + c * 100, y: 52 + row * 84, w: 88, h: 52 };
+}
 function paintChecks(P) {
 FB.fill(P.bg);
+if (checkGod < 0) paintCheckMap(P);
+else paintCheckList(P);
+}
+function paintCheckMap(P) {
 drawText("CHECKPOINTS", W / 2, 26, P.ink, "f2", "mc");
-for (let i = 0; i < 15; i++) {
-const cell = checkCell(i);
-const open = (save.camp & (1 << i)) !== 0;
-fillRect(cell.x, cell.y, cell.w, cell.h, open ? P.button : P.bg);
-drawRect(cell.x, cell.y, cell.w, cell.h, open ? P.accent : P.button);
-const from = (i + 1) * 20;
-const godName = nextGodName(from);
-const godLine = textWidth(godName) > cell.w - 4 ? godName.slice(0, 4) : godName;
-const godLv = nextGodLevel(from);
-const godIdx = ((Math.floor(godLv / 25) - 1) % 12 + 12) % 12;
-drawText(String(from), cell.x + Math.floor(cell.w / 2), cell.y + 18, open ? P.ink : P.muted, "f2", "mc");
-drawText(godLine, cell.x + Math.floor(cell.w / 2), cell.y + 38, open ? clr(GOD_INK[godIdx]) : P.muted, "f2", "mc");
-reg(cell, () => {
-if (!open) return;
-demo = false;
-R = newRun((i + 1) * 20);
-startLevel();
-});
+for (let g = 0; g < 11; g++) {
+const a = checkNodeBox(g), b = checkNodeBox(g + 1);
+const lit = checkLevelOpen((g + 1) * 25) && checkLevelOpen((g + 2) * 25);
+drawLine(a.x + 44, a.y + 26, b.x + 44, b.y + 26, lit ? P.accent : P.button);
+}
+for (let g = 0; g < 12; g++) {
+const box = checkNodeBox(g);
+const lv = (g + 1) * 25;
+const open = checkLevelOpen(lv);
+const ink = clr(GOD_INK[g]);
+fillRect(box.x, box.y, box.w, box.h, open ? P.button : P.bg);
+drawRect(box.x, box.y, box.w, box.h, open ? ink : P.button);
+const name = textWidth(GODS[g]) > box.w - 6 ? GODS[g].slice(0, 6) : GODS[g];
+drawText(name, box.x + 44, box.y + 18, open ? ink : P.muted, "f2", "mc");
+drawText("LV " + lv, box.x + 44, box.y + 38, open ? P.ink : P.muted, "f2", "mc");
+if (open) reg(box, () => { checkGod = g; });
 }
 drawKey("BACK", BOX.home, false, P);
 reg(BOX.home, () => goMenu());
+drawHelpButton(P);
+}
+function paintCheckList(P) {
+const g = checkGod;
+const lv = (g + 1) * 25;
+const ink = clr(GOD_INK[g]);
+drawText(GODS[g] + " LEVELS", W / 2, 26, ink, "f2", "mc");
+const levels = [];
+for (let d = -20; d <= 20; d += 5) {
+const L = lv + d;
+if (L >= 1 && L <= LEVELS) levels.push(L);
+}
+levels.forEach((L, k) => {
+const box = { x: 16 + (k % 3) * 104, y: 56 + Math.floor(k / 3) * 66, w: 88, h: 52 };
+const open = checkLevelOpen(L);
+const isGod = L % 25 === 0;
+fillRect(box.x, box.y, box.w, box.h, open ? P.button : P.bg);
+drawRect(box.x, box.y, box.w, box.h, isGod ? ink : open ? P.accent : P.button);
+drawText(String(L), box.x + 44, box.y + 20, open ? P.ink : P.muted, "f2", "mc");
+drawText(open ? (isGod ? "GOD" : "OPEN") : "LOCKED", box.x + 44, box.y + 38, open ? (isGod ? ink : P.accent) : P.muted, "f2", "mc");
+if (open) reg(box, () => {
+demo = false;
+R = newRun(L);
+startLevel();
+});
+});
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.home, () => { checkGod = -1; });
 drawHelpButton(P);
 }
 function paintConfirm(P) {
