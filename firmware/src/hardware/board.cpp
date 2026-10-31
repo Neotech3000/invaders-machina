@@ -4983,7 +4983,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   uint16_t powerColorOf(int idx) const {
-    if (idx == 0) return color565(255, 210, 48);
+    if (idx == 0) return color565(96, 200, 255);
     if (idx == 1) return color565(255, 64, 96);
     return boostColorOf(idx - 2);
   }
@@ -6168,7 +6168,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   bool stepPoseidonRain() {
-    if (god_ != 3 || mode_ != Mode::Play) {
+    if (god_ != 3 || !god_entrance_ || mode_ != Mode::Play) {
       quietPoseidon();
       poseidon_cool_ = 0;
       return false;
@@ -6813,9 +6813,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (god_ != 0 && god_entrance_ && bossAlive()) {
       fireGodVolley();
       return lost;
-    }
-    if (god_ != 0 && (space_tick_ & 1) == 0) {
-      fireGodGimmick(kPanelWidth / 2, 40);
     }
     if (boss_ && boss_style_ == 3 && bossAlive()) {
       for (int i = 0; i < unit_n_; ++i) {
