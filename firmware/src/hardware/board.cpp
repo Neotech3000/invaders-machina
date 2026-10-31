@@ -2712,9 +2712,31 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       case 2: return "HIT WHEN OPEN";
       case 3: return "DODGE THE SPRAY";
       case 4: return "DODGE THE BEAM";
+      case 6: return "NETS AND BEAM";
       default: return "RAID";
     }
   }
+
+  const char* bossGimmick(int style) const {
+    if (style == 1) return "DROP DRONES";
+    if (style == 2) return "HIT WHEN OPEN";
+    if (style == 3) return "DODGE SPRAY";
+    if (style == 4) return "DODGE LASER";
+    if (style == 6) return "NETS + LASER";
+    return "BREAK SHIELD";
+  }
+
+  // Laser stays a 30% roll. The other five weapons, including stunner drones, take turns.
+  int rolledBossStyle(int lv) {
+    if (static_cast<int>(nextRng() % 100) < 30) return 4;
+    int slot = ((lv / 5) - 1) % 5;
+    if (slot < 0) slot += 5;
+    static const int map[5] = {0, 1, 2, 3, 6};
+    return map[slot];
+  }
+
+  // Poseidon is level 75. Stunners are part of that domain and every level after it.
+  bool stunnersOn() const { return level_ >= 75; }
 
   // Coins paid when a boss falls. The base rises by one every 25 levels.
   int bossBounty(int base) const {
@@ -2898,7 +2920,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         const uint32_t roll = nextRng() % 100;
         if (roll < 12) kind = 4;
         else if (roll < 20) kind = 5;
-        else if (stunners < 3 && roll < 32) {
+        else if (stunnersOn() && stunners < 3 && roll < 32) {
           kind = 8;
           stunners += 1;
         }
@@ -2961,6 +2983,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     addUnit(god_ox + kGodW + 8, 18, 7);
     apollo_tick_ = 0;
     apollo_live_ = false;
+    heph_tick_ = 0;
+    heph_on_[0] = heph_on_[1] = heph_on_[2] = false;
     // A raid boss stays in the fight after the god descends.
     const int mate = unit_n_;
     addUnit(4, 4, 2);
@@ -3128,8 +3152,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         fillRect(x + 26, y + 9, 8, 3, ink.muted);
       } else if (boss_style_ == 3) {
         fillRect(x + 10, y + 10, 24, 4, color565(255, 72, 64));
-      } else if (boss_style_ == 4) {
+      } else if (boss_style_ == 4 || boss_style_ == 6) {
         fillRect(x + 20, y + 4, 4, 16, color565(255, 48, 40));
+        if (boss_style_ == 6) {
+          const uint16_t net = color565(80, 220, 255);
+          drawLine(x + 8, y + 8, x + 16, y + 14, net);
+          drawLine(x + 16, y + 8, x + 8, y + 14, net);
+        }
       } else {
         fillRect(x + 14, y + 8, 4, 4, eye);
         fillRect(x + 26, y + 8, 4, 4, eye);
@@ -3296,7 +3325,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       else if (boss_layers_ > 0) tag = "SHIELD";
       else if (boss_style_ == 2) tag = boss_open_ ? "OPEN" : "SHUT";
       else if (boss_style_ == 3) tag = "SPRAY";
-      else if (boss_style_ == 4) tag = "LASER";
+      else if (boss_style_ == 6) {
+        bool nets = false;
+        for (int u = 0; u < unit_n_; ++u) {
+          if (units_[u].alive && units_[u].kind == 8) nets = true;
+        }
+        tag = nets ? "STUN" : "LASER";
+      } else if (boss_style_ == 4) tag = "LASER";
       else if (raid_) tag = "RAID";
       snprintf(line, sizeof line, "%s %d %d", tag, level_, score_);
     } else {
@@ -3403,13 +3438,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     boss_layers_ = 0;
     boss_layer_max_ = 0;
     if (!raid) {
-      if (pending_style_ >= 0 && pending_style_ <= 4) {
+      if (pending_style_ == 6 || (pending_style_ >= 0 && pending_style_ <= 4)) {
         boss_style_ = static_cast<uint8_t>(pending_style_);
         pending_style_ = -1;
-      } else if (static_cast<int>(nextRng() % 100) < 30) {
-        boss_style_ = 4;
       } else {
-        boss_style_ = static_cast<uint8_t>(((level_ / 5) - 1) % 4);
+        boss_style_ = static_cast<uint8_t>(rolledBossStyle(level_));
       }
     }
     int core = raid ? 36 + level_ / 3 : 20 + level_ / 4;
@@ -3424,7 +3457,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     } else if (raid && boss_style_ != 4) {
       layers = 2;
     }
-    if (boss_style_ == 4) layers = 0;
+    if (boss_style_ == 4 || boss_style_ == 6) layers = 0;
     if (layers > 4) layers = 4;
     int layer_hp = 5 + level_ / 20;
     if (layer_hp > 14) layer_hp = 14;
@@ -3446,17 +3479,19 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
     }
     addUnit(boss_ox, 0, 2);
-    if (boss_style_ == 1) {
+    if (boss_style_ == 1 || boss_style_ == 6) {
       int count = 2;
       if (level_ >= 40) count = 3;
-      if (level_ >= 120) count = 4;
-      if (raid && count < 4) count += 1;
+      if (boss_style_ == 1 && level_ >= 120) count = 4;
+      if (boss_style_ == 1 && raid && count < 4) count += 1;
+      if (boss_style_ == 6 && count > 3) count = 3;
+      const int drone_kind = boss_style_ == 6 ? 8 : 3;
       for (int slot = 0; slot < count; ++slot) {
         int ox = boss_ox - 52;
         if (slot == 1) ox = boss_ox + kBossW + 8;
         else if (slot == 2) ox = boss_ox - 76;
         else if (slot == 3) ox = boss_ox + kBossW + 32;
-        addUnit(ox, 6, 3);
+        addUnit(ox, 6, drone_kind);
       }
     }
     step_px_ = 2 + level_ / 80 + static_cast<int>(nextRng() % 2);
@@ -3485,7 +3520,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     int stunners = 0;
     for (int col = 0; col < cols; ++col) {
       int kind = (col & 1) != 0 ? 1 : 0;
-      if (level_ >= 6 && stunners < 3 && (nextRng() % 100) < 30) {
+      if (stunnersOn() && stunners < 3 && (nextRng() % 100) < 30) {
         kind = 8;
         stunners += 1;
       }
@@ -3574,7 +3609,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         const uint32_t roll = nextRng() % 100;
         if (level_ >= 3 && roll < 6 + level_ / 25) kind = 4;
         else if (level_ >= 8 && roll >= 90 - level_ / 30) kind = 5;
-        else if (level_ >= 6 && stunners < 3 && roll >= 72 && roll < 84) {
+        else if (stunnersOn() && stunners < 3 && roll >= 72 && roll < 84) {
           kind = 8;
           stunners += 1;
         }
@@ -3674,6 +3709,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     buddy_drawn_ = false;
     invuln_ = 0;
     player_stun_ = 0;
+    heph_tick_ = 0;
+    heph_on_[0] = heph_on_[1] = heph_on_[2] = false;
     shield_hole_ = 0;
     hit_cannon_ = false;
     clearBolts();
@@ -3742,14 +3779,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     char line[28];
     const int next = level_ + 1;
     if (next % 5 == 0 && !isGodLevel(next)) {
-      if ((nextRng() % 100) < 30) pending_style_ = 4;
-      else pending_style_ = ((next / 5) - 1) % 4;
-      const int style = pending_style_;
-      const char* gimmick = "BREAK SHIELD";
-      if (style == 1) gimmick = "DROP DRONES";
-      if (style == 2) gimmick = "HIT WHEN OPEN";
-      if (style == 3) gimmick = "DODGE SPRAY";
-      if (style == 4) gimmick = "DODGE LASER";
+      pending_style_ = rolledBossStyle(next);
+      const char* gimmick = bossGimmick(pending_style_);
       snprintf(line, sizeof line, "BOSS %d", next);
       drawString(line, kPanelWidth / 2, 188);
       setTextColor(ink.accent);
@@ -4236,8 +4267,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     sky_on_ = false;
     laser_live_ = false;
     if (fresh) {
-      const int jump = 1 + static_cast<int>(nextRng() % 4);
-      boss_style_ = static_cast<uint8_t>((boss_style_ + jump) % 5);
+      static const uint8_t weapons[] = {0, 1, 2, 3, 4, 6};
+      int cur = 0;
+      for (int i = 0; i < 6; ++i) {
+        if (weapons[i] == boss_style_) cur = i;
+      }
+      const int jump = 1 + static_cast<int>(nextRng() % 5);
+      boss_style_ = weapons[(cur + jump) % 6];
     }
     splash_raid_ = true;
     mode_ = Mode::Splash;
@@ -5190,7 +5226,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         break;
       }
       case 10:
-        spawnGodOrb(16 + static_cast<int>(nextRng() % (kPanelWidth - 42)), 36, 0, 2);
         break;
       case 11:
         spawnGodOrb(x - 5, y, (nextRng() & 1) ? 1 : -1, 2);
@@ -5339,6 +5374,132 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     apollo_live_ = (phase >= 2 && phase < 48) || (phase2 >= 2 && phase2 < 48);
     if (phase == 48) repairBeamColumn(apollo_aim_);
     if (phase2 == 48) repairBeamColumn(apollo_aim2_);
+    return hit;
+  }
+
+  void repairHeph(int i) {
+    int x0 = heph_x0_[i];
+    int y0 = heph_y0_[i];
+    int x1 = heph_x1_[i];
+    int y1 = heph_y1_[i];
+    if (x0 > x1) {
+      const int t = x0;
+      x0 = x1;
+      x1 = t;
+    }
+    if (y0 > y1) {
+      const int t = y0;
+      y0 = y1;
+      y1 = t;
+    }
+    const int x = x0 - 2;
+    const int y = y0 - 2;
+    const int w = x1 - x0 + 5;
+    const int h = y1 - y0 + 5;
+    repair(x, y, w, h);
+    for (int u = 0; u < unit_n_; ++u) {
+      if (!units_[u].alive) continue;
+      const int ax = origin_x_ + units_[u].ox;
+      const int ay = origin_y_ + units_[u].oy;
+      if (overlap(x, y, w, h, ax, ay, unitW(units_[u]), unitH(units_[u]))) {
+        drawAlienAt(ax, ay, units_[u].kind);
+      }
+    }
+    for (int b = 0; b < barrier_n_; ++b) {
+      if (!barriers_[b].on) continue;
+      if (overlap(x, y, w, h, barriers_[b].x, barriers_[b].y, kBarCols * 3, 21)) drawBarrier(b);
+    }
+    for (int c = 0; c < kCoins; ++c) {
+      if (!coins_[c].on) continue;
+      if (overlap(x, y, w, h, coins_[c].x, coins_[c].y, kCoinW, kCoinW)) drawCoin(coins_[c].x, coins_[c].y);
+    }
+    drawShipAt(player_x_);
+  }
+
+  void quietHeph() {
+    for (int i = 0; i < 3; ++i) {
+      if (!heph_on_[i]) continue;
+      repairHeph(i);
+      heph_on_[i] = false;
+    }
+    heph_tick_ = 0;
+  }
+
+  void aimHeph(int i) {
+    const int x0 = i == 0 ? 18 : (i == 1 ? kPanelWidth / 2 : kPanelWidth - 18);
+    const int y0 = i == 1 ? 40 : 56;
+    const int tx = player_x_ + kShipW / 2;
+    int dx = tx - x0;
+    int dy = (kShipY + kShipH / 2) - y0;
+    if (dy < 8) dy = 8;
+    if (dx > -36 && dx < 36) dx = (i == 2 || (i == 1 && tx < kPanelWidth / 2)) ? -56 : 56;
+    const int end_y = kShipY + kShipH;
+    int x1 = x0 + dx * (end_y - y0) / dy;
+    if (x1 < 0) x1 = 0;
+    if (x1 > kPanelWidth - 1) x1 = kPanelWidth - 1;
+    heph_x0_[i] = x0;
+    heph_y0_[i] = y0;
+    heph_x1_[i] = x1;
+    heph_y1_[i] = end_y;
+  }
+
+  void drawHephLine(int i, bool hot) {
+    const uint16_t ink = hot ? color565(255, 176, 48) : color565(180, 72, 24);
+    const int x0 = heph_x0_[i];
+    const int y0 = heph_y0_[i];
+    const int x1 = heph_x1_[i];
+    const int y1 = heph_y1_[i];
+    drawLine(x0, y0, x1, y1, ink);
+    if (!hot) return;
+    drawLine(x0 - 1, y0, x1 - 1, y1, ink);
+    drawLine(x0 + 1, y0, x1 + 1, y1, ink);
+  }
+
+  bool hephHitsShip(int i) const {
+    const int x0 = heph_x0_[i];
+    const int y0 = heph_y0_[i];
+    const int x1 = heph_x1_[i];
+    const int y1 = heph_y1_[i];
+    const int adx = x1 >= x0 ? x1 - x0 : x0 - x1;
+    const int ady = y1 >= y0 ? y1 - y0 : y0 - y1;
+    const int steps = (adx > ady ? adx : ady) / 4 + 1;
+    for (int s = 0; s <= steps; ++s) {
+      const int x = x0 + (x1 - x0) * s / steps;
+      const int y = y0 + (y1 - y0) * s / steps;
+      if (overlap(x - 2, y - 2, 5, 5, player_x_, kShipY, kShipW, kShipH)) return true;
+    }
+    return false;
+  }
+
+  // Three diagonal lasers in Hephaestus's domain. Each warns, then strikes, a half-second apart.
+  bool stepHephaestusLaser() {
+    const bool up = god_ == 10 && mode_ == Mode::Play;
+    if (!up) {
+      if (heph_on_[0] || heph_on_[1] || heph_on_[2]) quietHeph();
+      return false;
+    }
+    heph_tick_ += 1;
+    for (int i = 0; i < 3; ++i) {
+      const int phase = (heph_tick_ + i * 30) % 90;
+      if (phase == 1) {
+        aimHeph(i);
+        heph_on_[i] = true;
+      }
+      if (phase == 41 && heph_on_[i]) {
+        repairHeph(i);
+        heph_on_[i] = false;
+      }
+    }
+    bool hit = false;
+    for (int i = 0; i < 3; ++i) {
+      if (!heph_on_[i]) continue;
+      const int phase = (heph_tick_ + i * 30) % 90;
+      if (phase >= 2 && phase <= 28) drawHephLine(i, false);
+      else if (phase >= 29 && phase <= 40) {
+        drawHephLine(i, true);
+        if (phase == 29 && hephHitsShip(i)) hit = true;
+      }
+    }
     return hit;
   }
 
@@ -5805,7 +5966,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (units_[i].alive && units_[i].kind != 2 && units_[i].kind != 8 && units_[i].stun == 0) alive += 1;
     }
     if (alive == 0) {
-      if (bossAlive() && boss_style_ != 3) {
+      if (bossAlive() && boss_style_ != 3 && boss_style_ != 6) {
         for (int i = 0; i < unit_n_; ++i) {
           if (!units_[i].alive || units_[i].kind != 2 || units_[i].stun > 0) continue;
           spawnFoe(origin_x_ + units_[i].ox + unitW(units_[i]) / 2,
@@ -5885,7 +6046,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   bool stepBossLaser() {
-    if (!boss_ || boss_style_ != 4 || !bossAlive() || mode_ != Mode::Play) {
+    if (!boss_ || (boss_style_ != 4 && boss_style_ != 6) || !bossAlive() || mode_ != Mode::Play) {
       if (laser_live_) {
         repairLaserColumn();
         laser_live_ = false;
@@ -6007,6 +6168,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       lost = true;
       hit_by_ = "LASER";
     }
+    if (!lost && stepHephaestusLaser()) {
+      lost = true;
+      hit_by_ = "LASER";
+    }
     if (!lost && stepBossLaser()) {
       lost = true;
       hit_by_ = "LASER";
@@ -6028,6 +6193,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       if (god_ != 0) {
         if (god_entrance_) {
+          quietHeph();
           god_ = 0;
           god_entrance_ = false;
           god_unit_ = -1;
@@ -6182,6 +6348,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int apollo_aim_ = 160;
   int apollo_aim2_ = 200;
   bool apollo_live_ = false;
+  int heph_tick_ = 0;
+  int heph_x0_[3] = {};
+  int heph_y0_[3] = {};
+  int heph_x1_[3] = {};
+  int heph_y1_[3] = {};
+  bool heph_on_[3] = {};
   uint32_t sound_until_ = 0;
   uint8_t boss_shield_ = 0;
   uint8_t boss_shield_max_ = 0;
