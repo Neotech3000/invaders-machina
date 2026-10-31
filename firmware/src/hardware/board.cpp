@@ -2332,6 +2332,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (shop_tab_ == 0) fillRect(b.x + 8, b.y + 12, 22, 22, paletteOf(idx).accent);
       if (shop_tab_ == 1) drawShipHull(b.x + 4, b.y + 15, idx);
       if (shop_tab_ == 2) fillRect(b.x + 8, b.y + 12, 22, 22, laserColorOf(idx));
+      if (shop_tab_ == 4) fillRect(b.x + 8, b.y + 12, 22, 22, powerColorOf(idx));
       setTextDatum(lgfx::middle_left);
       setTextColor(ink.ink);
       drawString(shopName(shop_tab_, idx), b.x + (shop_tab_ == 1 ? 42 : 38), b.y + b.h / 2);
@@ -4974,17 +4975,26 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     else if (roll < 20) spawnDrop(10);
   }
 
+  uint16_t boostColorOf(int i) const {
+    static const uint8_t kR[kBoosts] = {255, 255, 80, 230, 255};
+    static const uint8_t kG[kBoosts] = {140, 60, 220, 230, 80};
+    static const uint8_t kB[kBoosts] = {32, 48, 255, 255, 220};
+    return color565(kR[i], kG[i], kB[i]);
+  }
+
+  uint16_t powerColorOf(int idx) const {
+    if (idx == 0) return color565(255, 210, 48);
+    if (idx == 1) return color565(255, 64, 96);
+    return boostColorOf(idx - 2);
+  }
+
   void drawDrop() {
     uint16_t color = color565(255, 220, 80);
     if (drop_which_ == 9) color = color565(255, 64, 96);
     else if (drop_which_ == 10) color = color565(255, 210, 48);
     else if (drop_which_ == 11) color = color565(96, 200, 255);
     else if (drop_which_ >= 12 && drop_which_ < 12 + kBoosts) {
-      static const uint8_t kR[kBoosts] = {255, 255, 80, 230, 255};
-      static const uint8_t kG[kBoosts] = {140, 60, 220, 230, 80};
-      static const uint8_t kB[kBoosts] = {32, 48, 255, 255, 220};
-      const int i = drop_which_ - 12;
-      color = color565(kR[i], kG[i], kB[i]);
+      color = boostColorOf(drop_which_ - 12);
     } else if (drop_which_ >= 1 && drop_which_ <= 8) {
       static const uint8_t kR[8] = {255, 80, 80, 255, 80, 255, 255, 180};
       static const uint8_t kG[8] = {150, 255, 120, 80, 180, 80, 140, 80};
