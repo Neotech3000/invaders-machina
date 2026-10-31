@@ -1,0 +1,21 @@
+; Copy this file to platformio.local.ini in the same folder, then edit it.
+; platformio.local.ini is git-ignored. Do not commit a filled-in copy.
+;
+; Leave the lines below commented when only the display is plugged in.
+; Uncomment them when the computer has more than one serial device.
+;
+; Find the port name:
+;   Windows   Device Manager -> Ports (COM & LPT) -> USB-SERIAL CH340 (COMx)
+;   macOS     ls /dev/cu.wchusbserial* /dev/cu.usbserial*
+;             Use the /dev/cu.* name, not /dev/tty.*
+;   Linux     ls /dev/ttyUSB* 
+;             or: ls /dev/serial/by-id
+;
+; [env:cyd]
+; upload_port = REPLACE_WITH_YOUR_PORT
+; monitor_port = REPLACE_WITH_YOUR_PORT
+;
+; Examples of the value, one per operating system:
+;   upload_port = COM5
+;   upload_port = /dev/cu.wchusbserial110
+;   upload_port = /dev/ttyUSB0

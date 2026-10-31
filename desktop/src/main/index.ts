@@ -2,12 +2,16 @@ import { app, BrowserWindow, ipcMain, screen } from "electron";
 import fs from "fs";
 import path from "path";
 import { DesktopHandoff, realClock, type CatPort, type Expr } from "../handoff/desktop_handoff";
-import { assertOpenable, BAUD_LABEL, listPorts, PREFERRED_PORT } from "../transport/ports";
+import { assertOpenable, BAUD_LABEL, listPorts, preferredPort } from "../transport/ports";
 import { SerialByteStream, type ByteStream } from "../transport/serial";
 import { SimulatorStream } from "../transport/simulator";
 
-app.commandLine.appendSwitch("ozone-platform", "x11");
-app.commandLine.appendSwitch("enable-transparent-visuals");
+// Transparent frameless windows on Linux need the X11 path. Forcing that
+// platform on Windows or macOS stops the window from opening.
+if (process.platform === "linux") {
+  app.commandLine.appendSwitch("ozone-platform", "x11");
+  app.commandLine.appendSwitch("enable-transparent-visuals");
+}
 
 let session: DesktopHandoff;
 let stream: ByteStream | null = null;
@@ -86,24 +90,16 @@ function makeWindow(view: string, width: number, height: number) {
   return win;
 }
 
-function ch340Ready(): boolean {
-  try {
-    assertOpenable(PREFERRED_PORT);
-  } catch {
-    return false;
-  }
-  return listPorts().some((port) => port.id === PREFERRED_PORT);
-}
-
 async function maybeAutoConnect() {
+  const preferred = await preferredPort();
   if (userHold) {
-    if (!ch340Ready()) userHold = false;
+    if (!preferred) userHold = false;
     return;
   }
   if (session.phase !== "disconnected" || stream) return;
-  if (!ch340Ready()) return;
+  if (!preferred) return;
   try {
-    await connect(PREFERRED_PORT);
+    await connect(preferred);
   } catch (err) {
     console.log("JITTERS auto-connect", err instanceof Error ? err.message : err);
   }
@@ -160,8 +156,12 @@ async function handoffOnce(shotPath: string) {
   const trace: string[] = [];
   const orig = session;
   void orig;
-  console.log("JITTERS demo connect", PREFERRED_PORT);
-  await connect(PREFERRED_PORT);
+  const port = await preferredPort();
+  if (!port) {
+    throw new Error("No display port. Copy desktop/port.local.json.example to desktop/port.local.json and set port.");
+  }
+  console.log("JITTERS demo connect", port);
+  await connect(port);
   const linked = await waitPhase("linked", 10000);
   if (!linked) throw new Error(session.status);
   session.bring();
@@ -213,9 +213,9 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle("state", () => session.snapshot());
-  ipcMain.handle("ports", () => ({
-    ports: listPorts(),
-    preferred: PREFERRED_PORT,
+  ipcMain.handle("ports", async () => ({
+    ports: await listPorts(),
+    preferred: await preferredPort(),
     baudLabel: BAUD_LABEL,
   }));
   ipcMain.handle("connect", async (_e, id: string) => {
