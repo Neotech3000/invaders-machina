@@ -1342,7 +1342,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void eraseShipAt(int x) {
-    repairBg(shipClearX(x), shipClearY(), shipClearW(), shipClearH());
+    repair(shipClearX(x), shipClearY(), shipClearW(), shipClearH());
   }
 
   void repair(int x, int y, int w, int h) {
@@ -1367,6 +1367,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         paintGodArena(cy < 160 && cy + ch > 138);
         clearClipRect();
       }
+    }
+    if (demo_ && (mode_ == Mode::Play || mode_ == Mode::Advance)) {
+      paintCoverClip(x, y, w, h);
     }
     if (mode_ == Mode::Play || mode_ == Mode::Advance) {
       const int bx = shipClearX(player_x_);
@@ -2297,12 +2300,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void forgeFlash() {
-    for (int i = 0; i < 3; ++i) {
-      fillScreen(TFT_WHITE);
-      delay(70);
-      fillScreen(palette().bg);
-      delay(70);
-    }
+    // One warm hold. A repeating white screen is a strobe.
+    fillRect(16, 72, kPanelWidth - 32, 280, color565(72, 36, 12));
+    drawRect(16, 72, kPanelWidth - 32, 280, color565(255, 180, 48));
+    delay(280);
   }
 
   void forgeConfirm() {
@@ -3895,9 +3896,60 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       case 'i': return "..#.." "....." ".###." "..#.." "..#.." "..#.." ".###.";
       case 'n': return "....." "####." "#...#" "#...#" "#...#" "#...#" "#...#";
       case 'r': return "....." "#.##." "##..#" "#...." "#...." "#...." "#....";
+      case 's': return "....." ".###." "#...#" ".###." "....#" "#...#" ".###.";
       case 'v': return "#...#" "#...#" "#...#" ".#.#." ".#.#." "..#.." "..#..";
       default: return nullptr;
     }
+  }
+
+  int coverGlowStep() const {
+    const int step = (space_tick_ / 16) % 8;
+    return step < 4 ? step : 7 - step;
+  }
+
+  uint16_t coverRed() const {
+    const int g = coverGlowStep();
+    return color565(168 + g * 22, 12 + g * 8, 28);
+  }
+
+  bool coverWordAt(int x, int y, const char* word, int top) const {
+    const int s = 6;
+    const int gap = 2;
+    const int n = static_cast<int>(std::strlen(word));
+    const int ww = n * 5 * s + (n - 1) * gap;
+    const int left = (kPanelWidth - ww) / 2;
+    if (y < top || y >= top + 7 * s || x < left) return false;
+    const int span = 5 * s;
+    for (int i = 0; i < n; ++i) {
+      const int gx = left + i * (span + gap);
+      if (x < gx || x >= gx + span) continue;
+      const char* rows = coverGlyph(word[i]);
+      if (rows == nullptr) return false;
+      const int col = (x - gx) / s;
+      const int row = (y - top) / s;
+      return rows[row * 5 + col] == '#';
+    }
+    return false;
+  }
+
+  // Letter ink only, so scrolling stars do not punch the title.
+  bool coverGlyphAt(int x, int y) const {
+    if (!demo_) return false;
+    const int line = 108;
+    const int second = line + 50;
+    const int tops[] = {line - 1, line, line + 2, second - 1, second, second + 2};
+    const char* words[] = {"Invaders", "Invaders", "Invaders", "Machina", "Machina", "Machina"};
+    for (int i = 0; i < 6; ++i) {
+      if (coverWordAt(x, y, words[i], tops[i])) return true;
+    }
+    return false;
+  }
+
+  void coverBounds(int& x, int& y, int& w, int& h) const {
+    x = 20;
+    y = 96;
+    w = kPanelWidth - 40;
+    h = 128;
   }
 
   void drawCoverGlyph(char ch, int x, int y, int s, uint16_t ink) {
@@ -3912,7 +3964,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void drawCoverWord(const char* word, int y, int s, uint16_t ink) {
-    const int gap = 3;
+    const int gap = 2;
     const int n = static_cast<int>(std::strlen(word));
     const int ww = n * 5 * s + (n - 1) * gap;
     int x = (kPanelWidth - ww) / 2;
@@ -3922,49 +3974,92 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
-  // Poster title over the attract demo. The fight keeps running around the plate.
+  // Title in the attract background. Callers draw aliens, shots, and the ship after it.
   void paintAttractCover() {
     if (!demo_) return;
-    const int x = 12;
-    const int y = 116;
-    const int w = kPanelWidth - 24;
-    const int h = 156;
-    const uint16_t plate = color565(28, 2, 10);
     const uint16_t gold = color565(255, 196, 48);
     const uint16_t white = color565(255, 248, 232);
-    const uint16_t red = color565(232, 16, 32);
-    fillRect(x, y, w, h, plate);
-    const int cx = x + w / 2;
-    const int cy = y + h / 2;
-    const int x0 = x + 8;
-    const int y0 = y + 8;
-    const int x1 = x + w - 9;
-    const int y1 = y + h - 9;
+    const int cx = kPanelWidth / 2;
+    const int cy = 156;
     const int rays[][2] = {
-        {cx, y0}, {x1, y0}, {x1, cy}, {x1, y1}, {cx, y1}, {x0, y1}, {x0, cy}, {x0, y0},
-        {x0 + (x1 - x0) / 3, y0}, {x0 + 2 * (x1 - x0) / 3, y0},
-        {x0 + (x1 - x0) / 3, y1}, {x0 + 2 * (x1 - x0) / 3, y1},
+        {cx, 100}, {292, 108}, {292, 156}, {292, 214}, {cx, 214}, {28, 214}, {28, 156}, {28, 108},
     };
-    for (int i = 0; i < 12; ++i) {
-      drawLine(cx, cy, rays[i][0], rays[i][1], (i & 2) != 0 ? white : gold);
-    }
     for (int i = 0; i < 8; ++i) {
-      if (((space_tick_ / 4 + i) % 5) == 0) continue;
-      const int sx = x + 14 + (i * 34) % (w - 28);
-      const int sy = (i & 1) != 0 ? y + 10 : y + h - 14;
-      drawLine(sx - 3, sy, sx + 3, sy, white);
-      drawLine(sx, sy - 3, sx, sy + 3, gold);
+      drawLine(cx, cy, rays[i][0], rays[i][1], (i & 1) != 0 ? white : gold);
     }
-    drawRect(x, y, w, h, gold);
-    drawRect(x + 3, y + 3, w - 6, h - 6, white);
-    const int s = 7;
-    const int line = y + 16;
-    drawCoverWord("Invader", line + 3, s, gold);
-    drawCoverWord("Machina", line + 64, s, gold);
-    drawCoverWord("Invader", line - 2, s, white);
-    drawCoverWord("Machina", line + 59, s, white);
-    drawCoverWord("Invader", line, s, red);
-    drawCoverWord("Machina", line + 61, s, red);
+    const int s = 6;
+    const int line = 108;
+    const uint16_t red = coverRed();
+    drawCoverWord("Invaders", line + 2, s, gold);
+    drawCoverWord("Machina", line + 52, s, gold);
+    drawCoverWord("Invaders", line - 1, s, white);
+    drawCoverWord("Machina", line + 49, s, white);
+    drawCoverWord("Invaders", line, s, red);
+    drawCoverWord("Machina", line + 50, s, red);
+    cover_glow_ = coverGlowStep();
+  }
+
+  void paintCoverClip(int x, int y, int w, int h) {
+    if (!demo_) return;
+    int bx = 0;
+    int by = 0;
+    int bw = 0;
+    int bh = 0;
+    coverBounds(bx, by, bw, bh);
+    int cx = x > bx ? x : bx;
+    int cy = y > by ? y : by;
+    const int rx = (x + w) < (bx + bw) ? (x + w) : (bx + bw);
+    const int ry = (y + h) < (by + bh) ? (y + h) : (by + bh);
+    if (cx < 0) cx = 0;
+    if (cy < 0) cy = 0;
+    if (rx <= cx || ry <= cy) return;
+    setClipRect(cx, cy, rx - cx, ry - cy);
+    paintAttractCover();
+    clearClipRect();
+  }
+
+  void redrawOverCover(int x, int y, int w, int h) {
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive) continue;
+      const int ax = origin_x_ + units_[i].ox;
+      const int ay = origin_y_ + units_[i].oy;
+      if (overlap(x, y, w, h, ax, ay, unitW(units_[i]), unitH(units_[i]))) {
+        drawAlienAt(ax, ay, units_[i].kind);
+      }
+    }
+    for (int i = 0; i < barrier_n_; ++i) {
+      if (!barriers_[i].on) continue;
+      if (overlap(x, y, w, h, barriers_[i].x, barriers_[i].y, kBarCols * 3, 21)) drawBarrier(i);
+    }
+    for (int i = 0; i < kFoeBolts; ++i) {
+      if (!foes_[i].on) continue;
+      if (overlap(x, y, w, h, foes_[i].x, foes_[i].y, foes_[i].w, foes_[i].h)) drawFoe(foes_[i]);
+    }
+    for (int i = 0; i < kBolts; ++i) {
+      if (!bolts_[i].on) continue;
+      if (overlap(x, y, w, h, bolts_[i].x, bolts_[i].y, bolts_[i].w, bolts_[i].h)) {
+        fillRect(bolts_[i].x, bolts_[i].y, bolts_[i].w, bolts_[i].h, laserColor());
+      }
+    }
+    if (beam_on_ && overlap(x, y, w, h, beam_x_, 36, 3, kShipY - 36)) paintBeamColumns();
+    if (overlap(x, y, w, h, player_x_, kShipY, kShipW, kShipH)) drawShipAt(player_x_);
+    if (clone_alive_ && overlap(x, y, w, h, clone_x_, kShipY, kShipW, kShipH)) drawShipAt(clone_x_);
+  }
+
+  // The red letters ease between two close shades about once every two seconds.
+  void refreshAttractGlow() {
+    if (!demo_) return;
+    const int g = coverGlowStep();
+    if (g == cover_glow_) return;
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+    coverBounds(x, y, w, h);
+    setClipRect(x, y, w, h);
+    paintAttractCover();
+    clearClipRect();
+    redrawOverCover(x, y, w, h);
   }
 
   void paintLevel() {
@@ -3977,6 +4072,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       paintScraps();
     }
     if (sky_on_) drawSky();
+    if (demo_) paintAttractCover();
     for (int i = 0; i < barrier_n_; ++i) {
       drawBarrier(i);
     }
@@ -4006,7 +4102,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawHud();
     if (demo_) {
       // The attract loop shows one big PLAY key where the ship controls sit.
-      paintAttractCover();
       fillRect(0, kButtonY, kPanelWidth, kPanelHeight - kButtonY, ink.bg);
       drawKey("PLAY", playBox(), false);
       return;
@@ -4155,17 +4250,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     else showOver("YOU DIED", lifeFlash());
   }
 
-  // The ship blinks where it is; the level keeps its formation and progress.
-  void blinkShip() {
-    for (int i = 0; i < 3; ++i) {
-      eraseShipAt(player_x_);
-      delay(85);
-      drawShipAt(player_x_);
-      delay(85);
-    }
-    eraseShipAt(player_x_);
-    drawShipAt(player_x_);
+  // A soft outline while the ship is safe. The hull stays drawn.
+  void drawInvulnGlow() {
+    if (invuln_ <= 0 || demo_) return;
+    const int step = (invuln_ / 16) % 8;
+    const int up = step < 4 ? step : 7 - step;
+    drawRect(player_x_ - 2, kShipY - 2, kShipW + 4, kShipH + 4,
+             color565(160 + up * 20, 110 + up * 14, 36));
   }
+
+  void blinkShip() { drawInvulnGlow(); }
 
   // If the formation is already on the ship line, lift it a little so the
   // player gets a fair chance instead of dying again the next tick.
@@ -4342,7 +4436,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (star.layer == 0 && (space_tick_ & 1) != 0) continue;
       const int ox = star.x;
       const int oy = star.y;
-      if (!starBlocked(ox, oy)) drawPixel(ox, oy, ink.bg);
+      if (!starBlocked(ox, oy) && !coverGlyphAt(ox, oy)) drawPixel(ox, oy, ink.bg);
       int ny = oy + speed;
       int nx = ox;
       if (ny >= kShipY - 8) {
@@ -4351,7 +4445,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       star.x = static_cast<int16_t>(nx);
       star.y = static_cast<int16_t>(ny);
-      if (!starBlocked(nx, ny)) drawPixel(nx, ny, star.layer ? ink.star : ink.muted);
+      if (!starBlocked(nx, ny) && !coverGlyphAt(nx, ny)) {
+        drawPixel(nx, ny, star.layer ? ink.star : ink.muted);
+      }
     }
     const bool move_small = (space_tick_ & 1) == 0;
     for (int i = 0; i < scrap_n_; ++i) {
@@ -5622,7 +5718,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void stepSun() {
     if (sun_ticks_ <= 0) return;
-    const uint16_t ink = (sun_ticks_ & 2) ? color565(255, 250, 220) : color565(255, 196, 64);
+    const uint16_t ink = color565(255, 210, 96);
     fillRect(sun_x_, 36, 6, kShipY - 36, ink);
     if ((sun_ticks_ % 8) == 1) {
       for (int i = unit_n_ - 1; i >= 0; --i) {
@@ -6455,9 +6551,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     const int next_beam = player_x_ + kShipW / 2 - 1;
     startWrite();
     stepSpace();
+    refreshAttractGlow();
     if (player_x_ != old_player || hole_closed || player_stun_ > 0 || stun_ended) {
       eraseShipAt(player_x_ != old_player ? old_player : player_x_);
       drawShipAt(player_x_);
+      drawInvulnGlow();
       if (player_stun_ > 0) {
         const uint16_t net = color565(80, 220, 255);
         const int nx = player_x_ - 2;
@@ -6514,7 +6612,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       hit_by_ = "LASER";
     }
     if (god_entrance_) drawBossBar();
-    if (demo_) paintAttractCover();
     endWrite();
     if (mode_ != Mode::Play) return;
     if (lost) {
@@ -6675,6 +6772,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Scrap scraps_[kScraps];
   int scrap_n_ = 0;
   int space_tick_ = 0;
+  int cover_glow_ = -1;
   int gun_cool_ = 0;
   int beam_x_ = 0;
   int beam_mate_ = -1;

@@ -3007,6 +3007,7 @@ h: "#...##...#######...##...##...##...#",
 i: "..#........###...#....#....#...###.",
 n: ".....####.#...##...##...##...##...#",
 r: ".....#.##.##..##....#....#....#....",
+s: "......###.#...#.###.....##...#.###.",
 v: "#...##...##...#.#.#..#.#...#....#.."
 };
 return rows[ch] || null;
@@ -3022,7 +3023,7 @@ fillRect(x + col * s, y + row * s, s, s, ink);
 }
 }
 function drawCoverWord(word, y, s, ink) {
-const gap = 3;
+const gap = 2;
 const ww = word.length * 5 * s + (word.length - 1) * gap;
 let x = Math.floor((W - ww) / 2);
 for (const ch of word) {
@@ -3030,41 +3031,34 @@ drawCoverGlyph(ch, x, y, s, ink);
 x += 5 * s + gap;
 }
 }
+function coverGlowStep() {
+const step = Math.floor(R.spaceTick / 16) % 8;
+return step < 4 ? step : 7 - step;
+}
+function coverRed() {
+const g = coverGlowStep();
+return clr([168 + g * 22, 12 + g * 8, 28]);
+}
 function paintAttractCover() {
-const x = 12, y = 116, w = W - 24, h = 156;
-const plate = clr([28, 2, 10]);
 const gold = clr([255, 196, 48]);
 const white = clr([255, 248, 232]);
-const red = clr([232, 16, 32]);
-fillRect(x, y, w, h, plate);
-const cx = x + Math.floor(w / 2);
-const cy = y + Math.floor(h / 2);
-const x0 = x + 8, y0 = y + 8, x1 = x + w - 9, y1 = y + h - 9;
+const cx = Math.floor(W / 2);
+const cy = 156;
 const rays = [
-[cx, y0], [x1, y0], [x1, cy], [x1, y1], [cx, y1], [x0, y1], [x0, cy], [x0, y0],
-[x0 + Math.floor((x1 - x0) / 3), y0], [x0 + Math.floor(2 * (x1 - x0) / 3), y0],
-[x0 + Math.floor((x1 - x0) / 3), y1], [x0 + Math.floor(2 * (x1 - x0) / 3), y1]
+[cx, 100], [292, 108], [292, 156], [292, 214], [cx, 214], [28, 214], [28, 156], [28, 108]
 ];
 for (let i = 0; i < rays.length; i++) {
-drawLine(cx, cy, rays[i][0], rays[i][1], (i & 2) ? white : gold);
+drawLine(cx, cy, rays[i][0], rays[i][1], (i & 1) ? white : gold);
 }
-for (let i = 0; i < 8; i++) {
-if ((Math.floor(R.spaceTick / 4) + i) % 5 === 0) continue;
-const sx = x + 14 + (i * 34) % (w - 28);
-const sy = (i & 1) ? y + 10 : y + h - 14;
-drawLine(sx - 3, sy, sx + 3, sy, white);
-drawLine(sx, sy - 3, sx, sy + 3, gold);
-}
-drawRect(x, y, w, h, gold);
-drawRect(x + 3, y + 3, w - 6, h - 6, white);
-const s = 7;
-const line = y + 16;
-drawCoverWord("Invader", line + 3, s, gold);
-drawCoverWord("Machina", line + 64, s, gold);
-drawCoverWord("Invader", line - 2, s, white);
-drawCoverWord("Machina", line + 59, s, white);
-drawCoverWord("Invader", line, s, red);
-drawCoverWord("Machina", line + 61, s, red);
+const s = 6;
+const line = 108;
+const red = coverRed();
+drawCoverWord("Invaders", line + 2, s, gold);
+drawCoverWord("Machina", line + 52, s, gold);
+drawCoverWord("Invaders", line - 1, s, white);
+drawCoverWord("Machina", line + 49, s, white);
+drawCoverWord("Invaders", line, s, red);
+drawCoverWord("Machina", line + 50, s, red);
 }
 function paintLevel(P, input) {
 FB.fill(P.bg);
@@ -3084,6 +3078,7 @@ drawCircle(R.sky.x, R.sky.y, Math.floor((R.sky.r * 2) / 3), P.accent);
 fillCircle(R.sky.x, R.sky.y, Math.floor(R.sky.r / 3), P.bg);
 }
 }
+if (demo) paintAttractCover();
 for (const b of R.barriers) {
 for (let col = 0; col < 10; col++) {
 for (let row = 0; row < b.cols[col]; row++) fillRect(b.x + col * 3, b.y + row * 3, 3, 2, P.barrier);
@@ -3168,7 +3163,7 @@ fillRect(fx, fy, f.w, f.h, foeInk(f));
 }
 const lc = laserColour(save.laser);
 if (R.beamOn) for (const x of beamXs()) fillRect(x, 36, 3, SHIP_Y - 36, lc);
-if (R.sunT > 0) fillRect(R.sunX, 36, 6, SHIP_Y - 36, (R.sunT & 2) ? clr([255, 250, 220]) : clr([255, 196, 64]));
+if (R.sunT > 0) fillRect(R.sunX, 36, 6, SHIP_Y - 36, clr([255, 210, 96]));
 if (R.waveY >= 0) {
 fillRect(0, R.waveY, W, 12, clr([48, 160, 255]));
 fillRect(0, R.waveY + 4, W, 4, clr([190, 230, 255]));
@@ -3192,8 +3187,12 @@ for (const bl of R.blasts) {
 const r = Math.min(BLAST_R, 5 * Math.ceil((24 - bl.t + 1) / 6));
 for (let rr = 5; rr <= r; rr += 5) drawCircle(bl.x, bl.y, rr, clr([255, 176, 60]));
 }
-const blinkOff = R.invuln > 50 && Math.floor((80 - R.invuln) / 5) % 2 === 1;
-if (!blinkOff) drawShipAt(R.px, P);
+drawShipAt(R.px, P);
+if (R.invuln > 0) {
+const step = Math.floor(R.invuln / 15) % 8;
+const up = step < 4 ? step : 7 - step;
+drawRect(R.px - 2, SHIP_Y - 2, SHIP_W + 4, SHIP_H + 4, clr([160 + up * 20, 110 + up * 14, 36]));
+}
 if (R.playerStun > 0) {
 const net = clr([80, 220, 255]);
 const nx = R.px - 2, ny = SHIP_Y - 2;
@@ -3212,10 +3211,9 @@ dn += 1;
 }
 }
 if (R.aegisHits > 0) drawRect(R.px - 3, SHIP_Y - 3, SHIP_W + 6, SHIP_H + 6, clr([220, 230, 245]));
-if (!blinkOff) drawShieldBubble(R.px);
+drawShieldBubble(R.px);
 drawHud(P);
 if (demo) {
-paintAttractCover();
 fillRect(0, BUTTON_Y, W, H - BUTTON_Y, P.bg);
 drawKey("PLAY", BOX.play, false, P);
 reg(BOX.play, () => goMenu());
@@ -3560,7 +3558,6 @@ reg(BOX.home, () => goMenu());
 }
 function paintForge(P) {
 FB.fill(P.bg);
-if (forgeFlash > 0) return;
 drawText("FORGE", 12, 18, P.ink, "f2", "ml");
 drawText("$" + save.coins, W - 12, 18, P.accent, "f2", "mr");
 if (forgeStep === 0 || forgeStep === 1) {
@@ -3693,7 +3690,13 @@ else if (scr === "scores") paintScores(P);
 else if (scr === "divine") paintDivine(P);
 else if (scr === "checks") paintChecks(P);
 else if (scr === "shop") paintShop(P);
-else if (scr === "forge") paintForge(P);
+else if (scr === "forge") {
+paintForge(P);
+if (forgeFlash > 0) {
+const g = Math.floor(forgeFlash / 8);
+drawRect(12, 64, W - 24, 300, clr([120 + g * 24, 64 + g * 16, 16]));
+}
+}
 else if (scr === "custom") paintCustom(P);
 else if (scr === "confirm") paintConfirm(P);
 if (kbActive && btns[sel]) {
