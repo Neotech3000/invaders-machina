@@ -83,6 +83,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       loadGear();
       loadCampaign();
     }
+    loadMeta();
     makeStars();
     rng_ = esp_random();
     if (rng_ == 0) rng_ = 1;
@@ -148,7 +149,17 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         theme_ = static_cast<uint8_t>((theme_ + 1) & 3);
         prefs_.putUChar("theme", theme_);
         beginMenu();
-      } else if (std::strcmp(where, "RESTART") == 0) beginConfirm();
+      } else if (std::strcmp(where, "SCORES") == 0) beginScores();
+      else if (std::strcmp(where, "RESTART") == 0) beginConfirm();
+      return;
+    }
+    if (mode_ == Mode::Scores) {
+      if (!rose || !on) return;
+      if (std::strcmp(where, "PAGE") == 0) {
+        const int pages = (kAchN + kAchPage - 1) / kAchPage;
+        score_page_ = static_cast<uint8_t>((score_page_ + 1) % pages);
+        paintScores();
+      } else if (std::strcmp(where, "BACK") == 0) beginMenu();
       return;
     }
     if (mode_ == Mode::Check) {
@@ -201,7 +212,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
  private:
   enum class Mode : uint8_t {
-    Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom
+    Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom, Scores
   };
 
   struct Box {
@@ -278,6 +289,23 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kBlastR = 20;
   static constexpr int kGunCount = 9;
   static constexpr int kGunMaxLv = 5;
+  static constexpr int kAchN = 15;
+  static constexpr int kAchPage = 5;
+  static constexpr int kAchBlood = 0;
+  static constexpr int kAchWave = 1;
+  static constexpr int kAchIron = 2;
+  static constexpr int kAchBoss = 3;
+  static constexpr int kAchMini = 4;
+  static constexpr int kAchRaid = 5;
+  static constexpr int kAchGun = 6;
+  static constexpr int kAchMax = 7;
+  static constexpr int kAchDrone = 8;
+  static constexpr int kAch1k = 9;
+  static constexpr int kAch5k = 10;
+  static constexpr int kAch10k = 11;
+  static constexpr int kAchLv25 = 12;
+  static constexpr int kAchLv100 = 13;
+  static constexpr int kAchClear = 14;
   static constexpr int kScraps = 6;
   static constexpr int kDroneW = 16;
   static constexpr int kDroneH = 12;
@@ -506,6 +534,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Box menuCheckBox() const { return {16, 134, 288, 52}; }
   Box menuCustomBox() const { return {16, 198, 288, 52}; }
   Box menuThemeBox() const { return {16, 262, 288, 52}; }
+  Box menuScoresBox() const { return {16, 326, 288, 52}; }
+  Box scorePageBox() const { return {16, 388, 120, 32}; }
   Box menuRestartBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
   Box checkCell(int index) const {
     const int col = index % 4;
@@ -536,6 +566,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (contains(menuCheckBox(), x, y)) return "CHECK";
       if (contains(menuCustomBox(), x, y)) return "CUSTOM";
       if (contains(menuThemeBox(), x, y)) return "THEME";
+      if (contains(menuScoresBox(), x, y)) return "SCORES";
       if (contains(menuRestartBox(), x, y)) return "RESTART";
       return "none";
     }
@@ -553,6 +584,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (mode_ == Mode::Confirm) {
       if (contains(yesBox(), x, y)) return "YES";
       if (contains(noBox(), x, y)) return "NO";
+      return "none";
+    }
+    if (mode_ == Mode::Scores) {
+      if (contains(scorePageBox(), x, y)) return "PAGE";
+      if (contains(homeBox(), x, y)) return "BACK";
       return "none";
     }
     if (mode_ == Mode::Play || mode_ == Mode::Advance) {
@@ -588,10 +624,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     regions_logged_ = true;
     const Box boxes[] = {playBox(), menuPlayBox(), menuCheckBox(), menuCustomBox(), menuThemeBox(),
-                         menuRestartBox(), leftBox(), fireBox(), rightBox(), backBox()};
-    const char* names[] = {"PLAY", "MENU", "CHECK", "CUSTOM", "THEME",
+                         menuScoresBox(), menuRestartBox(), leftBox(), fireBox(), rightBox(), backBox()};
+    const char* names[] = {"PLAY", "MENU", "CHECK", "CUSTOM", "THEME", "SCORES",
                            "RESTART", "LEFT", "FIRE", "RIGHT", "BACK"};
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 11; ++i) {
       Serial.printf("TOUCH region %s %d %d %d %d\n", names[i], boxes[i].x, boxes[i].y, boxes[i].w,
                     boxes[i].h);
     }
@@ -805,6 +841,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawCard("CHECKPOINTS", checkpointLine(), menuCheckBox());
     drawCard("CUSTOM", "ship, guns, laser", menuCustomBox());
     drawCard(themeName(), "tap to switch", menuThemeBox());
+    drawCard("SCORES", "best and marks", menuScoresBox());
     drawKey("RESTART GAME", menuRestartBox(), false);
   }
 
@@ -921,6 +958,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     raid_won_ = false;
     raid_ = false;
     buddy_ = false;
+    wave_hurt_ = false;
     gun_unlock_ = 0;
     gun_equip_ = 0;
     for (int i = 0; i < kGunCount; ++i) gun_lv_[i] = 0;
@@ -931,6 +969,115 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   void restartCampaign() {
     resetRun();
     beginCampaign();
+  }
+
+  const char* achName(int id) const {
+    static const char* const name[kAchN] = {
+        "FIRST BLOOD", "WAVE CLEAR", "IRON WAVE", "BOSS BREAKER", "MINI BOSS",
+        "RAID CLEARED", "NEW STEEL", "GUNSMITH", "WINGMAN", "THOUSAND",
+        "FIVE GRAND", "TEN GRAND", "DEEP RUN", "CENTURY", "MACHINA"};
+    if (id < 0 || id >= kAchN) return "";
+    return name[id];
+  }
+
+  const char* achDesc(int id) const {
+    static const char* const desc[kAchN] = {
+        "Destroy an alien", "Clear a wave", "Clear a wave unhit", "Destroy a boss",
+        "Destroy a mini boss", "Clear a raid", "Unlock a gun", "Max a gun's level",
+        "Earn the drone", "Score 1,000", "Score 5,000", "Score 10,000",
+        "Reach level 25", "Reach level 100", "Clear all 300 levels"};
+    if (id < 0 || id >= kAchN) return "";
+    return desc[id];
+  }
+
+  void loadMeta() {
+    if (prefs_.getBytes("best", best_, sizeof best_) != sizeof best_) {
+      best_[0] = best_[1] = best_[2] = 0;
+    }
+    achieve_ = prefs_.getUShort("ach", 0);
+  }
+
+  void saveMeta() {
+    prefs_.putBytes("best", best_, sizeof best_);
+    prefs_.putUShort("ach", achieve_);
+  }
+
+  void noteScore(int score) {
+    if (demo_ || score <= 0) return;
+    int slot = -1;
+    for (int i = 0; i < 3; ++i) {
+      if (score > static_cast<int>(best_[i])) {
+        slot = i;
+        break;
+      }
+    }
+    if (slot < 0) return;
+    for (int i = 2; i > slot; --i) best_[i] = best_[i - 1];
+    best_[slot] = static_cast<uint32_t>(score);
+    saveMeta();
+  }
+
+  void grant(int id) {
+    if (demo_ || id < 0 || id >= kAchN) return;
+    const uint16_t bit = static_cast<uint16_t>(1u << id);
+    if ((achieve_ & bit) != 0) return;
+    achieve_ = static_cast<uint16_t>(achieve_ | bit);
+    saveMeta();
+    if (mode_ == Mode::Play) noteUnlock(achName(id));
+  }
+
+  void paintScores() {
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.ink);
+    drawString("SCORES", kPanelWidth / 2, 16);
+    setTextDatum(lgfx::middle_left);
+    for (int i = 0; i < 3; ++i) {
+      char line[24];
+      if (best_[i] == 0) snprintf(line, sizeof line, "%d   -----", i + 1);
+      else snprintf(line, sizeof line, "%d   %lu", i + 1, static_cast<unsigned long>(best_[i]));
+      setTextColor(i == 0 && best_[0] != 0 ? ink.accent : ink.ink);
+      drawString(line, 28, 40 + i * 20);
+    }
+    int got = 0;
+    for (int i = 0; i < kAchN; ++i) {
+      if ((achieve_ & (1u << i)) != 0) got += 1;
+    }
+    char head[28];
+    snprintf(head, sizeof head, "ACHIEVEMENTS %d/%d", got, kAchN);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.accent);
+    drawString(head, kPanelWidth / 2, 104);
+    const int pages = (kAchN + kAchPage - 1) / kAchPage;
+    if (score_page_ >= pages) score_page_ = 0;
+    for (int r = 0; r < kAchPage; ++r) {
+      const int idx = score_page_ * kAchPage + r;
+      if (idx >= kAchN) break;
+      const bool open = (achieve_ & (1u << idx)) != 0;
+      const Box row = {16, 118 + r * 52, 288, 48};
+      fillRect(row.x, row.y, row.w, row.h, ink.button);
+      drawRect(row.x, row.y, row.w, row.h, open ? ink.accent : ink.muted);
+      setTextDatum(lgfx::middle_left);
+      setTextColor(open ? ink.ink : ink.muted);
+      drawString(achName(idx), 24, row.y + 15);
+      setTextDatum(lgfx::middle_right);
+      drawString(open ? "OPEN" : "LOCKED", 296, row.y + 15);
+      setTextDatum(lgfx::middle_left);
+      setTextColor(ink.muted);
+      drawString(achDesc(idx), 24, row.y + 34);
+    }
+    if (pages > 1) drawKey("PAGE", scorePageBox(), false);
+    drawKey("BACK", homeBox(), false);
+  }
+
+  void beginScores() {
+    fadeOut();
+    mode_ = Mode::Scores;
+    score_page_ = 0;
+    paintScores();
+    fadeIn();
   }
 
   int unitW(const Unit& unit) const {
@@ -1396,8 +1543,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     sky_on_ = false;
     buddy_drawn_ = false;
     invuln_ = 0;
+    wave_hurt_ = false;
     clearBolts();
     player_x_ = (kPanelWidth - kShipW) / 2;
+    if (!demo_) {
+      if (level_ >= 25) grant(kAchLv25);
+      if (level_ >= 100) grant(kAchLv100);
+    }
     buildLevel();
     paintLevel();
     // A checkpoint opens every 20 levels and is kept in flash.
@@ -1494,7 +1646,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     fadeIn();
   }
 
-  void endRound(bool won) { showOver(won ? "CLEARED" : "CAUGHT"); }
+  void endRound(bool won) {
+    noteScore(score_);
+    if (won && level_ >= kLevels) grant(kAchClear);
+    showOver(won ? "CLEARED" : "CAUGHT");
+  }
 
   // The ship blinks where it is; the level keeps its formation and progress.
   void blinkShip() {
@@ -1527,6 +1683,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     if (invuln_ > 0) return;
+    wave_hurt_ = true;
     lives_ -= 1;
     clearFoe();
     shot_ = false;
@@ -1555,6 +1712,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   void addScore(int points) {
     score_ += points;
     if (score_ > 99999) score_ = 99999;
+    if (score_ >= 1000) grant(kAch1k);
+    if (score_ >= 5000) grant(kAch5k);
+    if (score_ >= 10000) grant(kAch10k);
     drawHud();
   }
 
@@ -1747,6 +1907,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       gun_equip_ = drop_which_;
       saveGear();
       noteUnlock(gunToken(drop_which_));
+      grant(kAchGun);
     } else if (drop_which_ == 9) {
       if (lives_ < 8) lives_ += 1;
       noteUnlock("HEART");
@@ -1756,6 +1917,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         gun_lv_[gun] = static_cast<uint8_t>(gun_lv_[gun] + 1);
         saveGear();
         noteUnlock("GUN +1");
+        if (gun_lv_[gun] >= kGunMaxLv) grant(kAchMax);
       } else {
         noteUnlock("MAX");
       }
@@ -2026,6 +2188,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       addScore(20);
       if (boss_hp_ <= 0) {
         unit.alive = false;
+        grant(kAchBlood);
+        grant(kAchMini);
         maybeDrop(true);
         return true;
       }
@@ -2057,6 +2221,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
           raid_won_ = true;
           saveCampaign();
         }
+        grant(kAchBlood);
+        grant(kAchBoss);
         maybeDrop(true);
         return true;
       }
@@ -2065,6 +2231,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     unit.alive = false;
     addScore(10);
+    grant(kAchBlood);
     maybeDrop(false);
     return true;
   }
@@ -2608,22 +2775,32 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       if (mini_) {
         mini_ = false;
+        grant(kAchWave);
+        if (!wave_hurt_) grant(kAchIron);
         beginAdvance();
         return;
       }
       if (boss_ && !raid_ && (nextRng() % 5) == 0) {
+        grant(kAchWave);
+        if (!wave_hurt_) grant(kAchIron);
+        wave_hurt_ = false;
         beginRaid(true);
         return;
       }
       bool granted = false;
+      const bool was_raid = raid_;
       if (raid_) {
         if (!buddy_ && (nextRng() % 100) < 35) {
           buddy_ = true;
           saveGear();
           granted = true;
+          grant(kAchDrone);
         }
         raid_ = false;
       }
+      grant(kAchWave);
+      if (!wave_hurt_) grant(kAchIron);
+      if (was_raid) grant(kAchRaid);
       if (level_ >= kLevels) {
         endRound(true);
       } else {
@@ -2662,6 +2839,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int form_dir_ = 1;
   int player_x_ = 0;
   int score_ = 0;
+  uint32_t best_[3] = {};
+  uint16_t achieve_ = 0;
+  uint8_t score_page_ = 0;
+  bool wave_hurt_ = false;
   int level_ = 1;
   int camp_level_ = 1;
   int unit_n_ = 0;
