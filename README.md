@@ -1,8 +1,22 @@
 # Invaders Machina
 
-A space shooter for the ESP32-3248S035 display. The panel boots into an attract demo where the CPU plays. Tap **PLAY** to open the menu.
+A space shooter for the ESP32-3248S035 display, and the same game in one web page. On the panel, an attract demo plays until you tap **PLAY**. The same menu is in `web/index.html`.
 
-This branch has the core game plus an Olympian god every 25 levels.
+## Play in a browser
+
+`web/index.html` is one file. It runs in a current Chrome, Edge, Firefox, or Safari on Windows, macOS, Linux, ChromeOS, or a phone. After you have the file, the page does not need a network.
+
+1. Clone or download this branch, using the steps under **Get the code**.
+2. Open `web/index.html` (double-click it, or drag it into the browser).
+
+Controls:
+
+- **Move:** Left and Right arrows, or A and D. The ship also follows the mouse or trackpad.
+- **Fire:** Space, W, Up arrow, or hold the mouse or trackpad button.
+- **Menus:** click, or Up and Down and Enter.
+- **Pause / back:** Esc.
+
+The browser keeps the save in `localStorage` on that computer.
 
 ## The board
 
@@ -116,10 +130,10 @@ With Git:
 ```sh
 git clone https://github.com/Neotech3000/invaders-machina.git
 cd invaders-machina
-git checkout feat/machina-rebuild
+git checkout feat/web-version
 ```
 
-Without Git: on GitHub, switch the branch menu to **feat/machina-rebuild**, then **Code → Download ZIP**. Unzip it and open a terminal in that folder.
+Without Git: on GitHub, switch the branch menu to **feat/web-version**, then **Code → Download ZIP**. Unzip it and open a terminal in that folder.
 
 ## Build the firmware
 
@@ -185,20 +199,45 @@ The speed is **115200**. Leave with **Ctrl+C**. If you set a port in `platformio
 
 ## How to play
 
-- Hearts in the top right are lives. You start with 3. Losing a life makes the ship blink and the level stays as it was.
-- Enemies are standard aliens, Assault troopers, and Cannon units. A cannon shell bursts on impact. On this panel that blast is about 3 mm across.
-- Every 5th level is a boss. Beating a normal boss can start a raid (1 chance in 5). After the first raid boss is beaten, other levels have a 40% chance of a mini boss.
-- Every 25 levels a god appears: Zeus, Hera, Poseidon, Demeter, Athena, Ares, Apollo, Artemis, Aphrodite, Hephaestus, Hermes, then Dionysus, and then the cycle repeats. The arena is themed. Four waves of goons follow, each led by a mini boss, and then the god. The god has three health bars and changes fighting style as each bar empties.
-- **PLAY** continues from your current level.
-- **CHECKPOINTS** jumps back to a checkpoint you have reached. A checkpoint is saved to flash every 20 levels.
-- **CUSTOM** changes the gun and the laser colour.
-- The theme card cycles **DARK NEON**, **LIGHT**, **BLUE**, and **AMBER**.
-- **RESTART GAME** at the bottom asks "Are you sure?" before it clears progress.
+Hearts in the top right are lives. You start with 3. Losing a life makes the ship blink, and the level stays as it was.
+
+Enemies are standard aliens, Assault troopers, and Cannon units. A cannon shell bursts on impact. On this panel that blast is about 3 mm across.
+
+Every 5th level is a boss. Beating a normal boss can start a raid. The raid chance is 20% through level 24. From level 25 it rises by 5 percentage points, then another 5 every 10 levels, up to 100%. After the first raid boss is beaten, other levels have a 40% chance of a mini boss.
+
+Every 25 levels a god descends: Zeus, Hera, Poseidon, Demeter, Athena, Ares, Apollo, Artemis, Aphrodite, Hephaestus, Hermes, then Dionysus, and then the cycle repeats. The arena shows that god's pillars and mark. The first god has 4 goon waves, each led by a mini boss. Each later god adds 2 waves. After the waves, the god drops in with three health bars stacked across the screen. Emptying a bar changes the god's fighting style. A raid boss fights beside the god. Defeating the god unlocks that god's Divine Machine.
+
+From level 30 every enemy has +1 life, then +1 more every 20 levels, capped at +3.
+
+### Menu
+
+- **PLAY**: continue from your current level.
+- **CHECKPOINTS**: jump back to any checkpoint you have reached. A checkpoint is saved every 20 levels.
+- **CUSTOM**: ship, guns, and laser colour. Forged guns are listed here.
+- **SHOP**: themes, ships, laser colours, guns, timed power-ups, and weapon upgrades. Coins dropped in a level are the currency.
+- **Theme**: tap the theme card to switch the one you own.
+- **DIVINE MACHINES**: the Olympian powers you have unlocked. Equip one, or more after buying Multi.
+- **FORGE**: combine two guns. The new gun keeps its own level and attributes.
+- **RESTART GAME** (bottom): asks "Are you sure?" before resetting progress.
+- The top-left **BACK** key leaves the menu and returns to the demo.
+
+### Divine Machines
+
+Each machine is the power of one Olympian. Beating that god awards it. Equip machines from the Divine Machines page. The shop's Multi upgrade costs $300 and equips one more machine per purchase.
+
+Hera's Double puts a second ship on the mirrored side of the playfield. It stays inside the screen and fires the same weapon as the player. Demeter's Healing Ray grants +2 temporary life, then +1, for 3.5 seconds, on a 5 second cooldown.
+
+### Shop and forge
+
+The shop POWER tab sells a shield, a spare heart, and five short boosts: Rush, Fury, Wide, Veil, and Salvo. The same boosts can also drop during a level. The UPGRD tab levels each owned gun, thrusters, and Multi.
+
+Forge joins two guns into a new one. Each forged gun is upgraded on its own and saved with the rest of the gear.
 
 
 ## Layout
 
-- `firmware/src/hardware/board.cpp` — the game.
+- `web/index.html` — the same game in the browser.
+- `firmware/src/hardware/board.cpp` — attract demo, menu, levels, gods, shop, forge, and HUD.
 - `firmware/src/hardware/hardware_config.h` — panel pins.
 - `firmware/src/hardware/touch_map.h` — touch mapping. Leave it unless you remeasure the glass.
 - `firmware/platformio.ini` — the build. Ports stay out of this file.

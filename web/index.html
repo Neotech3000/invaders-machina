@@ -1,0 +1,3547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invaders Machina</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #050505;
+    overflow: hidden;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas {
+    height: min(100vh - 16px, 900px);
+    aspect-ratio: 320 / 480;
+    image-rendering: pixelated;
+    touch-action: none;
+    box-shadow: 0 0 30px #000;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<canvas id="c" width="320" height="480"></canvas>
+<script>
+"use strict";
+const W = 320, H = 480;
+const SHIP_Y = 368, SHIP_W = 32, SHIP_H = 16;
+const ALIEN_W = 18, ALIEN_H = 14;
+const BOSS_W = 44, BOSS_H = 30;
+const GOD_W = 52, GOD_H = 58, NET_W = 27;
+const MINI_W = 30, MINI_H = 20;
+const ALLY_W = 18, ALLY_H = 16;
+const BLAST_R = 20;
+const LEVELS = 300;
+const SHIP_STEP = 8;
+const BUTTON_Y = 430;
+const COIN_MAX = 16;
+const COIN_CHANCE = 20;
+const COIN_SIZE = 11;
+const BOLT_MAX = 16;
+const ESCORT_Y = 54;
+const TICK_MS = 1000 / 60;
+const FONTS = {
+f2: {h:16,base:13,g:[[6,"AAAAAAAAAAAAAAAA"],[3,"ACSSSQQA"],[4,"AKqgAAAAAAA="],[9,"AAAABIJBI/xIJH+JBIJAAAAA"],[8,"AAAoOGyqqGg8KqpsOCgAAA=="],[9,"AAAADCkUkZAQEBMSUShgAAAA"],[9,"AAAABAUEQiCgICkjEYcwAAAA"],[3,"ASUAAAAA"],[7,"ABhBBAggQIECAgQEBAY="],[7,"AYCAgIEBAgQIEECCCGA="],[8,"AAAAABCSVDhUkhAAAAAAAA=="],[6,"AAAAAAII+IIAAAAA"],[3,"AAAAAGyg"],[6,"AAAAAAAA+AAAAAAA"],[5,"AAAAAAAAAYwAAA=="],[7,"AAAQIIEECCBBAggQAAA="],[8,"AAAAOEREgoKCgkREOAAAAA=="],[8,"AAAAEDBQEBAQEBAQfAAAAA=="],[8,"AAAAOESCAgQYIECA/gAAAA=="],[8,"AAAAeIQCBDgEAgKEeAAAAA=="],[8,"AAAABAwUJESE/gQEBAAAAA=="],[8,"AAAA/ICAgPgEAgKEeAAAAA=="],[8,"AAAAPECAgLjEgoJEOAAAAA=="],[8,"AAAAfgICBAQICBAQEAAAAA=="],[8,"AAAAOESCRDhEgoJEOAAAAA=="],[8,"AAAAOESCgkY6AgIEeAAAAA=="],[3,"AAA2GwAA"],[3,"AAA2GygA"],[6,"AAAACEIQgQIECAAA"],[6,"AAAAAAA+A+AAAAAA"],[6,"AAAAgQIECEIQgAAA"],[8,"AAAAOESCAgQIEBAAEAAAAA=="],[9,"AAAAB4QkypVKpVKniAPgAAAA"],[8,"AAAAEBAoKEREfIKCggAAAA=="],[8,"AAAA+ISChPiEgoKE+AAAAA=="],[8,"AAAAPEKAgICAgIBCPAAAAA=="],[8,"AAAA+ISCgoKCgoKE+AAAAA=="],[8,"AAAA/oCAgPyAgICA/gAAAA=="],[8,"AAAA/oCAgPiAgICAgAAAAA=="],[8,"AAAAPEKAgICcgoJCPAAAAA=="],[8,"AAAAhISEhPyEhISEhAAAAA=="],[4,"AA5ERERE4AA="],[8,"AAAAAgICAgICAoJEOAAAAA=="],[8,"AAAAhIiQoMCgkIiEggAAAA=="],[7,"AAAECBAgQIECBA/AAAA="],[10,"AAAAAwbBqKoqUpSiKIoCgIAAAAA="],[8,"AAAAwsKiopKSioqGhgAAAA=="],[8,"AAAAOESCgoKCgoJEOAAAAA=="],[8,"AAAA+ISCgoKE+ICAgAAAAA=="],[8,"AAAAOESCgoKCgoJEOAgGAA=="],[8,"AAAA+ISCgoT4kIiEggAAAA=="],[8,"AAAAOESCgGAcAoJEOAAAAA=="],[8,"AAAA/hAQEBAQEBAQEAAAAA=="],[8,"AAAAgoKCgoKCgoJEOAAAAA=="],[8,"AAAAgoKCgkREKCgQEAAAAA=="],[10,"AAAAAgKAoCiKIkkVRVCIIgAAAAA="],[8,"AAAAgoJEKBAQKESCggAAAA=="],[8,"AAAAgoKCRCgQEBAQEAAAAA=="],[8,"AAAA/gIECBAQIECA/gAAAA=="],[4,"AOiIiIiIjgA="],[7,"AAIEBAgIEBAgIEBAgAA="],[4,"AOIiIiIiLgA="],[7,"ACCiIAAAAAAAAAAAAAA="],[9,"AAAAAAAAAAAAAAAAAAAAA/wA"],[5,"AADJSYAAAAAAAA=="],[7,"AAAAAAAcBATqNGdAAAA="],[7,"AAAACBAsZIUKFksAAAA="],[7,"AAAAAAAOIoECAiOAAAA="],[7,"AAAAAECNJoUKEmNAAAA="],[7,"AAAAAAAOIoXyAiOAAAA="],[6,"AAAMSQQQ4QQQQAAA"],[7,"AAAAAAAMJoUKEmNAgjg="],[7,"AAAECBAsZIUKFChAAAA="],[4,"AABAREREQAA="],[5,"AAABAMIQhCEKTA=="],[6,"AAAgggikowokiAAA"],[4,"AAxEREREQAA="],[8,"AAAAAAAArNKSkpKSkgAAAA=="],[7,"AAAAAAAsZIUKFChAAAA="],[8,"AAAAAAAAOESCgoJEOAAAAA=="],[7,"AAAAAAAsZIUKFksQIEA="],[8,"AAAAAAAANEyEhIRMNAQEBg=="],[6,"AAAAAAsygggggAAA"],[6,"AAAAAAcigcCicAAA"],[5,"AAAEI4hCEIMAAA=="],[7,"AAAAAAAhQoUKEmNAAAA="],[8,"AAAAAAAAgoKCgkQoEAAAAA=="],[8,"AAAAAAAAgoKCkpKqRAAAAA=="],[6,"AAAAAAiiUIUiiAAA"],[7,"AAAAAAAhQoUKEmNAgjg="],[7,"AAAAAAA/AghhBA/AAAA="],[5,"AIhCEIRBCEIQgg=="],[3,"ASSSSSSQ"],[5,"AghCEIQRCEIQiA=="],[8,"AAAAMkwAAAAAAAAAAAAAAA=="],[6,"AAMSSMAAAAAAAAAA"],]},
+f4: {h:26,base:19,g:[[5,"AAAAAAAAAAAAAAAAAAAAAAA="],[8,"ABgYGBgYGBgYGBgYGBgAABgYGAAAAAAAAAA="],[8,"ACQkJCQkJCQAAAAAAAAAAAAAAAAAAAAAAAA="],[19,"AAAAAAABmAAiAARAAZgAIgAEQB//gCIABEAAiAP/8ARAAIgAMwAEQACIADMAAAAAAAAAAAAAAAAAAAAAAAA="],[14,"AAAAAPwP/DhxgGYBmABwAMAH+AYAGABgAYAMAD+J/+YPAAAAAAAAAAAAAAAAAA=="],[21,"AAAAAAADgGB/AgMYMDBjAYMQDBmAMYgB/IADjHAAT+AEYwBmDAIwYDGDAwYwED+BgHAIAAAAAAAAAAAAAAAAAAAAAAAA"],[17,"AAAD4AP4A44BgwDBgGHAGcAHwAeAB+GHOMcOYwPhgPDAMHB+H/OH4OAAAAAAAAAAAAAAAAAAAAA="],[6,"AcccEMYAAAAAAAAAAAAAAAAAAAA="],[8,"AAMCBgQMDAwYGBgYGBgYGBgYDAwMBAYCAwA="],[8,"AMBAYCAwMDAYGBgYGBgYGBgYMDAwIGBAwAA="],[12,"AABgBgBgJkf+H4DwGYOcEIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[10,"AAAAAAAAAAAAAAwDAMH+f4MAwDAAAAAAAAAAAAAAAAAA"],[7,"AAAAAAAAAAAAAAAAAAA4cOBBggwAAAA="],[8,"AAAAAAAAAAAAAAB+fgAAAAAAAAAAAAAAAAA="],[7,"AAAAAAAAAAAAAAAAAAA4cOAAAAAAAAA="],[8,"AAMDAgYGBAwMCBgYEDAwIGBgQMDAAAAAAAA="],[14,"AAAAAHgH+DzwwMcDmAZgGYBmAZgGYBmAZwOMDDzwf4B4AAAAAAAAAAAAAAAAAA=="],[14,"AAAAABgAYAOAfgH4AGABgAYAGABgAYAGABgAYAGABgAYAAAAAAAAAAAAAAAAAA=="],[14,"AAAAAPwP/DhxwGYBmAYAGADgDwD4D4B4A4AcAGAB/+f/gAAAAAAAAAAAAAAAAA=="],[14,"AAAAAPwH+DhwwMcDAAwAcA+APwAOABmAZgGcDjhw/8D8AAAAAAAAAAAAAAAAAA=="],[14,"AAAAAAYAOAHgB4A2AZgMYDGBhgwYYGH/5/+AGABgAYAGAAAAAAAAAAAAAAAAAA=="],[14,"AAAAA/8P/DAAwAMADfA/8eHGA4AGABgAZgGcDjhw/8D8AAAAAAAAAAAAAAAAAA=="],[14,"AAAAAHwH/DgwwGMBmABnwf/HhxwOYBmAZgGMDjhwf8D8AAAAAAAAAAAAAAAAAA=="],[14,"AAAAB/+f/gAwAcAOADABwAYAMADABwAYAGABgAwAMADAAAAAAAAAAAAAAAAAAA=="],[14,"AAAAAHgH+BhgwMMDDAwYYD8B/g4cYBmAZgGYBjhw/8D8AAAAAAAAAAAAAAAAAA=="],[14,"AAAAAPwP+DhxwMYBmAZgGcDjh4/+D5gAZgMYDDBw/4H8AAAAAAAAAAAAAAAAAA=="],[7,"AAAAAAAOHDgAAAAAAAA4cOAAAAAAAAA="],[7,"AAAAAAAOHDgAAAAAAAA4cOBBggwAAAA="],[14,"AAAAAAAAAAAAAAAAAA4A4B4BwBgAHAAOAA4ADgAAAAAAAAAAAAAAAAAAAAAAAA=="],[9,"AAAAAAAAAAAAAD+fwAAD+fwAAAAAAAAAAAAAAAAA"],[14,"AAAAAAAAAAAAAAAAHAAcAB4ADgAGAOAeAcAcAAAAAAAAAAAAAAAAAAAAAAAAAA=="],[13,"AAB+D/hw5wMwGYDADgDgDgDgBgBwA4AAAAAHADgBwAAAAAAAAAAAAAAAAA=="],[25,"AAAAAD/gAHAcAOADAMAAwMAAMEB5DGDHhjDBgzBgwZhgYMwwMGYYMGMMGDGGDDBhjjAwefAMAAADAAAAwAMAOB4AB/gAAAAAAAAAAAAAAAAAAA=="],[16,"AAADwAPAA8AGYAZgBmAMMAwwDDAYGBgYH/g//DAMMAxgBmAG4AcAAAAAAAAAAAAAAAAAAA=="],[17,"AAAf/A//hgHDAGGAMMAYYAwwDh/8D/+GAcMAMYAYwAxgBjAOH/8P/gAAAAAAAAAAAAAAAAAAAAA="],[18,"AAAA/gD/4Hg8OAMMAGcAGYAAYAAYAAYAAYAAYAGcAGMAOOAMHg8D/4A/gAAAAAAAAAAAAAAAAAAAAAA="],[18,"AAAP/AP/wMB4MAcMAMMAOMAGMAGMAGMAGMAGMAGMAOMAMMAcMB4P/wP/AAAAAAAAAAAAAAAAAAAAAAA="],[16,"AAA//j/+MAAwADAAMAAwADAAP/w//DAAMAAwADAAMAAwAD/+P/4AAAAAAAAAAAAAAAAAAA=="],[15,"AAB/+P/xgAMABgAMABgAMAB/8P/hgAMABgAMABgAMABgAMAAAAAAAAAAAAAAAAAAAA=="],[19,"AAAAfwA/+A4Hg4AwYAccAAMAAGAADA/xgf4wAMYAGOADDADhwDweD4H/sA/CAAAAAAAAAAAAAAAAAAAAAAA="],[18,"AAAMAMMAMMAMMAMMAMMAMMAMP/8P/8MAMMAMMAMMAMMAMMAMMAMMAMMAMAAAAAAAAAAAAAAAAAAAAAA="],[6,"AMMMMMMMMMMMMMMMMMMAAAAAAAA="],[13,"AAADABgAwAYAMAGADABgAwAYAMAGYDMBmAzg4/4P4AAAAAAAAAAAAAAAAA=="],[17,"AAAYA4wDhgODA4GDgMOAY4AzgBvAD/AHnAOHAYGAwOBgODAOGAOMAOAAAAAAAAAAAAAAAAAAAAA="],[13,"AAGADABgAwAYAMAGADABgAwAYAMAGADABgAwAf/P/gAAAAAAAAAAAAAAAA=="],[21,"AAABwAcPAHh4A8PAHhsBsNgNhsBsMwZhmDMMwZhjGMMYxhjGMMNhhhsMMPhhg4MMHBgAAAAAAAAAAAAAAAAAAAAAAAAA"],[18,"AAAOAMOAMPAMPgMNgMNwMM4MMYMMcMMOMMGMMHMMDsMBsMB8MA8MAcMAcAAAAAAAAAAAAAAAAAAAAAA="],[19,"AAAAfwA/+A8Hg4A4YAMcAHMABmAAzAAZgAMwAGYADOADjABhwBweDwH/wA/gAAAAAAAAAAAAAAAAAAAAAAA="],[16,"AAA/+D/8MA4wBjAGMAYwBjAOP/w/+DAAMAAwADAAMAAwADAAMAAAAAAAAAAAAAAAAAAAAA=="],[19,"AAAAfwA/+A8Hg4A4YAMcAHMABmAAzAAZgAMwAGYADOAjjA5hwPweDwH/8A/nAABAAAAAAAAAAAAAAAAAAAA="],[17,"AAAf/g//hgDjADGAGMAMYAYwBh//D/8GAcMAYYA4wAxgBjADGAGMAMAAAAAAAAAAAAAAAAAAAAA="],[16,"AAAH4B/4OBwwDDAMMA44AB8AD+AB+AA8AA5wBjAGMAY8Dh/8B/AAAAAAAAAAAAAAAAAAAA=="],[14,"AAP////AwAMADAAwAMADAAwAMADAAwAMADAAwAMADAAwAAAAAAAAAAAAAAAAAA=="],[18,"AAAMAMMAMMAMMAMMAMMAMMAMMAMMAMMAMMAMMAMMAMMAMOAcHA4D/wB/gAAAAAAAAAAAAAAAAAAAAAA="],[15,"AAHAHYAzAGYAxgMMBhgMGDAwYGDAYwDGAYwBsANgB8AHAA4AAAAAAAAAAAAAAAAAAA=="],[23,"AAABwHAdgOAzAcBnBsHGDYMMGwYYNgw4xjgxjGBjGMDGMYHYNwGwbANg2AbBsA8B4A4DgBwHAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[15,"AADAGcBxgMGDA44DGANgB8AHAA4ANgDuAYwGDBwcMBjgO4A4AAAAAAAAAAAAAAAAAA=="],[16,"AADgB3AOMAw4HBgYDDAOcAZgA8ADwAGAAYABgAGAAYABgAGAAYAAAAAAAAAAAAAAAAAAAA=="],[16,"AAA//j/+AA4AHAA4ADAAYADgAcADgAMABgAOABwAOABwAH/+f/4AAAAAAAAAAAAAAAAAAA=="],[9,"AA+HwwGAwGAwGAwGAwGAwGAwGAwGAwGAwHw+AAAA"],[13,"IAEADAAgAQAMACABAAwAIAEADAAgAQAMACABAAwAIAEADAAgAQAMACAAAA=="],[9,"AD4fAYDAYDAYDAYDAYDAYDAYDAYDAYDAYfD4AAAA"],[12,"AABwDYGMMGYDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[13,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/+AAAAAAAA=="],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],]},
+f6: {h:48,base:36,g:[[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[17,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/gf/A/+B/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[15,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPgB8APgB8APgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAA/wAA//wAP//AD//8A/gfwHwA+A8ADwPgAfB4AB4PAAPB4AB4eAAHjwAA8eAAHjwAA8eAAHjwAA8eAAHjwAA8eAAHjwAA8eAAHjwAA8eAAHjwAA8PAAPB4AB4PAAPB8AD4HgAeA+AHwH8D+Af//gB//4AH/+AAH+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAA4AAAHAAAB4AAAPAAAD4AAA/AAAf4AB//AAP/4AB/vAAPh4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAPAAAB4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAf4AAP/4AH//gB//+APwP4D4AfAfAB4DwAPg+AA8HgAHg8AA8HgAHgAAA8AAAPgAAB8AAAfAAAH4AAB+AAA/gAAf4AAP+AAD/gAB/wAAf4AAH8AAB+AAAfgAAD4AAA+AAAHgAAA8AAAP///h///8P///h///8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAA/wAA//wAP//gD//8A/gfwHwA+B8AD4PgAfB4AB4PAAPB4AB4AAAfAAAD4AAA+AAAPwAD/8AAf+AAD/8AAf/wAAB/AAAD4AAAPgAAB8eAAHjwAA8eAAHj4AB8fAAfh8AD4PwA/A/gfwD//8AP//AA//wAA/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAAAAAADwAAA+AAAPwAAD+AAAfwAAH+AAB7wAAPeAADzwAA8eAAPjwAB4eAAeDwAHgeAB8DwAPAeADwDwA+AeAHgDwB4AeAeADwD///8f///j///8f///gAAeAAADwAAAeAAADwAAAeAAADwAAAeAAADwAAAeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAAAAB//+AP//wB//+AP//wBwAAAeAAADwAAAeAAADgAAAcAAADgAAA8f4AHv/wA///AH//8A/gfwHwA/A8AD4AAAPAAAB8AAAHgAAA8AAAHgAAA8AAAHh4AA8PAAPh4AB4PgAfA+AH4H8D+Af//gB//4AH/+AAH+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAfwAAP/wAH//AB//8AfwPwH4AfA+AB4HgAPh8AA8PAAHh4AAAPAAADwAAAeD+ADx/+Ae//4D///gf8D+D+AHwfgAfD4AB4fAAPjwAA8eAAHjwAA8eAAHjwAA8PAAPh4AB4PgAfA+AH4H8D+Af//gB//4AD/+AAH/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAAAAP///h///8P///h///8AAAHgAAB4AAAeAAAHgAAB8AAAfAAAHwAAA8AAAPgAAD4AAAfAAAHwAAA8AAAPgAAB4AAAfAAAD4AAAeAAAHwAAA8AAAHgAAB8AAAPAAAB4AAAPAAAB4AAAfAAADwAAAeAAADwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAAfgAAf/gAP//AD//8A/gfwHwA+B8AD4PgAfB4AB4PAAPB4AB4PgAfA8ADwHwA+AfgfgB//4AH/+AB//4Af//gH4B+B8AD4PAAPD4AB8eAAHjwAA8eAAHjwAA8eAAHj4AB8fAAPh8AD4P4B/A///wD//8AP//AAP/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[27,"AAAAAB/wAA//gAP//AD//8A/gfwPwA+B8AD4PAAPD4AB4eAAHjwAA8eAAHjwAA8eAAHj4AB8PAAPh8AD8HwA/g/gf8D///gP/+8A//HgA/g8AAAHgAAB4AAAPDwAB4eAAfD4ADwPAA+B8APwH4H8Af//AB//wAH/4AAH8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[15,"AAAAAAAAAAAAAAAAAAAAAAAAAB8APgB8APgB8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPgB8APgB8APgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[12,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],[0,""],]},
+};
+const PAL_RGB = [
+[[0,0,0],[255,255,255],[150,160,150],[48,230,86],[255,206,32],[46,228,72],[36,255,96],[28,186,64],[255,214,48],[48,116,255],[10,24,16],[18,78,42],[210,210,220]],
+[[248,242,226],[28,22,16],[90,68,48],[16,110,42],[196,92,8],[12,112,36],[10,84,28],[18,122,40],[186,78,6],[28,78,168],[255,252,244],[186,214,168],[70,54,36]],
+[[6,16,40],[220,236,255],[120,150,190],[80,180,255],[255,196,64],[64,220,255],[120,255,220],[40,140,220],[255,220,80],[40,90,220],[8,28,64],[16,64,120],[180,200,230]],
+[[28,14,4],[255,236,210],[190,140,90],[255,170,40],[255,210,60],[255,120,40],[255,196,80],[180,90,20],[255,240,180],[120,60,20],[48,24,8],[120,64,16],[255,200,140]],
+[[8,8,28],[230,230,255],[120,120,170],[120,110,255],[90,80,220],[70,60,190],[160,200,255],[60,60,140],[255,120,255],[40,40,110],[30,28,70],[60,56,120],[200,200,255]],
+[[226,250,240],[16,60,48],[90,140,120],[20,170,120],[40,190,140],[30,160,120],[10,110,90],[40,140,110],[255,90,120],[160,230,200],[196,240,222],[120,220,180],[120,200,170]],
+[[40,8,24],[255,226,236],[180,110,140],[255,80,150],[255,110,170],[230,70,140],[255,200,220],[170,40,100],[255,240,120],[110,30,70],[80,16,50],[140,30,84],[255,190,220]],
+[[0,0,0],[255,255,0],[120,120,0],[0,255,255],[255,0,255],[0,200,255],[0,255,255],[255,0,0],[255,255,255],[60,0,60],[20,20,20],[60,60,0],[255,255,255]]
+];
+const THEME_NAMES = ["DARK NEON", "LIGHT", "BLUE", "AMBER", "MIDNIGHT", "MINT", "ROSE", "ARCADE"];
+const THEME_PRICE = [0, 0, 0, 0, 60, 80, 100, 120];
+const SHIPS = ["STRIKER", "INTERCEPT", "VALKYRIE", "PHANTOM", "TITAN", "SERAPH"];
+const SHIP_PRICE = [0, 40, 60, 80, 100, 120];
+const LASERS = [
+["RED", [255,64,56]], ["GOLD", [255,210,48]], ["GREEN", [48,230,96]], ["CYAN", [80,210,255]],
+["WHITE", [255,255,255]], ["MAGENTA", [255,80,220]], ["ORANGE", [255,140,32]], ["BLUE", [64,96,255]],
+["LIME", [170,255,48]], ["PINK", [255,140,180]], ["ICE", [180,255,255]], ["VIOLET", [170,80,255]]
+];
+const GUNS = ["CANNON", "SHOTGUN", "ASSAULT", "BEAM", "TWIN", "WAVE", "RAIL", "NOVA", "HOMING"];
+const GUN_COUNT = GUNS.length;
+const MAX_FORGED = 9;
+const GUN_SLOTS = GUN_COUNT + MAX_FORGED;
+function blankLevels() { return Array.from({ length: GUN_SLOTS }, () => 0); }
+function blankForges() { return Array.from({ length: MAX_FORGED }, () => null); }
+const GUN_ATTRS = [
+[["HEAVY", "power"], ["RAPID", "rapid"], ["WIDE", "wide"], ["TWIN", "twin"], ["PIERCE", "pierce"]],
+[["SPREAD", "spread"], ["TWIN", "twin"], ["RAPID", "rapid"], ["WIDE", "wide"], ["PIERCE", "pierce"]],
+[["RAPID", "rapid"], ["POWER", "power"], ["WIDE", "wide"], ["TWIN", "twin"], ["PIERCE", "pierce"]],
+[["BURST", "burst"], ["COOL", "cool"], ["WIDE", "wide"], ["POWER", "power"], ["PIERCE", "pierce"]],
+[["TWIN", "twin"], ["RAPID", "rapid"], ["WIDE", "wide"], ["POWER", "power"], ["PIERCE", "pierce"]],
+[["WAVE", "wave"], ["RAPID", "rapid"], ["WIDE", "wide"], ["TWIN", "twin"], ["PIERCE", "pierce"]],
+[["POWER", "power"], ["PIERCE", "pierce"], ["RAPID", "rapid"], ["WIDE", "wide"], ["TWIN", "twin"]],
+[["SPREAD", "spread"], ["TWIN", "twin"], ["RAPID", "rapid"], ["WIDE", "wide"], ["PIERCE", "pierce"]],
+[["HOMING", "homing"], ["RAPID", "rapid"], ["TWIN", "twin"], ["POWER", "power"], ["PIERCE", "pierce"]]
+];
+const PERK = {
+shieldCap: 1, shieldStart: 2, shieldRepair: 4, shieldGlow: 8, invuln: 16,
+life: 32, maxHp: 64, heal: 128, revive: 256, damage: 512, rapid: 1024,
+wide: 2048, twin: 4096, pierce: 8192, speed: 16384, salvo: 32768,
+cool: 65536, burst: 131072
+};
+const POWER_ATTRS = [
+[["THICK", PERK.shieldCap], ["AEGIS", PERK.shieldStart], ["REPAIR", PERK.shieldRepair],
+["GLOW", PERK.shieldGlow], ["LONGER", PERK.invuln]],
+[["VITAL", PERK.life], ["MAXHP", PERK.maxHp], ["HEAL", PERK.heal],
+["REVIVE", PERK.revive], ["ARMOR", PERK.invuln]]
+];
+const UPGRADE_ATTRS = [
+[["DAMAGE", PERK.damage], ["RAPID", PERK.rapid], ["WIDE", PERK.wide],
+["TWIN", PERK.twin], ["PIERCE", PERK.pierce]],
+[["SPEED", PERK.speed], ["SALVO", PERK.salvo], ["COOL", PERK.cool],
+["BURST", PERK.burst], ["RAPID", PERK.rapid]]
+];
+const GODS = ["ZEUS", "HERA", "POSEIDON", "DEMETER", "ATHENA", "ARES", "APOLLO", "ARTEMIS", "APHRODITE", "HEPHAESTUS", "HERMES", "DIONYSUS"];
+const GOD_INK = [[255,214,56],[226,170,255],[64,190,255],[120,220,96],[206,214,232],[255,72,60],[255,200,88],[176,220,255],[255,140,200],[255,128,40],[140,255,220],[190,96,255]];
+const DROP_RGB = [[255,150,40],[80,255,120],[80,120,255],[255,255,80],[80,255,80],[255,80,255],[255,255,80],[180,80,255]];
+const cv = document.getElementById("c");
+const ctx = cv.getContext("2d");
+const IMG = ctx.createImageData(W, H);
+const FB = new Uint32Array(IMG.data.buffer);
+function clr(arr) { return ((255 << 24) | (arr[2] << 16) | (arr[1] << 8) | arr[0]) >>> 0; }
+function px(x, y, c) {
+if (x >= 0 && y >= 0 && x < W && y < H) FB[y * W + x] = c;
+}
+function fillRect(x, y, w, h, c) {
+if (w <= 0 || h <= 0) return;
+const x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y;
+const x1 = x + w > W ? W : x + w, y1 = y + h > H ? H : y + h;
+if (x0 >= x1) return;
+for (let yy = y0; yy < y1; yy++) FB.fill(c, yy * W + x0, yy * W + x1);
+}
+function drawRect(x, y, w, h, c) {
+fillRect(x, y, w, 1, c);
+fillRect(x, y + h - 1, w, 1, c);
+fillRect(x, y, 1, h, c);
+fillRect(x + w - 1, y, 1, h, c);
+}
+function drawLine(x0, y0, x1, y1, c) {
+x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+let err = dx - dy;
+for (;;) {
+px(x0, y0, c);
+if (x0 === x1 && y0 === y1) break;
+const e2 = 2 * err;
+if (e2 > -dy) { err -= dy; x0 += sx; }
+if (e2 < dx) { err += dx; y0 += sy; }
+}
+}
+function fillCircle(x0, y0, r, c) {
+for (let dy = -r; dy <= r; dy++) {
+const dx = Math.floor(Math.sqrt(r * r - dy * dy));
+fillRect(x0 - dx, y0 + dy, 2 * dx + 1, 1, c);
+}
+}
+function drawCircle(x0, y0, r, c) {
+px(x0, y0 + r, c); px(x0, y0 - r, c); px(x0 + r, y0, c); px(x0 - r, y0, c);
+let f = 1 - r, ddFx = 1, ddFy = -2 * r, x = 0, y = r;
+while (x < y) {
+if (f >= 0) { y--; ddFy += 2; f += ddFy; }
+x++; ddFx += 2; f += ddFx;
+px(x0 + x, y0 + y, c); px(x0 - x, y0 + y, c); px(x0 + x, y0 - y, c); px(x0 - x, y0 - y, c);
+px(x0 + y, y0 + x, c); px(x0 - y, y0 + x, c); px(x0 + y, y0 - x, c); px(x0 - y, y0 - x, c);
+}
+}
+function fillTriangle(x0, y0, x1, y1, x2, y2, c) {
+const p = [[x0, y0], [x1, y1], [x2, y2]].sort((a, b) => a[1] - b[1]);
+const [a, b, d] = p;
+const edge = (u, v, y) => (v[1] === u[1] ? u[0] : u[0] + (v[0] - u[0]) * (y - u[1]) / (v[1] - u[1]));
+for (let y = a[1]; y <= d[1]; y++) {
+const xa = edge(a, d, y);
+const xb = y <= b[1] ? edge(a, b, y) : edge(b, d, y);
+const lo = Math.round(Math.min(xa, xb)), hi = Math.round(Math.max(xa, xb));
+fillRect(lo, y, hi - lo + 1, 1, c);
+}
+}
+const FONT = {};
+for (const key of Object.keys(FONTS)) {
+const f = FONTS[key];
+FONT[key] = {
+h: f.h,
+base: f.base,
+glyphs: f.g.map(([w, b64]) => {
+const bin = atob(b64);
+const ink = [];
+for (let i = 0; i < w * f.h; i++) {
+if ((bin.charCodeAt(i >> 3) >> (7 - (i & 7))) & 1) ink.push(i % w, (i / w) | 0);
+}
+return { w, ink: Int16Array.from(ink) };
+})
+};
+}
+function glyphFor(font, ch) {
+const c = ch.charCodeAt(0);
+const idx = c >= 32 && c < 128 ? c - 32 : 63 - 32;
+return FONT[font].glyphs[idx];
+}
+function textWidth(s, font = "f2") {
+let w = 0;
+for (const ch of s) w += glyphFor(font, ch).w;
+return w;
+}
+function drawText(s, x, y, c, font = "f2", dt = "mc") {
+const f = FONT[font];
+const w = textWidth(s, font);
+let x0 = dt === "ml" ? x : dt === "mr" ? x - w : x - Math.floor(w / 2);
+const y0 = Math.round(y - f.h / 2);
+for (const ch of s) {
+const gl = glyphFor(font, ch);
+const ink = gl.ink;
+for (let i = 0; i < ink.length; i += 2) px(x0 + ink[i], y0 + ink[i + 1], c);
+x0 += gl.w;
+}
+}
+const SAVE_KEY = "invaders-machina-web-v1";
+const DEFAULT_SAVE = {
+level: 1, camp: 0, raidWon: false, coins: 0,
+themes: 0x0f, ships: 0x01, ship: 0, lasers: 0x0001, guns: 0, gunEquip: 0,
+gunLv: blankLevels(), laser: 0, theme: 0,
+shield: 0, spare: 0, thrust: 0, forges: blankForges(), fpw: 0, fup: 0,
+armed: [0, 0, 0, 0, 0], gods: 0, dive: 0, dmul: 0,
+clearedLv: [], clearedGw: []
+};
+let loadedSave = {};
+try { loadedSave = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}") || {}; }
+catch (e) { loadedSave = {}; }
+let save = Object.assign({}, DEFAULT_SAVE, loadedSave);
+save.gunLv = blankLevels();
+const srcLv = Array.isArray(loadedSave.gunLv) ? loadedSave.gunLv : [];
+for (let i = 0; i < srcLv.length && i < GUN_SLOTS; i++) save.gunLv[i] = Math.min(5, srcLv[i] | 0);
+function sanitizeForge(f) {
+  if (!f || f.valid !== true) return null;
+  const ok = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;
+  if (!ok(f.base, 8) || !ok(f.donor, 8) || !ok(f.attrA, 4) || !ok(f.attrB, 4)) return null;
+  return { valid: true, base: f.base, donor: f.donor, attrA: f.attrA, attrB: f.attrB };
+}
+save.forges = blankForges();
+if (Array.isArray(loadedSave.forges) && loadedSave.forges.length === MAX_FORGED) {
+  for (let i = 0; i < MAX_FORGED; i++) save.forges[i] = sanitizeForge(loadedSave.forges[i]);
+} else {
+  const old = sanitizeForge(loadedSave.forge);
+  if (old) save.forges[0] = old;
+}
+delete save.forge;
+save.armed = [0, 0, 0, 0, 0];
+if (Array.isArray(loadedSave.armed)) {
+for (let i = 0; i < 5 && i < loadedSave.armed.length; i++) save.armed[i] = loadedSave.armed[i] | 0;
+}
+save.fpw = (save.fpw | 0) >>> 0;
+save.fup = (save.fup | 0) >>> 0;
+save.gods = (loadedSave.gods | 0) & 0xfff;
+save.dmul = Math.max(0, Math.min(11, loadedSave.dmul | 0));
+save.dive = (loadedSave.dive | 0) & save.gods;
+{
+  let n = 0, keep = 0;
+  const cap = Math.min(12, 1 + save.dmul);
+  for (let i = 0; i < 12; i++) {
+    if ((save.dive & (1 << i)) === 0) continue;
+    if (n >= cap) break;
+    keep |= (1 << i);
+    n += 1;
+  }
+  save.dive = keep;
+}
+save.ships = ((save.ships | 0) | 1) & 0x3f;
+save.ship = (save.ship | 0) % SHIPS.length;
+save.clearedLv = [];
+if (Array.isArray(loadedSave.clearedLv)) {
+  for (const n of loadedSave.clearedLv) {
+    if (!Number.isInteger(n) || n < 1 || n > LEVELS || save.clearedLv.indexOf(n) >= 0) continue;
+    save.clearedLv.push(n);
+  }
+}
+save.clearedGw = [];
+if (Array.isArray(loadedSave.clearedGw)) {
+  for (const n of loadedSave.clearedGw) {
+    if (!Number.isInteger(n) || n < 0 || n >= 12 * 26 || save.clearedGw.indexOf(n) >= 0) continue;
+    save.clearedGw.push(n);
+  }
+}
+function persist() {
+try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* private mode */ }
+}
+function themeOwned(t) { return ((save.themes >> (t & 7)) & 1) !== 0; }
+function shipOwned(s) { return ((save.ships >> (s % SHIPS.length)) & 1) !== 0; }
+function laserOwned(c) { return ((save.lasers >> (c % 12)) & 1) !== 0; }
+function forgeAnyValid() { return save.forges.some((f) => f !== null); }
+function isForgedId(gun) { return gun >= GUN_COUNT && gun < GUN_SLOTS; }
+function forgedAt(gun) {
+  if (!isForgedId(gun)) return null;
+  return save.forges[gun - GUN_COUNT] || null;
+}
+function equippedForged() { return forgedAt(save.gunEquip); }
+function firstEmptyForge() { return save.forges.findIndex((f) => !f); }
+function activeForgeGun() {
+  if (forgeFocus >= 0 && forgeFocus < MAX_FORGED && save.forges[forgeFocus]) return GUN_COUNT + forgeFocus;
+  if (equippedForged()) return save.gunEquip;
+  for (let i = MAX_FORGED - 1; i >= 0; i--) if (save.forges[i]) return GUN_COUNT + i;
+  return GUN_COUNT;
+}
+function shopGunAt(idx) {
+  if (idx < GUN_COUNT) return idx;
+  let seen = GUN_COUNT;
+  for (let i = 0; i < MAX_FORGED; i++) {
+    if (!save.forges[i]) continue;
+    if (seen === idx) return GUN_COUNT + i;
+    seen += 1;
+  }
+  return 0;
+}
+function shopGunCount() { return GUN_COUNT + save.forges.filter(Boolean).length; }
+function shopUpgradeCount() {
+let n = 1;
+for (let g = 0; g < GUN_COUNT; g++) if (gunOwned(g)) n += 1;
+for (let i = 0; i < MAX_FORGED; i++) if (save.forges[i]) n += 1;
+return n + 1;
+}
+function shopUpgradeGun(idx) {
+let seen = 0;
+for (let g = 0; g < GUN_COUNT; g++) {
+if (!gunOwned(g)) continue;
+if (seen === idx) return g;
+seen += 1;
+}
+for (let i = 0; i < MAX_FORGED; i++) {
+if (!save.forges[i]) continue;
+if (seen === idx) return GUN_COUNT + i;
+seen += 1;
+}
+if (idx === seen) return -1;
+return -2;
+}
+function gunOwned(gun) {
+  if (isForgedId(gun)) return forgedAt(gun) !== null;
+  return gun === 0 || ((save.guns >> (gun - 1)) & 1) !== 0;
+}
+function gunLv(gun) { return Math.min(5, save.gunLv[gun] || 0); }
+function baseGun() {
+  const g = equippedForged();
+  return g ? g.base : save.gunEquip;
+}
+function nthOtherAttr(chosen, n) {
+let seen = 0;
+for (let a = 0; a < 5; a++) {
+if (a === chosen) continue;
+if (seen === n) return a;
+seen += 1;
+}
+return 0;
+}
+function forgedSlotCount() {
+  if (!equippedForged()) return 0;
+  const lv = gunLv(save.gunEquip);
+  return lv >= 5 ? 8 : (2 + lv);
+}
+function forgedSlotPair(slot) {
+  const g = equippedForged();
+  if (!g) return [0, 0];
+  const donor = (slot & 1) !== 0;
+  const gun = donor ? g.donor : g.base;
+  const chosen = donor ? g.attrB : g.attrA;
+  const attr = slot < 2 ? chosen : nthOtherAttr(chosen, Math.floor((slot - 2) / 2));
+  return [gun, attr];
+}
+function forgedLatestTrait() {
+const slots = forgedSlotCount();
+if (slots <= 0) return "";
+const [g, a] = forgedSlotPair(slots - 1);
+return GUN_ATTRS[g][a][0];
+}
+function forgedCount(effect) {
+  if (!equippedForged()) return 0;
+const slots = forgedSlotCount();
+let count = 0;
+for (let s = 0; s < slots; s++) {
+const [g, a] = forgedSlotPair(s);
+if (GUN_ATTRS[g][a][1] === effect) count += 1;
+}
+return count;
+}
+function forgedHas(effect) { return forgedCount(effect) > 0; }
+function perk(bit) { return ((save.fpw | save.fup) & bit) !== 0; }
+function shieldCap() { return perk(PERK.shieldCap) ? 13 : 9; }
+function heartSlots() {
+let slots = Math.max(3, R ? R.lives : 3);
+if (perk(PERK.maxHp)) slots += 1;
+return Math.min(9, slots);
+}
+function gunToken(gun) {
+  if (!isForgedId(gun)) return GUNS[gun] || "CANNON";
+  const g = forgedAt(gun);
+  if (!g) return "FORGED";
+  return GUNS[g.base] + "+" + GUNS[g.donor];
+}
+if (!themeOwned(save.theme)) save.theme = 0;
+if (!shipOwned(save.ship)) save.ship = 0;
+if (!laserOwned(save.laser)) save.laser = 0;
+if (!gunOwned(save.gunEquip)) save.gunEquip = 0;
+save.thrust = Math.min(2, save.thrust || 0);
+const PAL_CACHE = [];
+function palFor(t) {
+const k = t & 7;
+if (PAL_CACHE[k]) return PAL_CACHE[k];
+const p = PAL_RGB[k].map(clr);
+PAL_CACHE[k] = { bg: p[0], ink: p[1], muted: p[2], accent: p[3], top: p[4], low: p[5], ship: p[6],
+barrier: p[7], shot: p[8], planet: p[9], button: p[10], buttonOn: p[11], star: p[12] };
+return PAL_CACHE[k];
+}
+function laserColour(c) { return clr(LASERS[c % 12][1]); }
+const KEY_NAMES = {
+ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down",
+ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right",
+Space: "space", Enter: "enter", NumpadEnter: "enter",
+Escape: "esc", Tab: "tab", KeyQ: "tab"
+};
+const held = new Set();
+const pressed = new Set();
+const mouse = { x: 0, y: 0, inside: false, down: false, moved: -1e9 };
+let kbActive = false;
+window.addEventListener("keydown", (e) => {
+const name = KEY_NAMES[e.code];
+if (!name) return;
+e.preventDefault();
+kbActive = true;
+if (!e.repeat) pressed.add(name);
+held.add(name);
+});
+window.addEventListener("keyup", (e) => {
+const name = KEY_NAMES[e.code];
+if (name) held.delete(name);
+});
+window.addEventListener("blur", () => { held.clear(); mouse.down = false; });
+function toLogical(e) {
+const r = cv.getBoundingClientRect();
+return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
+}
+cv.addEventListener("pointermove", (e) => {
+const p = toLogical(e);
+mouse.x = p.x; mouse.y = p.y; mouse.inside = true;
+mouse.moved = performance.now();
+kbActive = false;
+const i = btnAt(p.x, p.y);
+if (i >= 0) sel = i;
+});
+cv.addEventListener("pointerleave", () => { mouse.inside = false; });
+cv.addEventListener("pointerdown", (e) => {
+const p = toLogical(e);
+mouse.x = p.x; mouse.y = p.y; mouse.inside = true;
+mouse.down = true;
+mouse.moved = performance.now();
+kbActive = false;
+cv.setPointerCapture(e.pointerId);
+const i = btnAt(p.x, p.y);
+if (i >= 0) {
+sel = i;
+if (btns[i].fn) btns[i].fn();
+}
+});
+cv.addEventListener("pointerup", () => { mouse.down = false; });
+cv.addEventListener("pointercancel", () => { mouse.down = false; });
+let scr = "demo";
+let sel = 0;
+let btns = [];
+let shopTab = 0, shopPage = 0, shopMsg = "";
+let divPage = 0, divMsg = "";
+let forgeTab = 0, forgeStep = 0, forgePage = 0;
+let forgeFirst = 0, forgeSecond = 0, forgeAttrA = 0, forgeAttrB = 0;
+let forgeMsg = "", forgeFlash = 0;
+let customFromPause = false;
+let customPage = 0;
+let forgeFocus = -1;
+let demo = true;
+function setScr(s) {
+scr = s;
+sel = 0;
+if (s !== "shop") shopMsg = "";
+}
+function btnAt(x, y) {
+for (let i = 0; i < btns.length; i++) {
+const b = btns[i];
+if (x >= b.x && y >= b.y && x < b.x + b.w && y < b.y + b.h) return i;
+}
+return -1;
+}
+let R = null;
+function newRun(level) {
+return {
+level, score: 0, lives: 3, invuln: 0,
+px: (W - SHIP_W) / 2,
+ox: 0, oy: 34, dir: 1, step: 2, drop: 8,
+units: [], foes: [], bolts: [], coins: [], blasts: [], barriers: [],
+scraps: [], terrain: 0, sky: null,
+boss: null, escorts: [], mini: false, raid: false,
+god: 0, godWave: 0, godEntrance: false, godBars: 3, godHp: 0, godHpMax: 1,
+raidMates: [],
+cool: 0, foeCool: 0, foeGap: 40, hitBy: "ALIEN", gunCool: 0,
+beamOn: false, beamX: 0, beamBurst: 0, beamCool: 0, beamTick: 0, spaceTick: 0,
+spreadSide: false, revived: false, raidSplash: false, shieldHole: 0,
+raidBeamT: 0, raidBeamX: 160,
+drop_: null, msg: "", msgT: 0, timer: 0, won: false, over: false,
+boost: [0, 0, 0, 0, 0],
+divCool: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+demeterUses: 0, demeterBonus: 0, demeterT: 0, athenaUses: 0, aegisT: 0, aegisHits: 0,
+stun: 0, charm: 0, revel: 0, hermes: 0, berserk: 0,
+waveY: -1, sunT: 0, sunX: 0, godBeamT: 0, godBeamX: 0, godWard: 0,
+cloneAlive: false, cloneX: 16, cloneCool: 0,
+playerStun: 0, apolloT: 0, apolloX: 160, apolloX2: 200, nextStyle: -1,
+hephT: 0, heph: [{ on: false }, { on: false }, { on: false }]
+};
+}
+function rnd(n) { return Math.floor(Math.random() * n); }
+let audioCtx = null;
+function beep(hz, ms) {
+const AC = window.AudioContext || window.webkitAudioContext;
+if (!AC) return;
+if (!audioCtx) audioCtx = new AC();
+if (audioCtx.state === "suspended") audioCtx.resume();
+const o = audioCtx.createOscillator();
+const g = audioCtx.createGain();
+o.type = "square";
+o.frequency.value = hz;
+g.gain.setValueAtTime(0.05, audioCtx.currentTime);
+o.connect(g);
+g.connect(audioCtx.destination);
+o.start();
+o.stop(audioCtx.currentTime + ms / 1000);
+}
+function bossW() { return R.boss && R.boss.w ? R.boss.w : BOSS_W; }
+function bossH() { return R.boss && R.boss.h ? R.boss.h : BOSS_H; }
+function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+function overlapRect(ax, ay, aw, ah, bx, by, bw, bh) {
+return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
+function unitSize(u) {
+if (u.kind === 2) return [BOSS_W, BOSS_H];
+if (u.kind === 6) return [MINI_W, MINI_H];
+if (u.kind === 5) return [ALIEN_W + 4, ALIEN_H + 2];
+if (u.kind === 7) return [ALLY_W, ALLY_H];
+if (u.kind === 3) return [16, 12];
+return [ALIEN_W, ALIEN_H];
+}
+function startLevel() {
+const L = R.level;
+R.foes = []; R.bolts = []; R.blasts = []; R.escorts = []; R.raidMates = []; R.boss = null;
+R.mini = false; R.raid = false; R.god = 0; R.godEntrance = false;
+R.raidSplash = false; R.shieldHole = 0; R.raidBeamT = 0; R.playerStun = 0; R.apolloT = 0; R.hephT = 0;
+if (R.heph) for (const h of R.heph) h.on = false;
+R.invuln = 0; R.cool = 0; R.foeCool = 0; R.gunCool = 0;
+R.beamOn = false; R.beamBurst = 0; R.beamCool = 0; R.beamTick = 0;
+R.drop = Math.min(20, 8 + Math.floor((L - 1) / 20));
+R.foeGap = Math.max(14, 42 - Math.floor(L / 20) - (L % 5 === 0 ? 6 : 0));
+R.dir = 1; R.step = 2;
+R.barriers = []; R.units = [];
+R.coins = []; R.drop_ = null; R.sky = null;
+R.terrain = L % 4;
+buildTerrain();
+if (L % 25 === 0) buildGod();
+else if (L % 5 === 0) buildBoss();
+else if (save.raidWon && Math.random() < 0.4) buildMini();
+else buildFormation();
+if (!demo && L % 20 === 0) {
+const bit = L / 20 - 1;
+if (bit >= 0 && bit < 15) save.camp |= (1 << bit);
+if (perk(PERK.shieldRepair) && save.shield < shieldCap()) save.shield += 1;
+}
+if (!demo) { save.level = L; persist(); }
+resetMachines();
+if (!demo && R.raid) {
+R.raidSplash = true;
+R.timer = 60;
+setScr("splash");
+} else {
+R.raidSplash = false;
+setScr(demo ? "demo" : "play");
+}
+}
+function buildTerrain() {
+R.scraps = [];
+const count = R.terrain === 0 ? 5 : R.terrain === 3 ? 6 : 3;
+for (let i = 0; i < count; i++) {
+const s = { x: rnd(W - 48), y: 48 + rnd(170), w: 0, h: 0 };
+if (R.terrain === 0) { s.w = 10 + rnd(10); s.h = 6 + rnd(6); }
+else if (R.terrain === 1) { s.w = 36 + rnd(48); s.h = 2; }
+else if (R.terrain === 2) { s.x = 0; s.y = 64 + i * 58; s.w = 8; s.h = 2; }
+else { s.w = 6 + rnd(12); s.h = 2; }
+R.scraps.push(s);
+}
+}
+function buildBarriers(L) {
+let n;
+if (L < 40) n = 2 + rnd(2);
+else if (L < 140) n = rnd(4);
+else n = rnd(3);
+const slot = n > 0 ? Math.floor((W - n * 36) / (n + 1)) : 0;
+for (let i = 0; i < n; i++) {
+const cols = [];
+const notch = rnd(10);
+for (let c = 0; c < 10; c++) {
+let h = 4 + rnd(3);
+if (c === notch) h = 1 + rnd(2);
+cols.push(h);
+}
+R.barriers.push({ x: slot + i * (36 + slot), y: 292, cols });
+}
+}
+function buildFormation() {
+const L = R.level;
+const shape = rnd(5);
+let cols = 4 + rnd(3);
+if (L > 80) cols += 1;
+if (L > 180) cols += rnd(2);
+if (cols > 7) cols = 7;
+let rows = 2 + rnd(2);
+if (L > 40) rows += 1;
+if (L > 120 && rnd(2)) rows += 1;
+if (L > 220) rows += 1;
+if (rows > 5) rows = 5;
+const yellow = 1 + rnd(rows);
+R.step = Math.min(7, 2 + Math.floor(L / 50) + rnd(3));
+let stunners = 0;
+for (let row = 0; row < rows; row++) {
+for (let col = 0; col < cols; col++) {
+let ox = col * 30;
+const oy = row * 22;
+let keep = true;
+if (shape === 1) { if (col < row || col >= cols - row) keep = false; }
+else if (shape === 2) { if (row & 1) ox += 15; }
+else if (shape === 3) { if ((row === 0 || row === rows - 1) && (col === 0 || col === cols - 1)) keep = false; }
+else if (shape === 4) { if (col === Math.floor(cols / 2)) keep = false; }
+if (!keep) continue;
+let kind = row < yellow ? 1 : 0;
+if (rnd(5) === 0) kind ^= 1;
+const roll = rnd(100);
+if (L >= 3 && roll < 6 + Math.floor(L / 25)) kind = 4;
+else if (L >= 8 && roll >= 90 - Math.floor(L / 30)) kind = 5;
+else if (L >= 75 && stunners < 3 && roll >= 72 && roll < 84) { kind = 8; stunners += 1; }
+const life = 1 + enemyLife(L);
+R.units.push({ ox, oy, kind, hp: life, max: life, alive: true });
+}
+}
+if (R.units.length === 0) {
+const life = 1 + enemyLife(L);
+R.units.push({ ox: 0, oy: 0, kind: 1, hp: life, max: life, alive: true });
+}
+centerFormation();
+buildBarriers(L);
+}
+function centerFormation() {
+let minX = 999, maxX = 0;
+for (const u of R.units) {
+minX = Math.min(minX, u.ox);
+maxX = Math.max(maxX, u.ox + ALIEN_W);
+}
+R.ox = Math.floor((W - (maxX - minX)) / 2) - minX;
+R.oy = 34;
+R.dir = 1;
+}
+function buildBoss() {
+const L = R.level;
+const max = Math.min(22, 6 + Math.floor(L / 20)) + enemyLife(L);
+R.raid = Math.random() * 100 < raidChance(L);
+let style = R.nextStyle >= 0 ? R.nextStyle : rolledBossStyle(L);
+R.nextStyle = -1;
+R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: max, max, style, cool: 0, open: true, openT: 0 };
+R.units = [];
+if (R.raid) {
+const weapons = [0, 1, 2, 3, 4, 6];
+let cur = weapons.indexOf(style);
+if (cur < 0) cur = 0;
+style = weapons[(cur + 1 + rnd(5)) % 6];
+R.boss.style = style;
+const life = 1 + enemyLife(L);
+for (let i = 0; i < 4; i++) R.units.push({ ox: i * 30, oy: 0, kind: 0, hp: life, max: life, alive: true });
+if (style === 1) {
+for (let i = 0; i < 3; i++) R.units.push({ ox: 16 + i * 40, oy: 28, kind: 3, hp: life, max: life, alive: true });
+}
+R.ox = Math.floor((W - 120) / 2);
+R.oy = 84;
+R.dir = 1;
+R.step = 2;
+}
+if (style === 6) {
+const life = 1 + enemyLife(L);
+const n = L >= 40 ? 3 : 2;
+const bx = Math.floor((W - BOSS_W) / 2);
+const slots = [bx - 52, bx + BOSS_W + 8, bx - 76];
+if (!R.raid) { R.ox = 0; R.oy = 0; R.dir = 1; R.step = 2; }
+for (let i = 0; i < n; i++) {
+R.units.push({ ox: R.raid ? slots[i] - R.ox : slots[i], oy: R.raid ? 46 - R.oy : 46, kind: 8, hp: life, max: life, alive: true, stun: 0 });
+}
+}
+buildBarriers(L);
+}
+function buildMini() {
+R.mini = true;
+const L = R.level;
+const cols = 4;
+R.units = [];
+let stunners = 0;
+for (let col = 0; col < cols; col++) {
+const life = 1 + enemyLife(L);
+let kind = col & 1 ? 1 : 0;
+if (L >= 75 && stunners < 3 && rnd(100) < 30) { kind = 8; stunners += 1; }
+R.units.push({ ox: col * 30, oy: 24 + (col & 1) * 20, kind, hp: life, max: life, alive: true });
+}
+const mhp = Math.min(22, 6 + Math.floor(L / 20)) + enemyLife(L);
+R.units.push({ ox: Math.floor((cols * 30 - MINI_W) / 2), oy: 0, kind: 6, hp: mhp, max: mhp, alive: true });
+R.ox = Math.floor((W - cols * 30) / 2);
+R.oy = 38;
+R.dir = 1;
+R.step = Math.min(5, 2 + Math.floor(L / 70));
+buildBarriers(L);
+}
+function godIndex(L) { return ((Math.floor(L / 25) - 1) % 12) + 1; }
+function godName() { return GODS[(R.god - 1 + 12) % 12] || "GOD"; }
+function godInk() { return clr(GOD_INK[(R.god - 1 + 12) % 12]); }
+function enemyLife(level) {
+const L = level === undefined ? R.level : level;
+if (L < 30) return 0;
+const bonus = 1 + Math.floor((L - 30) / 20);
+return bonus > 3 ? 3 : bonus;
+}
+function raidChance(level) {
+const L = level === undefined ? R.level : level;
+let pct = 20;
+if (L >= 25) pct += 5 * (1 + Math.floor((L - 25) / 10));
+return Math.min(100, pct);
+}
+function godWaveTotal(level) {
+const L = level === undefined ? R.level : level;
+const n = Math.floor(L / 25);
+if (n < 1) return 4;
+return 4 + 2 * (n - 1);
+}
+function raidTell(style) {
+if (style === 6) return "NETS AND BEAM";
+return ["CLEAR GOONS", "CLEAR DRONES", "HIT WHEN OPEN", "DODGE THE SPRAY", "DODGE THE BEAM"][style] || "RAID";
+}
+function bossGimmick(style) {
+if (style === 1) return "DROP DRONES";
+if (style === 2) return "HIT WHEN OPEN";
+if (style === 3) return "DODGE SPRAY";
+if (style === 4) return "DODGE LASER";
+if (style === 6) return "NETS + LASER";
+return "BREAK SHIELD";
+}
+function rolledBossStyle(lv) {
+if (Math.random() * 100 < 30) return 4;
+const slot = ((Math.floor(lv / 5) - 1) % 5 + 5) % 5;
+return [0, 1, 2, 3, 6][slot];
+}
+// COIN_RULES_START
+// Same amounts as firmware/src/hardware/coin_drop.h.
+function bossBounty(base) {
+if (base < 0) return 0;
+let n = base + Math.floor(R.level / 25);
+if (n > COIN_MAX) n = COIN_MAX;
+if (n < 0) n = 0;
+return n;
+}
+function inGodGoonWave() { return !!(R && R.god && !R.godEntrance); }
+function godWaveId(level, wave) {
+if (level < 1 || level > LEVELS || level % 25 !== 0) return -1;
+if (wave < 0 || wave >= 26) return -1;
+const god = Math.floor(level / 25) - 1;
+if (god < 0 || god >= 12) return -1;
+return god * 26 + wave;
+}
+function levelCleared(level) {
+return Array.isArray(save.clearedLv) && save.clearedLv.indexOf(level) >= 0;
+}
+function godWaveCleared(level, wave) {
+const id = godWaveId(level, wave);
+return id >= 0 && Array.isArray(save.clearedGw) && save.clearedGw.indexOf(id) >= 0;
+}
+function replayCut() {
+if (demo) return false;
+if (levelCleared(R.level)) return true;
+if (inGodGoonWave() && godWaveCleared(R.level, R.godWave)) return true;
+return false;
+}
+function payout(base) {
+let n = base;
+if (n > COIN_MAX) n = COIN_MAX;
+if (n < 0) n = 0;
+if (replayCut()) n -= 4;
+if (n < 0) n = 0;
+return n;
+}
+function markLevel(level) {
+if (demo || level < 1 || level > LEVELS) return;
+if (!Array.isArray(save.clearedLv)) save.clearedLv = [];
+if (save.clearedLv.indexOf(level) >= 0) return;
+save.clearedLv.push(level);
+persist();
+}
+function markGodWave(level, wave) {
+if (demo) return;
+const id = godWaveId(level, wave);
+if (id < 0) return;
+if (!Array.isArray(save.clearedGw)) save.clearedGw = [];
+if (save.clearedGw.indexOf(id) >= 0) return;
+save.clearedGw.push(id);
+persist();
+}
+// COIN_RULES_END
+function nextGodLevel(from) { return Math.floor((from + 24) / 25) * 25; }
+function nextGodName(from) {
+const g = nextGodLevel(from);
+const idx = ((Math.floor(g / 25) - 1) % 12 + 12) % 12;
+return GODS[idx];
+}
+function hitFlash(who) {
+if (who === "LASER" || who === "GOD BEAM" || who === "BEAM") return "GOD BEAM";
+if (GODS.indexOf(who) >= 0) return "ORB";
+if (who === "ALIEN" || who === "DRONE" || who === "GOON") return "GOON";
+return who || "GOON";
+}
+function raidCoreHp(level) {
+const L = level === undefined ? R.level : level;
+let core = 36 + Math.floor(L / 3);
+if (core > 99) core = 99;
+return core + enemyLife(L);
+}
+function godBarHp() { return 12 + Math.floor(R.level / 12) + enemyLife(); }
+function buildGod() {
+R.god = godIndex(R.level);
+R.godWave = 0;
+R.godBars = 3;
+spawnGodWave();
+}
+function spawnGodWave() {
+const wave = R.godWave;
+let cols = 4 + wave;
+if (cols > 8) cols = 8;
+const rows = 2 + (wave >= 2 ? 1 : 0);
+R.units = [];
+let stunners = 0;
+for (let row = 0; row < rows; row++) {
+for (let col = 0; col < cols; col++) {
+let kind = row === 0 ? 1 : 0;
+const roll = rnd(100);
+if (roll < 12) kind = 4;
+else if (roll < 20) kind = 5;
+else if (R.level >= 75 && stunners < 3 && roll < 32) { kind = 8; stunners += 1; }
+const life = 1 + enemyLife();
+R.units.push({ ox: col * 30, oy: row * 22, kind, hp: life, max: life, alive: true });
+}
+}
+const mhp = 3 + wave + enemyLife();
+R.units.push({ ox: Math.floor((cols * 30 - MINI_W) / 2), oy: -6, kind: 6, hp: mhp, max: mhp, alive: true });
+R.ox = Math.floor((W - cols * 30) / 2);
+R.oy = 40;
+R.dir = 1;
+R.step = 2 + wave;
+R.foeCool = 0;
+R.foeGap = 30;
+R.boss = null;
+R.escorts = [];
+R.foes = [];
+}
+function godFight() {
+R.units = [];
+R.godEntrance = true;
+R.godBars = 3;
+R.godHpMax = godBarHp();
+R.godHp = R.godHpMax;
+R.boss = { x: Math.floor((W - GOD_W) / 2), y: 40, dir: 1, hp: 1, max: 1, style: 5, cool: 0, w: GOD_W, h: GOD_H };
+R.apolloT = 0;
+R.hephT = 0;
+if (R.heph) for (const h of R.heph) h.on = false;
+const mateHp = raidCoreHp();
+R.raidMates = [{ x: 8, y: 44, hp: mateHp, max: mateHp, stun: 0, cool: 20 }];
+R.escorts = [{ side: -1, hp: 2 + enemyLife() }, { side: 1, hp: 2 + enemyLife() }];
+R.foes = [];
+R.bolts = [];
+R.foeCool = 0;
+R.foeGap = 40;
+R.godWard = 0;
+R.godBeamT = 0;
+R.msg = "GOD";
+R.msgT = 45;
+setScr("play");
+}
+function fireFoe(x, y, kind, who, vx = 0, vy = null) {
+if (R.foes.length >= 10) return;
+const phase = R.godEntrance ? 3 - R.godBars : 0;
+let w = 3, h = 8, speed = 6, ox = x;
+if (kind === 3) { w = 10; h = 10; speed = 4 + phase; ox = clamp(x, 0, W - 10); }
+else if (kind === 4) { w = 14; h = 10; speed = 2; }
+else if (kind === 5) { w = 4; h = 8; speed = 3; }
+else if (kind === 6) { w = NET_W; h = 8; speed = 3; ox = x - Math.floor(NET_W / 2); }
+else if (kind === 2) { w = 5; h = 6; speed = 4; ox = x - 2; }
+else if (kind === 1) { w = 2; h = 6; speed = 8; ox = x - 1; }
+R.foes.push({ x: ox, y, vx, vy: vy == null ? speed : vy, w, h, kind, who });
+}
+function spawnGodOrb(x, y, vx, vy) {
+const w = 10, h = 10;
+x = clamp(x, 4, W - w - 4);
+y = clamp(y, 32, SHIP_Y - 90);
+if (overlapRect(x, y, w, h, R.px, SHIP_Y, SHIP_W, SHIP_H)) return;
+fireFoe(x, y, 3, godName(), vx, vy);
+}
+function spawnGodHazard(x, y) {
+const dx = (R.px + SHIP_W / 2) - (x + 5);
+const vx = dx < -6 ? -1 : (dx > 6 ? 1 : 0);
+spawnGodOrb(x, y, vx, 2);
+}
+const MACHINES = [
+{ name: "LIGHTNING", hint: "stun zap 5s", cool: 312 },
+{ name: "DOUBLE", hint: "clone ship", cool: 0 },
+{ name: "TSUNAMI", hint: "wave blocks 8s", cool: 500 },
+{ name: "HEAL RAY", hint: "+2 then +1", cool: 313 },
+{ name: "AEGIS", hint: "3s shield x2", cool: 437 },
+{ name: "BERSERKER", hint: "at 1 life", cool: 0 },
+{ name: "SOLARIS", hint: "burn beam 5s", cool: 312 },
+{ name: "SILVER", hint: "homing 6s", cool: 375 },
+{ name: "CHARM", hint: "stop fire 9s", cool: 562 },
+{ name: "ANVIL", hint: "blast 6s", cool: 375 },
+{ name: "CADUCEUS", hint: "dash 6s", cool: 375 },
+{ name: "REVEL", hint: "slow shots 8s", cool: 500 }
+];
+function divineSlots() { return Math.min(12, 1 + (save.dmul | 0)); }
+function divineOn(i) { return i >= 0 && i < 12 && ((save.dive >> i) & 1) !== 0; }
+function resetMachines() {
+if (R.demeterBonus > 0) R.lives = Math.max(1, R.lives - R.demeterBonus);
+R.demeterBonus = 0; R.demeterT = 0;
+R.demeterUses = 0; R.athenaUses = 0; R.aegisT = 0; R.aegisHits = 0;
+R.stun = 0; R.charm = 0; R.revel = 0; R.hermes = 0; R.berserk = 0;
+R.waveY = -1; R.sunT = 0; R.sunX = 0; R.godBeamT = 0; R.godBeamX = 0; R.godWard = 0;
+R.cloneAlive = !demo && divineOn(1);
+R.cloneX = clamp((W - SHIP_W) - R.px, 4, W - SHIP_W - 4);
+R.cloneCool = 0;
+R.divCool = [];
+for (let i = 0; i < 12; i++) R.divCool[i] = 24;
+}
+function grantDivine(god) {
+if (god < 1 || god > 12) return;
+save.gods = (save.gods | (1 << (god - 1))) & 0xfff;
+persist();
+R.msg = MACHINES[god - 1].name;
+R.msgT = 45;
+}
+function tryBerserk() {
+if (R.lives !== 1 || !divineOn(5)) return;
+R.berserk = 500;
+for (let i = 0; i < 12; i++) R.divCool[i] = R.divCool[i] > 125 ? R.divCool[i] - 125 : 0;
+R.gunCool = R.gunCool > 125 ? R.gunCool - 125 : 0;
+R.beamCool = R.beamCool > 125 ? R.beamCool - 125 : 0;
+R.msg = "BERSERK"; R.msgT = 45;
+}
+function countFoeKind(kind) { return R.foes.filter(f => f.kind === kind).length; }
+function fireGodGimmick(x, y) {
+const have = countFoeKind(3);
+if (have >= 2) return;
+const px = R.px + SHIP_W / 2;
+switch (R.god) {
+case 1:
+spawnGodOrb(x - 5, y, 0, 2);
+break;
+case 2:
+if (have > 0) break;
+spawnGodOrb(12, 44, 1, 2);
+spawnGodOrb(W - 22, 44, -1, 2);
+break;
+case 3: {
+if (have > 0) break;
+const gap = 48 + rnd(Math.max(1, W - 140));
+for (let sx = 20; sx < W - 30; sx += 84) {
+if (sx > gap - 28 && sx < gap + 28) continue;
+spawnGodOrb(sx, 40, 0, 2);
+}
+break;
+}
+case 4:
+spawnGodOrb(20 + rnd(W - 50), 40, 0, 1);
+break;
+case 5:
+if (have > 0) break;
+spawnGodOrb(x - 40, y, 0, 2);
+spawnGodOrb(x + 30, y, 0, 2);
+break;
+case 6:
+spawnGodHazard(x - 5, y);
+break;
+case 7:
+break;
+case 8: {
+const dx = px - x;
+const vx = dx < -24 ? -1 : (dx > 24 ? 1 : 0);
+spawnGodOrb(x - 5, y, vx, 2);
+break;
+}
+case 9: {
+const dx = px - x;
+const vx = dx < -8 ? -1 : (dx > 8 ? 1 : 0);
+spawnGodOrb(x - 5, y, vx, 2);
+break;
+}
+case 10:
+break;
+case 11:
+spawnGodOrb(x - 5, y, (rnd(2) ? 1 : -1), 2);
+break;
+default:
+spawnGodOrb(24 + rnd(W - 58), 40, rnd(3) - 1, 1);
+break;
+}
+}
+function stepMachines() {
+if (demo || scr !== "play") return;
+if (R.stun > 0) R.stun -= 1;
+if (R.charm > 0) R.charm -= 1;
+if (R.revel > 0) R.revel -= 1;
+if (R.hermes > 0) R.hermes -= 1;
+if (R.berserk > 0) R.berserk -= 1;
+if (R.demeterT > 0) {
+R.demeterT -= 1;
+if (R.demeterT === 0 && R.demeterBonus > 0) {
+const before = R.lives;
+R.lives = Math.max(1, R.lives - R.demeterBonus);
+R.demeterBonus = 0;
+if (before > 1 && R.lives === 1) tryBerserk();
+}
+}
+if (R.aegisT > 0) {
+R.aegisT -= 1;
+if (R.aegisT === 0) R.aegisHits = 0;
+}
+if (R.waveY >= 0) {
+R.waveY -= 6;
+if (R.waveY < 28) R.waveY = -1;
+}
+if (R.sunT > 0) {
+if ((R.sunT % 8) === 1) {
+for (let i = R.units.length - 1; i >= 0; i--) {
+const u = R.units[i];
+if (!u.alive) continue;
+const [sw, sh] = unitSize(u);
+if (overlapRect(R.sunX, 36, 6, SHIP_Y - 36, R.ox + u.ox, R.oy + u.oy, sw, sh)) hitUnit(u);
+}
+if (R.boss && overlapRect(R.sunX, 36, 6, SHIP_Y - 36, R.boss.x, R.boss.y, bossW(), bossH())) bossHit();
+for (let mi = R.raidMates.length - 1; mi >= 0; mi--) {
+const m = R.raidMates[mi];
+if (overlapRect(R.sunX, 36, 6, SHIP_Y - 36, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidMate(mi);
+}
+}
+R.sunT -= 1;
+}
+for (let i = 0; i < 12; i++) {
+if (!divineOn(i)) continue;
+if (R.divCool[i] > 0) { R.divCool[i] -= 1; continue; }
+if (triggerMachine(i)) R.divCool[i] = MACHINES[i].cool;
+}
+}
+function triggerMachine(i) {
+if (i === 0) {
+let best = null, bestY = -999, zx = R.px + Math.floor(SHIP_W / 2);
+for (const u of R.units) {
+if (!u.alive) continue;
+if (R.oy + u.oy > bestY) {
+bestY = R.oy + u.oy;
+best = u;
+const [sw] = unitSize(u);
+zx = R.ox + u.ox + Math.floor(sw / 2);
+}
+}
+if (!best && R.boss) zx = R.boss.x + Math.floor(BOSS_W / 2);
+else if (!best) return false;
+const rx = Math.round(zx) - 2, rw = 4, rh = SHIP_Y - 30;
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw, sh] = unitSize(u);
+if (overlapRect(rx, 30, rw, rh, R.ox + u.ox, R.oy + u.oy, sw, sh)) u.stun = 94;
+}
+if (R.boss && overlapRect(rx, 30, rw, rh, R.boss.x, R.boss.y, bossW(), bossH())) R.boss.stun = 94;
+for (const e of R.escorts) {
+if (overlapRect(rx, 30, rw, rh, escortX(e), ESCORT_Y, ALLY_W, ALLY_H)) e.stun = 94;
+}
+for (const m of R.raidMates) {
+if (overlapRect(rx, 30, rw, rh, m.x, m.y, BOSS_W, BOSS_H)) m.stun = 94;
+}
+if (best) hitUnit(best);
+else bossHit();
+R.zapX = rx;
+R.zapT = 6;
+return true;
+}
+if (i === 2) {
+if (R.waveY >= 0) return false;
+R.waveY = SHIP_Y - 20;
+return true;
+}
+if (i === 3) {
+if (R.demeterUses >= 2 || R.lives >= 9) return false;
+R.demeterUses += 1;
+let add = R.demeterUses === 1 ? 2 : 1;
+if (R.lives + add > 9) add = 9 - R.lives;
+if (add <= 0) return false;
+R.lives += add;
+R.demeterBonus += add;
+R.demeterT = 219;
+R.msg = add >= 2 ? "+2 LIFE" : "+1 LIFE";
+R.msgT = 45;
+return true;
+}
+if (i === 4) {
+if (R.athenaUses >= 2 || R.aegisHits > 0) return false;
+R.athenaUses += 1; R.aegisT = 188; R.aegisHits = 3;
+R.msg = "AEGIS"; R.msgT = 45;
+return true;
+}
+if (i === 6) {
+R.sunX = clamp(R.px + SHIP_W / 2 - 2, 4, W - 10);
+R.sunT = 36;
+return true;
+}
+if (i === 7) {
+if (!R.units.some(u => u.alive) && !R.boss) return false;
+return spawnBoltAt(R.px + SHIP_W / 2, SHIP_Y - 12, 0, -8, 3, 10, 4);
+}
+if (i === 8) { R.charm = 188; return true; }
+if (i === 9) {
+let best = null, bestN = 0;
+const spots = R.units.filter(u => u.alive).map(u => {
+const [sw, sh] = unitSize(u);
+return { x: R.ox + u.ox + sw / 2, y: R.oy + u.oy + sh / 2, u };
+});
+if (R.boss) spots.push({ x: R.boss.x + BOSS_W / 2, y: R.boss.y + BOSS_H / 2, u: null });
+for (const s of spots) {
+let n = 0;
+for (const o of spots) if ((s.x - o.x) ** 2 + (s.y - o.y) ** 2 <= 48 * 48) n += 1;
+if (!best || n > bestN) { best = s; bestN = n; }
+}
+if (!best) return false;
+R.blasts.push({ x: best.x, y: best.y, t: 24 });
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw, sh] = unitSize(u);
+if (overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, R.ox + u.ox, R.oy + u.oy, sw, sh)) hitUnit(u);
+}
+if (R.boss && overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, R.boss.x, R.boss.y, bossW(), bossH())) bossHit();
+for (let mi = R.raidMates.length - 1; mi >= 0; mi--) {
+const m = R.raidMates[mi];
+if (overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidMate(mi);
+}
+return true;
+}
+if (i === 10) {
+R.hermes = 94;
+if (R.invuln < 94) R.invuln = 94;
+return true;
+}
+if (i === 11) { R.revel = 188; return true; }
+return false;
+}
+function unitLabel(u) {
+if (R.godEntrance) return godName();
+if (u.kind === 6) return "MINI BOSS";
+if (u.kind === 4) return "ASSAULT";
+if (u.kind === 5) return "CANNON";
+if (u.kind === 2) return R.raid ? "RAID BOSS" : "BOSS";
+if (u.kind === 8) return "STUNNER";
+if (u.kind === 3) return "DRONE";
+return "ALIEN";
+}
+function foeInk(f) {
+if (f.kind === 3) return godInk();
+if (f.kind === 2) return clr([255, 168, 56]);
+if (f.kind === 1) return clr([255, 140, 96]);
+return clr([255, 72, 64]);
+}
+function spawnCoin(x, y) {
+if (demo || R.coins.length >= COIN_MAX) return;
+R.coins.push({ x: clamp(x, 0, W - COIN_SIZE), y });
+}
+function dropCoins(x, y, n) {
+for (let i = 0; i < n; i++) spawnCoin(x + (i - Math.floor(n / 2)) * (COIN_SIZE + 2), y);
+}
+function centerOf(x, y, w, h) { return [x + w / 2 - Math.floor(COIN_SIZE / 2), y + h / 2 - Math.floor(COIN_SIZE / 2)]; }
+function nextLockedGun() {
+for (let g = 1; g < 9; g++) if (!gunOwned(g)) return g;
+return 0;
+}
+function spawnDropAt(which, x, y) {
+R.drop_ = { which, x: clamp(Math.round(x), 16, W - 32), y: clamp(Math.round(y), 40, SHIP_Y - 40) };
+}
+const BOOSTS = [
+{ name: "RUSH", rate: 8, len: 500, price: 20 },
+{ name: "FURY", rate: 12, len: 500, price: 25 },
+{ name: "WIDE", rate: 5, len: 500, price: 15 },
+{ name: "VEIL", rate: 3, len: 250, price: 40 },
+{ name: "SALVO", rate: 15, len: 500, price: 20 }
+];
+for (let i = 0; i < BOOSTS.length; i++) {
+if (!save.armed || save.armed[i] !== BOOSTS[i].len) {
+if (!save.armed) save.armed = [0, 0, 0, 0, 0];
+save.armed[i] = 0;
+}
+}
+function boostOn(i) { return !!(R && R.boost && R.boost[i] > 0); }
+function boostHud() {
+if (!R || !R.boost) return "";
+const names = [];
+for (let i = 0; i < BOOSTS.length; i++) if (R.boost[i] > 0) names.push(BOOSTS[i].name);
+return names.join(" ");
+}
+function rollTempBoost(x, y) {
+const start = rnd(BOOSTS.length);
+for (let n = 0; n < BOOSTS.length; n++) {
+const i = (start + n) % BOOSTS.length;
+if (rnd(100) >= BOOSTS[i].rate) continue;
+if (x === undefined) R.drop_ = { which: 12 + i, x: 16 + rnd(W - 48), y: 40 };
+else spawnDropAt(12 + i, x, y);
+return true;
+}
+return false;
+}
+function stepBoosts() {
+if (!R || !R.boost) return;
+for (let i = 0; i < BOOSTS.length; i++) {
+if (R.boost[i] > 0) R.boost[i] -= 1;
+}
+}
+function maybeMiniDrop(x, y) {
+if (R.drop_) return;
+if (rnd(100) < 5) { spawnDropAt(11, x, y); return; }
+const which = nextLockedGun();
+if (which !== 0 && rnd(10) === 0) { spawnDropAt(which, x, y); return; }
+if (rollTempBoost(x, y)) return;
+const heart = 35 + (perk(PERK.heal) ? 15 : 0);
+spawnDropAt(rnd(100) < heart ? 9 : 10, x, y);
+}
+function maybeDrop(bossKill) {
+if (R.drop_) return;
+if (bossKill) {
+const which = nextLockedGun();
+if (which !== 0 && rnd(10) === 0) { R.drop_ = { which, x: 16 + rnd(W - 48), y: 40 }; return; }
+}
+if (rollTempBoost()) return;
+const roll = rnd(100);
+const heart = 5 + (perk(PERK.heal) ? 10 : 0);
+if (roll < heart) R.drop_ = { which: 9, x: 16 + rnd(W - 48), y: 40 };
+else if (roll < 20) R.drop_ = { which: 10, x: 16 + rnd(W - 48), y: 40 };
+}
+function collectDrop() {
+const d = R.drop_;
+if (d.which >= 1 && d.which <= 8) {
+save.guns |= (1 << (d.which - 1));
+save.gunEquip = d.which;
+persist();
+setMsg(GUNS[d.which]);
+} else if (d.which === 9) {
+const cap = perk(PERK.maxHp) ? 9 : 8;
+if (R.lives < cap) R.lives += 1;
+setMsg("HEART");
+} else if (d.which === 10) {
+const g = save.gunEquip;
+if (gunLv(g) < 5) {
+save.gunLv[g] = gunLv(g) + 1;
+persist();
+setMsg("GUN +1");
+} else {
+setMsg("MAX");
+}
+} else if (d.which === 11) {
+if (save.shield < shieldCap()) {
+save.shield += 1;
+persist();
+}
+setMsg("SHIELD");
+} else if (d.which >= 12 && d.which < 12 + BOOSTS.length) {
+const i = d.which - 12;
+if (!R.boost) R.boost = [0, 0, 0, 0, 0];
+R.boost[i] = BOOSTS[i].len;
+setMsg(BOOSTS[i].name);
+}
+R.drop_ = null;
+}
+function setMsg(m) { R.msg = m; R.msgT = 45; }
+function stepDrop() {
+const d = R.drop_;
+if (!d) return;
+const ny = d.y + 3;
+if (overlapRect(d.x, ny, 14, 14, R.px, SHIP_Y, SHIP_W, SHIP_H)) { collectDrop(); return; }
+if (ny > SHIP_Y + 8) { R.drop_ = null; return; }
+d.y = ny;
+}
+function addScore(n) { R.score = Math.min(99999, R.score + n); }
+function killUnit(u) {
+u.alive = false;
+const [sw, sh] = unitSize(u);
+const [cx, cy] = centerOf(R.ox + u.ox, R.oy + u.oy, sw, sh);
+if (u.kind === 6) {
+addScore(20);
+const mini = (R.god && !R.godEntrance) ? 5 : bossBounty(2);
+dropCoins(cx, cy, payout(mini));
+maybeMiniDrop(cx, cy);
+} else {
+addScore(10);
+if (rnd(100) < COIN_CHANCE) dropCoins(cx, cy, payout(1));
+maybeDrop(false);
+}
+}
+function playerDamage() {
+let dmg = 1 + forgedCount("power");
+if (perk(PERK.damage)) dmg += 1;
+if (boostOn(1)) dmg += 1;
+if (R && R.berserk > 0) dmg += 10;
+return dmg;
+}
+function hurtRaidMate(i) {
+const m = R.raidMates[i];
+if (!m) return;
+beep(523, 35);
+m.hp -= playerDamage();
+addScore(10);
+if (m.hp <= 0) {
+const [cx, cy] = centerOf(m.x, m.y, BOSS_W, BOSS_H);
+dropCoins(cx, cy, payout(bossBounty(3)));
+R.raidMates.splice(i, 1);
+}
+}
+function hitUnit(u) {
+if (u.kind === 6) beep(523, 35);
+u.hp -= playerDamage();
+if (u.kind === 6) {
+if (u.hp > 0) {
+addScore(20);
+return;
+}
+killUnit(u);
+return;
+}
+if (u.hp > 0) return;
+killUnit(u);
+}
+function bossHit() {
+if (!R.boss) return false;
+if (R.raid && R.units.some(u => u.alive)) return false;
+if (R.boss.style === 6 && R.units.some(u => u.alive && u.kind === 8)) return false;
+if (R.raid && R.boss.style === 2 && !R.boss.open) return false;
+beep(523, 35);
+if (R.godEntrance) {
+addScore(10);
+R.godHp -= playerDamage();
+if (R.godHp <= 0) {
+R.godBars -= 1;
+if (R.godBars > 0) {
+R.godHpMax = godBarHp() + (3 - R.godBars) * 2;
+R.godHp = R.godHpMax;
+R.foes = [];
+} else {
+const slain = R.god;
+const [cx, cy] = centerOf(R.boss.x, R.boss.y, bossW(), bossH());
+dropCoins(cx, cy, payout(bossBounty(10)));
+maybeDrop(true);
+R.boss = null;
+R.escorts = [];
+R.godBars = 0;
+R.godHp = 0;
+R.godWard = 0;
+R.godBeamT = 0;
+grantDivine(slain);
+}
+}
+return true;
+}
+R.boss.hp -= playerDamage();
+addScore(10);
+if (R.boss.hp <= 0) {
+const [cx, cy] = centerOf(R.boss.x, R.boss.y, bossW(), bossH());
+dropCoins(cx, cy, payout(bossBounty(R.raid ? 4 : 3)));
+if (R.raid) { save.raidWon = true; persist(); }
+R.boss = null;
+maybeDrop(true);
+}
+return true;
+}
+function boltSlots() { return BOLT_MAX - R.bolts.length; }
+function fireGap() {
+const gun = baseGun();
+const lv = gunLv(save.gunEquip);
+let gap;
+if (gun === 1) gap = 10 - lv;
+else if (gun === 2) gap = Math.max(2, 3 - lv);
+else if (gun === 4) gap = Math.max(2, 5 - lv);
+else if (gun === 5) gap = Math.max(2, 6 - lv);
+else if (gun === 6) gap = Math.max(5, 14 - lv * 2);
+else if (gun === 7) gap = Math.max(5, 12 - lv * 2);
+else if (gun === 8) gap = Math.max(4, 9 - lv);
+else gap = Math.max(2, 4 - lv);
+gap -= 2 * forgedCount("rapid");
+if (perk(PERK.rapid)) gap -= 1;
+if (boostOn(0)) gap -= 2;
+return Math.max(2, gap);
+}
+function spawnBoltAt(cx, y, vx, vy, w, h, tag) {
+if (R.bolts.length >= BOLT_MAX) return false;
+if (perk(PERK.wide)) w += 1;
+if (boostOn(2)) w += 2;
+if (equippedForged()) {
+w += forgedCount("wide");
+const pwr = forgedCount("power");
+h += Math.min(6, pwr * 2);
+if (forgedHas("spread")) {
+vx += R.spreadSide ? 2 : -2;
+R.spreadSide = !R.spreadSide;
+}
+if (tag === 0 && forgedHas("homing")) tag = 3;
+else if (tag === 0 && forgedHas("wave")) tag = 1;
+}
+const pierce = forgedCount("pierce") + (perk(PERK.pierce) ? 1 : 0);
+R.bolts.push({ x: cx - Math.floor(w / 2), y, vx, vy, w, h, tag, pierce, hit: new Set() });
+return true;
+}
+function spawnForgeExtras(cx, lv) {
+const twins = forgedCount("twin") + (perk(PERK.twin) ? 1 : 0);
+if (twins >= 1) spawnBoltAt(cx, SHIP_Y - 8, 0, -8 - lv, 3, 6, 0);
+if (twins >= 2 || forgedCount("spread") >= 2) {
+spawnBoltAt(cx - 8, SHIP_Y - 8, -2, -8 - lv, 3, 6, 0);
+spawnBoltAt(cx + 8, SHIP_Y - 8, 2, -8 - lv, 3, 6, 0);
+}
+if (perk(PERK.salvo) || boostOn(4)) {
+spawnBoltAt(cx - 6, SHIP_Y - 8, -1, -8 - lv, 3, 6, 0);
+spawnBoltAt(cx + 6, SHIP_Y - 8, 1, -8 - lv, 3, 6, 0);
+}
+}
+function primaryBolts() {
+const gun = baseGun();
+const lv = gunLv(save.gunEquip);
+if (gun === 1) return lv >= 3 ? 4 : 3;
+if (gun === 4) return 2;
+if (gun === 7) return 5;
+return 1;
+}
+function fireWeaponAt(shipX) {
+const gun = baseGun();
+const lv = gunLv(save.gunEquip);
+const cx = shipX + SHIP_W / 2;
+if (gun === 1) {
+const kick = Math.floor(lv / 2);
+spawnBoltAt(cx, SHIP_Y - 7, -2, -7 - kick, 3, 6, 0);
+spawnBoltAt(cx, SHIP_Y - 7, 0, -8 - kick, 3, 6, 0);
+spawnBoltAt(cx, SHIP_Y - 7, 2, -7 - kick, 3, 6, 0);
+if (lv >= 3) spawnBoltAt(cx, SHIP_Y - 7, 0, -9, 3, 6, 0);
+spawnForgeExtras(cx, lv);
+return true;
+}
+if (gun === 4) {
+spawnBoltAt(shipX + 4, SHIP_Y - 10, 0, -9 - lv, 3, 8, 0);
+spawnBoltAt(shipX + SHIP_W - 4, SHIP_Y - 10, 0, -9 - lv, 3, 8, 0);
+spawnForgeExtras(cx, lv);
+return true;
+}
+if (gun === 5) {
+if (!spawnBoltAt(cx, SHIP_Y - 10, 2, -8 - Math.floor(lv / 2), 3, 8, 1)) return false;
+spawnForgeExtras(cx, lv);
+return true;
+}
+if (gun === 6) {
+if (!spawnBoltAt(cx, SHIP_Y - 16, 0, -16, 2, 16, 2)) return false;
+spawnForgeExtras(cx, lv);
+return true;
+}
+if (gun === 7) {
+const vxs = [-3, -1, 0, 1, 3];
+for (const vx of vxs) spawnBoltAt(cx, SHIP_Y - 8, vx, -8 - Math.floor(lv / 2), 3, 6, 0);
+spawnForgeExtras(cx, lv);
+return true;
+}
+if (gun === 8) {
+if (!spawnBoltAt(cx, SHIP_Y - 10, 0, -7, 3, 8, 3)) return false;
+spawnForgeExtras(cx, lv);
+return true;
+}
+const vy = gun === 2 ? -12 - lv : -9 - lv;
+const h = gun === 2 ? 10 : 8;
+if (!spawnBoltAt(cx, SHIP_Y - h - 1, 0, vy, 3, h, 0)) return false;
+spawnForgeExtras(cx, lv);
+return true;
+}
+function fireGun() {
+const gun = baseGun();
+if (gun === 3 || R.gunCool > 0) return;
+const twin = !!R.cloneAlive;
+if (boltSlots() < primaryBolts() * (twin ? 2 : 1)) return;
+if (!fireWeaponAt(R.px)) return;
+if (twin) fireWeaponAt(R.cloneX);
+R.gunCool = fireGap();
+}
+function placeClone() {
+if (demo || !divineOn(1)) { R.cloneAlive = false; return; }
+if (!R.cloneAlive) return;
+R.cloneX = clamp((W - SHIP_W) - R.px, 4, W - SHIP_W - 4);
+}
+function beamBurstLen() {
+let len = 188 + gunLv(save.gunEquip) * 12;
+len += 30 * forgedCount("burst");
+if (perk(PERK.burst)) len += 30;
+len += 20 * forgedCount("twin");
+if (perk(PERK.twin)) len += 20;
+return len;
+}
+function beamCoolLen() {
+let cool = 80 - gunLv(save.gunEquip) * 8;
+cool -= 20 * forgedCount("cool");
+if (perk(PERK.cool)) cool -= 20;
+cool -= 10 * forgedCount("rapid");
+if (perk(PERK.rapid)) cool -= 10;
+if (boostOn(0)) cool -= 20;
+return Math.max(16, cool);
+}
+function beamXs() {
+const xs = [R.beamX];
+if (R.cloneAlive) {
+const mx = clamp(R.cloneX + Math.floor(SHIP_W / 2) - 1, 4, W - 7);
+if (mx !== R.beamX) xs.push(mx);
+}
+return xs;
+}
+function hurtAlongBeam() {
+const by = 36, bw = 3, bh = SHIP_Y - 36;
+for (const bx of beamXs()) {
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw, sh] = unitSize(u);
+if (overlapRect(bx, by, bw, bh, R.ox + u.ox, R.oy + u.oy, sw, sh)) hitUnit(u);
+}
+for (let i = R.escorts.length - 1; i >= 0; i--) {
+const e = R.escorts[i];
+if (!overlapRect(bx, by, bw, bh, escortX(e), ESCORT_Y, ALLY_W, ALLY_H)) continue;
+e.hp -= playerDamage();
+addScore(10);
+if (e.hp <= 0) R.escorts.splice(i, 1);
+}
+if (R.boss && overlapRect(bx, by, bw, bh, R.boss.x, R.boss.y, bossW(), bossH())) bossHit();
+for (let mi = R.raidMates.length - 1; mi >= 0; mi--) {
+const m = R.raidMates[mi];
+if (overlapRect(bx, by, bw, bh, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidMate(mi);
+}
+}
+}
+function stepBeam(firing) {
+if (R.beamCool > 0) {
+R.beamCool -= 1;
+R.beamOn = false;
+R.beamBurst = 0;
+return;
+}
+if (R.beamBurst > 0 && !firing) {
+R.beamOn = false;
+R.beamBurst = 0;
+R.beamCool = beamCoolLen();
+return;
+}
+if (R.beamBurst > 0) {
+R.beamX = R.px + SHIP_W / 2 - 1;
+R.beamOn = true;
+R.beamBurst -= 1;
+R.beamTick += 1;
+if ((R.beamTick & 3) === 0) hurtAlongBeam();
+if (R.beamBurst === 0) {
+R.beamOn = false;
+R.beamCool = beamCoolLen();
+}
+return;
+}
+if (!firing) return;
+R.beamBurst = beamBurstLen();
+R.beamTick = 0;
+R.beamX = R.px + SHIP_W / 2 - 1;
+R.beamOn = true;
+}
+function escortX(e) {
+const bx = R.boss ? R.boss.x : (W - BOSS_W) / 2;
+const raw = e.side < 0 ? bx - 52 : bx + BOSS_W + 34;
+return clamp(Math.round(raw), 8, W - ALLY_W - 8);
+}
+function barrierHitRect(x, y, w, h) {
+for (const b of R.barriers) {
+for (let c = 0; c < 10; c++) {
+const cells = b.cols[c];
+for (let row = 0; row < cells; row++) {
+const cx = b.x + c * 3, cy = b.y + row * 3;
+if (overlapRect(x, y, w, h, cx, cy, 3, 2)) {
+b.cols[c] = row;
+return true;
+}
+}
+}
+}
+return false;
+}
+function steerBolt(b) {
+if (b.tag === 1) {
+if ((R.spaceTick & 3) === 0) b.vx = -b.vx;
+if (b.vx === 0) b.vx = 2;
+return;
+}
+if (b.tag === 4) {
+const cx = b.x + b.w / 2;
+let best = null, bestRank = -1;
+const consider = (ax, ay, rank) => {
+if (ay > b.y + 8) return;
+if (rank > bestRank) { bestRank = rank; best = ax; }
+};
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw] = unitSize(u);
+let rank = 1 + (u.hp || 0);
+if (u.kind === 2) rank += 1000;
+else if (u.kind === 6) rank += 400;
+else if (u.kind === 7) rank += 40;
+consider(R.ox + u.ox + Math.floor(sw / 2), R.oy + u.oy, rank);
+}
+if (R.boss) consider(R.boss.x + Math.floor(BOSS_W / 2), R.boss.y, 1000);
+if (best === null) return;
+if (best < cx - 2 && b.vx > -4) b.vx -= 1;
+else if (best > cx + 2 && b.vx < 4) b.vx += 1;
+return;
+}
+if (b.tag !== 3) return;
+const cx = b.x + b.w / 2;
+let best = null, bestD = 9999;
+const consider = (ax, ay) => {
+if (ay > b.y) return;
+const d = Math.abs(ax - cx) + Math.floor((b.y - ay) / 4);
+if (d < bestD) { bestD = d; best = ax; }
+};
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw] = unitSize(u);
+consider(R.ox + u.ox + Math.floor(sw / 2), R.oy + u.oy);
+}
+for (const e of R.escorts) consider(escortX(e) + Math.floor(ALLY_W / 2), ESCORT_Y);
+if (R.boss) consider(R.boss.x + Math.floor(BOSS_W / 2), R.boss.y);
+if (best === null) return;
+if (best < cx - 2 && b.vx > -4) b.vx -= 1;
+else if (best > cx + 2 && b.vx < 4) b.vx += 1;
+}
+function boltHitTarget(b, x, y) {
+for (const u of R.units) {
+if (!u.alive || b.hit.has(u)) continue;
+const [sw, sh] = unitSize(u);
+if (!overlapRect(x, y, b.w, b.h, R.ox + u.ox, R.oy + u.oy, sw, sh)) continue;
+b.hit.add(u);
+hitUnit(u);
+return true;
+}
+for (const e of R.escorts) {
+if (b.hit.has(e)) continue;
+if (!overlapRect(x, y, b.w, b.h, escortX(e), ESCORT_Y, ALLY_W, ALLY_H)) continue;
+b.hit.add(e);
+e.hp -= playerDamage();
+addScore(10);
+return true;
+}
+if (R.boss && !b.hit.has(R.boss) && overlapRect(x, y, b.w, b.h, R.boss.x, R.boss.y, bossW(), bossH())) {
+b.hit.add(R.boss);
+bossHit();
+return true;
+}
+for (let mi = 0; mi < R.raidMates.length; mi++) {
+const m = R.raidMates[mi];
+if (b.hit.has(m)) continue;
+if (!overlapRect(x, y, b.w, b.h, m.x, m.y, BOSS_W, BOSS_H)) continue;
+b.hit.add(m);
+hurtRaidMate(mi);
+return true;
+}
+return false;
+}
+function stepBolts() {
+for (let i = R.bolts.length - 1; i >= 0; i--) {
+const b = R.bolts[i];
+steerBolt(b);
+const nx = b.x + b.vx, ny = b.y + b.vy;
+if (ny < 26 || nx < -8 || nx > W || barrierHitRect(nx, ny, b.w, b.h)) {
+R.bolts.splice(i, 1);
+continue;
+}
+if (b.tag === 2) {
+boltHitTarget(b, nx, ny);
+b.x = nx;
+b.y = ny;
+continue;
+}
+if (b.pierce > 0 && boltHitTarget(b, nx, ny)) {
+b.pierce -= 1;
+if (b.pierce <= 0) {
+R.bolts.splice(i, 1);
+continue;
+}
+b.x = nx;
+b.y = ny;
+continue;
+}
+if (boltHitTarget(b, nx, ny)) {
+R.bolts.splice(i, 1);
+continue;
+}
+b.x = nx;
+b.y = ny;
+}
+R.escorts = R.escorts.filter(e => e.hp > 0);
+}
+function blastAt(cx, cy) {
+R.blasts.push({ x: cx, y: cy, t: 24 });
+for (const b of R.barriers) {
+for (let c = 0; c < 10; c++) {
+const bx = b.x + c * 3;
+if (bx >= cx - BLAST_R && bx <= cx + BLAST_R) b.cols[c] = 0;
+}
+}
+if (R.cloneAlive && cx > R.cloneX - BLAST_R && cx < R.cloneX + SHIP_W + BLAST_R &&
+cy > SHIP_Y - BLAST_R && cy < SHIP_Y + SHIP_H + BLAST_R) R.cloneAlive = false;
+return cx > R.px - BLAST_R && cx < R.px + SHIP_W + BLAST_R &&
+cy > SHIP_Y - BLAST_R && cy < SHIP_Y + SHIP_H + BLAST_R;
+}
+function shipHit(who) {
+if (demo) {
+R.lives = 3;
+startLevel();
+return;
+}
+if (R.invuln > 0 || boostOn(3)) return;
+const inv = perk(PERK.invuln) ? 100 : 80;
+R.foes = []; R.bolts = [];
+R.beamOn = false;
+R.beamBurst = 0;
+R.invuln = inv;
+liftFormation();
+if (R.aegisHits > 0) {
+R.aegisHits -= 1;
+R.invuln = 36;
+return;
+}
+if (save.shield > 0 && !(R.shieldHole > 0) && who === "CANNON") {
+R.shieldHole = 60;
+R.invuln = 0;
+return;
+}
+if (save.shield > 0 && !(R.shieldHole > 0)) {
+save.shield -= 1;
+persist();
+return;
+}
+R.lives -= 1;
+if (R.demeterBonus > 0) R.demeterBonus -= 1;
+R.hitBy = hitFlash(who);
+R.msg = R.hitBy;
+R.msgT = 30;
+if (R.lives <= 0) { R.demeterBonus = 0; R.demeterT = 0; }
+if (R.lives <= 0) {
+if (perk(PERK.revive) && !R.revived) {
+R.revived = true;
+R.lives = 1;
+tryBerserk();
+R.msg = R.hitBy;
+R.msgT = 30;
+R.invuln = inv;
+persist();
+return;
+}
+die();
+return;
+}
+tryBerserk();
+R.msg = R.hitBy;
+R.msgT = 30;
+persist();
+}
+function liftFormation() {
+let bottom = 0;
+for (const u of R.units) {
+if (!u.alive) continue;
+const [, sh] = unitSize(u);
+bottom = Math.max(bottom, R.oy + u.oy + sh);
+}
+if (bottom > SHIP_Y - 28) R.oy -= bottom - (SHIP_Y - 28);
+}
+function die() {
+R.beamOn = false;
+R.beamBurst = 0;
+save.level = R.level;
+persist();
+R.over = true;
+setScr("over");
+}
+function moveFormation() {
+let left = W, right = 0;
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw] = unitSize(u);
+left = Math.min(left, R.ox + u.ox);
+right = Math.max(right, R.ox + u.ox + sw);
+}
+if (right <= 0) return;
+const oldX = R.ox, oldY = R.oy;
+const mv = Math.max(1, Math.ceil(R.step / 2));
+if (R.dir > 0 && right + mv >= W - 4) { R.dir = -1; R.oy += R.drop; }
+else if (R.dir < 0 && left - mv <= 4) { R.dir = 1; R.oy += R.drop; }
+else R.ox += R.dir * mv;
+const dx = R.ox - oldX, dy = R.oy - oldY;
+if (!dx && !dy) return;
+for (const u of R.units) {
+if (!u.alive || !(u.stun > 0)) continue;
+u.ox -= dx;
+u.oy -= dy;
+}
+}
+function stepFoes() {
+const foes = R.foes;
+for (let i = foes.length - 1; i >= 0; i--) {
+const f = foes[i];
+if (R.waveY >= 0 && overlapRect(f.x, f.y, f.w, f.h, 0, R.waveY, W, 14)) {
+foes.splice(i, 1);
+continue;
+}
+if (R.revel > 0 && (R.spaceTick & 15) === 0 && f.kind !== 3) {
+f.vx = clamp(f.vx + rnd(3) - 1, -3, 3);
+}
+if (f.kind === 3 && R.god === 6 && (R.spaceTick & 7) === 0 && f.y < SHIP_Y - 80) {
+const target = R.px + SHIP_W / 2;
+const center = f.x + f.w / 2;
+if (target < center - 6 && f.vx > -2) f.vx -= 1;
+else if (target > center + 6 && f.vx < 2) f.vx += 1;
+}
+if (f.kind === 3 && R.god === 9 && (R.spaceTick & 7) === 0) {
+if (f.vx > 0) f.vx -= 1;
+else if (f.vx < 0) f.vx += 1;
+}
+if (f.kind === 3 && R.god === 12 && (R.spaceTick & 15) === 0) f.vx = rnd(3) - 1;
+if (f.kind === 5 && (R.spaceTick & 3) === 0) {
+if (f.vx > 0) f.vx -= 1;
+else if (f.vx < 0) f.vx += 1;
+}
+if (f.kind === 4 && R.god === 12 && (R.spaceTick & 15) === 0) f.vx = rnd(3) - 1;
+if (R.revel > 0 && (R.spaceTick & 1) !== 0) continue;
+const nx = f.x + f.vx, ny = f.y + f.vy;
+const hitShip = overlapRect(nx, ny, f.w, f.h, R.px, SHIP_Y, SHIP_W, SHIP_H);
+const hitClone = R.cloneAlive && overlapRect(nx, ny, f.w, f.h, R.cloneX, SHIP_Y, SHIP_W, SHIP_H);
+const blocked = nx < 0 || nx > W - f.w || ny >= BUTTON_Y || barrierHitRect(nx, ny, f.w, f.h);
+if (f.kind === 6 && (hitShip || hitClone || blocked)) {
+foes.splice(i, 1);
+if (hitShip) { R.playerStun = 78; beep(146, 150); }
+continue;
+}
+if (hitClone && !hitShip) {
+foes.splice(i, 1);
+if (f.kind === 2 && blastAt(nx + 2, ny + 3)) shipHit(f.who);
+R.cloneAlive = false;
+if (R.foes !== foes) return;
+continue;
+}
+if (hitShip || blocked) {
+foes.splice(i, 1);
+if (f.kind === 2) {
+if (blastAt(nx + 2, ny + 3)) shipHit(f.who);
+} else if (hitShip) {
+shipHit(f.who);
+}
+if (R.foes !== foes) return;
+continue;
+}
+f.x = nx; f.y = ny;
+}
+}
+function enemyShoot() {
+if (R.god && !R.godEntrance && (R.spaceTick & 1) === 0) {
+fireGodGimmick(W / 2, 40);
+}
+const live = R.units.filter(u => u.alive && u.kind !== 2 && u.kind !== 8 && !(u.stun > 0));
+if (live.length === 0) return;
+const u = live[rnd(live.length)];
+const [sw, sh] = unitSize(u);
+const mx = R.ox + u.ox + sw / 2;
+const my = R.oy + u.oy + sh;
+const who = unitLabel(u);
+if (u.kind === 4) {
+const suppressLeft = R.px + SHIP_W / 2 <= mx;
+const x0 = suppressLeft ? 6 : mx + 8;
+const x1 = suppressLeft ? mx - 8 : W - 6;
+if (x1 < x0 + 12) fireFoe(suppressLeft ? 8 : W - 12, my, 1, who, 0);
+else for (let s = 0; s < 4; s++) fireFoe(x0 + Math.floor((x1 - x0) * s / 3), my, 1, who, 0);
+} else if (u.kind === 5) {
+fireFoe(mx, my, 2, who, 0);
+} else if (u.kind === 6) {
+fireFoe(mx, my, 0, who, 0);
+fireFoe(mx - 12, my, 0, who, -1);
+fireFoe(mx + 12, my, 0, who, 1);
+} else {
+fireFoe(mx, my, 0, who, 0);
+}
+}
+function fireStunners() {
+if (R.charm > 0) return;
+let seen = 0;
+for (const u of R.units) {
+if (!u.alive || u.kind !== 8 || u.stun > 0) continue;
+const phase = (R.spaceTick + seen * 21) % 48;
+seen += 1;
+if (phase !== 0) continue;
+const [sw, sh] = unitSize(u);
+fireFoe(R.ox + u.ox + sw / 2, R.oy + u.oy + sh, 6, "STUNNER", 0);
+}
+}
+function fireBoss() {
+const b = R.boss;
+const x = b.x + bossW() / 2;
+const y = b.y + bossH();
+const who = R.godEntrance ? godName() : (R.raid ? "RAID BOSS" : "BOSS");
+if (R.godEntrance) {
+if (R.boss && !(R.boss.stun > 0)) fireGodGimmick(x, y);
+for (const e of R.escorts) {
+if (e.stun > 0) continue;
+if (countFoeKind(3) >= 2) break;
+spawnGodOrb(escortX(e) + ALLY_W / 2 - 5, ESCORT_Y + ALLY_H, 0, 2);
+}
+return;
+}
+if (R.boss.stun > 0) return;
+if (b.style === 6 || (R.raid && b.style === 4)) return;
+if (b.style === 1 || (R.raid && b.style === 3)) {
+fireFoe(x - 8, y, 0, who, -2); fireFoe(x, y, 0, who, 0); fireFoe(x + 8, y, 0, who, 2);
+} else {
+const dx = R.px + SHIP_W / 2 - x;
+fireFoe(x, y, 0, who, dx < -10 ? -1 : (dx > 10 ? 1 : 0));
+}
+}
+function stepCoins() {
+for (let i = R.coins.length - 1; i >= 0; i--) {
+const c = R.coins[i];
+const ny = c.y + 2;
+if (overlapRect(c.x, ny, COIN_SIZE, COIN_SIZE, R.px, SHIP_Y, SHIP_W, SHIP_H)) {
+R.coins.splice(i, 1);
+if (!demo && save.coins < 65535) save.coins += 1;
+beep(1046, 45);
+continue;
+}
+if (ny >= BUTTON_Y) { R.coins.splice(i, 1); continue; }
+c.y = ny;
+}
+}
+function stepSky() {
+if (R.sky) {
+R.sky.y += 1;
+if (R.sky.y > 240) R.sky = null;
+return;
+}
+if (R.level % 5 !== 0 || rnd(180) !== 0) return;
+const r = 14 + rnd(9);
+R.sky = { kind: rnd(2), x: 24 + rnd(W - 48), y: 56 + r, r };
+}
+function levelClear() {
+if (R.drop_) return;
+if (demo) {
+R.level = R.level >= LEVELS ? 1 : R.level + 1;
+startLevel();
+return;
+}
+markLevel(R.level);
+if (R.level >= LEVELS) {
+save.level = LEVELS;
+persist();
+R.won = true;
+setScr("over");
+return;
+}
+R.level += 1;
+save.level = R.level;
+persist();
+if (R.level % 5 === 0 && R.level % 25 !== 0) {
+R.nextStyle = rolledBossStyle(R.level);
+} else R.nextStyle = -1;
+R.timer = 54;
+R.foes = []; R.bolts = []; R.coins = [];
+setScr("advance");
+}
+function stepApollo() {
+if (!(R.god === 7 && R.godEntrance && R.boss)) { R.apolloT = 0; return false; }
+R.apolloT += 1;
+const phase = R.apolloT % 100;
+const phase2 = (R.apolloT + 50) % 100;
+if (phase === 1) R.apolloX = clamp(R.px + Math.floor(SHIP_W / 2) - 1, 8, W - 10);
+if (phase2 === 1) {
+R.apolloX2 = clamp(R.px + Math.floor(SHIP_W / 2) - 1, 8, W - 10);
+if (Math.abs(R.apolloX2 - R.apolloX) < 16) R.apolloX2 = clamp(R.apolloX + (R.apolloX < W / 2 ? 28 : -28), 8, W - 10);
+}
+const hit = (x, p) => p === 36 && overlapRect(x - 1, SHIP_Y, 4, SHIP_H, R.px, SHIP_Y, SHIP_W, SHIP_H);
+return hit(R.apolloX, phase) || hit(R.apolloX2, phase2);
+}
+function stepHephaestus() {
+if (R.god !== 10 || scr !== "play") { R.hephT = 0; return false; }
+R.hephT += 1;
+let hit = false;
+for (let i = 0; i < 3; i++) {
+const phase = (R.hephT + i * 30) % 90;
+const beam = R.heph[i];
+if (phase === 1) {
+const x0 = i === 0 ? 18 : (i === 1 ? Math.floor(W / 2) : W - 18);
+const y0 = i === 1 ? 40 : 56;
+const tx = R.px + Math.floor(SHIP_W / 2);
+let dx = tx - x0;
+let dy = (SHIP_Y + Math.floor(SHIP_H / 2)) - y0;
+if (dy < 8) dy = 8;
+if (dx > -36 && dx < 36) dx = (i === 2 || (i === 1 && tx < W / 2)) ? -56 : 56;
+const endY = SHIP_Y + SHIP_H;
+let x1 = x0 + Math.floor(dx * (endY - y0) / dy);
+x1 = clamp(x1, 0, W - 1);
+beam.x0 = x0; beam.y0 = y0; beam.x1 = x1; beam.y1 = endY; beam.on = true;
+}
+if (phase === 41) beam.on = false;
+if (beam.on && phase === 29 && hephHitsShip(beam)) hit = true;
+}
+return hit;
+}
+function hephHitsShip(beam) {
+const x0 = beam.x0, y0 = beam.y0, x1 = beam.x1, y1 = beam.y1;
+const adx = Math.abs(x1 - x0), ady = Math.abs(y1 - y0);
+const steps = Math.floor(Math.max(adx, ady) / 4) + 1;
+for (let s = 0; s <= steps; s++) {
+const x = x0 + Math.floor((x1 - x0) * s / steps);
+const y = y0 + Math.floor((y1 - y0) * s / steps);
+if (overlapRect(x - 2, y - 2, 5, 5, R.px, SHIP_Y, SHIP_W, SHIP_H)) return true;
+}
+return false;
+}
+function raidBeamStrike() {
+if (!R.boss || R.godEntrance || (R.boss.style !== 4 && R.boss.style !== 6)) return false;
+R.raidBeamT += 1;
+const phase = R.raidBeamT % 100;
+if (phase === 1) R.raidBeamX = clamp(R.px + Math.floor(SHIP_W / 2) - 1, 6, W - 8);
+return phase === 36 && overlapRect(R.raidBeamX - 1, SHIP_Y, 4, SHIP_H, R.px, SHIP_Y, SHIP_W, SHIP_H);
+}
+function stepPlay(input) {
+const entry = scr;
+if (R.zapT > 0) R.zapT -= 1;
+if (R.invuln > 0) R.invuln -= 1;
+if (R.playerStun > 0) R.playerStun -= 1;
+if (R.shieldHole > 0) R.shieldHole -= 1;
+if (R.boss && R.raid && R.boss.style === 2) {
+R.boss.openT += 1;
+R.boss.open = (R.boss.openT % 80) >= 40;
+}
+stepBoosts();
+if (R.gunCool > 0) R.gunCool -= 1;
+R.spaceTick += 1;
+const step = SHIP_STEP + save.thrust + (perk(PERK.speed) ? 1 : 0) + (R.hermes > 0 ? 4 : 0);
+const stunned = R.playerStun > 0;
+if (!stunned && input.left) R.px -= step;
+if (!stunned && input.right) R.px += step;
+if (!stunned && input.aim !== null) R.px = input.aim;
+R.px = clamp(R.px, 4, W - SHIP_W - 4);
+placeClone();
+if (baseGun() === 3) stepBeam(input.fire && R.playerStun <= 0);
+else {
+R.beamOn = false;
+R.beamBurst = 0;
+if (input.fire && !stunned) fireGun();
+}
+stepBolts();
+stepDrop();
+stepMachines();
+moveFormation();
+for (const u of R.units) if (u.stun > 0) u.stun -= 1;
+for (const e of R.escorts) if (e.stun > 0) e.stun -= 1;
+if (R.boss && R.boss.stun > 0) R.boss.stun -= 1;
+for (const m of R.raidMates) {
+if (m.stun > 0) m.stun -= 1;
+m.cool -= 1;
+if (m.cool <= 0) {
+if (R.charm <= 0 && !(m.stun > 0)) fireFoe(m.x + BOSS_W / 2, m.y + BOSS_H, 0, "RAID BOSS", 0);
+m.cool = Math.max(18, R.foeGap + 10);
+}
+}
+if (R.boss) {
+const b = R.boss;
+if (!(b.stun > 0)) {
+b.x += b.dir * (b.style === 1 ? 2 : 1);
+const minX = R.escorts.length > 0 ? 60 : 8;
+const maxX = R.escorts.length > 0 ? W - bossW() - 60 : W - bossW() - 8;
+if (b.x < minX) { b.x = minX; b.dir = 1; }
+if (b.x > maxX) { b.x = maxX; b.dir = -1; }
+}
+b.cool -= 1;
+if (b.cool <= 0) {
+if (R.charm <= 0) fireBoss();
+b.cool = Math.max(18, R.foeGap + 10);
+}
+}
+R.foeCool += 1;
+if (R.foeCool >= R.foeGap) {
+R.foeCool = 0;
+if (R.charm <= 0) enemyShoot();
+}
+fireStunners();
+stepFoes();
+if (scr === entry && stepApollo()) {
+shipHit("GOD BEAM");
+if (scr !== entry) return;
+}
+if (scr === entry && stepHephaestus()) {
+shipHit("GOD BEAM");
+if (scr !== entry) return;
+}
+if (scr === entry && raidBeamStrike()) {
+shipHit("GOD BEAM");
+if (scr !== entry) return;
+}
+R.godBeamT = 0;
+if (scr !== entry) return;
+for (let i = R.blasts.length - 1; i >= 0; i--) {
+if (--R.blasts[i].t <= 0) R.blasts.splice(i, 1);
+}
+stepCoins();
+stepSky();
+if (R.msgT > 0) R.msgT -= 1;
+for (const u of R.units) {
+if (!u.alive) continue;
+const [, sh] = unitSize(u);
+if (R.oy + u.oy + sh >= SHIP_Y) {
+shipHit(unitLabel(u));
+if (scr !== entry) return;
+break;
+}
+}
+const anyLeft = R.units.some(u => u.alive) || !!R.boss || R.escorts.length > 0 || R.raidMates.length > 0;
+if (!anyLeft && R.god && !R.godEntrance && R.godWave < godWaveTotal()) markGodWave(R.level, R.godWave);
+if (R.coins.length && !anyLeft) return;
+if (!anyLeft && !R.godEntrance) {
+if (R.god && R.godWave < godWaveTotal()) {
+markGodWave(R.level, R.godWave);
+R.godWave += 1;
+if (R.godWave < godWaveTotal()) spawnGodWave();
+else { R.raidSplash = false; setScr("splash"); R.timer = 60; }
+return;
+}
+levelClear();
+return;
+}
+if (R.godEntrance && !R.boss && R.escorts.length === 0 && R.raidMates.length === 0) levelClear();
+}
+function demoInput() {
+let target = null, low = -1e9;
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw] = unitSize(u);
+const y = R.oy + u.oy;
+if (y > low) { low = y; target = R.ox + u.ox + sw / 2; }
+}
+if (target === null && R.boss) target = R.boss.x + BOSS_W / 2;
+if (target === null) return { left: false, right: false, fire: false, aim: null };
+const cx = R.px + SHIP_W / 2;
+return { left: target < cx - 4, right: target > cx + 4, fire: Math.abs(target - cx) <= 6, aim: null };
+}
+const BOX = {
+left: { x: 8, y: BUTTON_Y, w: 96, h: 44 },
+fire: { x: 112, y: BUTTON_Y, w: 96, h: 44 },
+right: { x: 216, y: BUTTON_Y, w: 96, h: 44 },
+back: { x: 4, y: 2, w: 70, h: 26 },
+play: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
+home: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
+restart: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
+yes: { x: 32, y: 190, w: 256, h: 52 },
+no: { x: 32, y: 260, w: 256, h: 52 },
+resume: { x: 32, y: 176, w: 256, h: 46 },
+pauseCustom: { x: 32, y: 232, w: 256, h: 46 },
+pauseHome: { x: 32, y: 288, w: 256, h: 46 },
+color: { x: 16, y: 46, w: 140, h: 36 },
+ship: { x: 164, y: 46, w: 140, h: 36 },
+menuPlay: { x: 16, y: 60, w: 288, h: 48 },
+menuCheck: { x: 16, y: 116, w: 288, h: 40 },
+menuCustom: { x: 16, y: 164, w: 288, h: 40 },
+menuShop: { x: 16, y: 212, w: 288, h: 40 },
+menuTheme: { x: 16, y: 260, w: 288, h: 40 },
+menuHome: { x: 16, y: 308, w: 288, h: 40 },
+menuForge: { x: 16, y: 356, w: 288, h: 40 },
+menuRestart: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
+shopPage: { x: 8, y: 396, w: 120, h: 28 },
+forgePage: { x: 8, y: 388, w: 120, h: 28 },
+forgeUp: { x: 136, y: 388, w: 176, h: 28 },
+forgeYes: { x: 32, y: 280, w: 256, h: 46 },
+forgeNo: { x: 32, y: 336, w: 256, h: 46 },
+forgeRevealUp: { x: 32, y: 238, w: 256, h: 48 },
+forgeEquip: { x: 32, y: 300, w: 256, h: 48 }
+};
+function gunBox(slot) { return { x: 16, y: 88 + slot * 34, w: 288, h: 32 }; }
+function checkCell(i) { return { x: 12 + (i % 4) * 76, y: 48 + Math.floor(i / 4) * 70, w: 70, h: 56 }; }
+function shopTabBox(t) { return { x: 4 + t * 52, y: 40, w: 50, h: 34 }; }
+function shopRowBox(r) { return { x: 16, y: 84 + r * 52, w: 288, h: 46 }; }
+function forgeTabBox(t) { return { x: 8 + t * 102, y: 40, w: 96, h: 32 }; }
+function forgeRowBox(r) { return { x: 16, y: 88 + r * 50, w: 288, h: 44 }; }
+function forgeAttrRowBox(r) { return { x: 16, y: 100 + r * 50, w: 288, h: 44 }; }
+function inBox(b, x, y) { return x >= b.x && y >= b.y && x < b.x + b.w && y < b.y + b.h; }
+function playerInput() {
+const pointerDown = mouse.down && mouse.inside;
+const onKey = (name) => pointerDown && inBox(BOX[name], mouse.x, mouse.y);
+const input = {
+left: held.has("left") || onKey("left"),
+right: held.has("right") || onKey("right"),
+fire: held.has("space") || held.has("up") || onKey("fire"),
+aim: null
+};
+if (mouse.inside && mouse.y < BUTTON_Y && performance.now() - mouse.moved < 1500) {
+input.aim = mouse.x - SHIP_W / 2;
+}
+return input;
+}
+function shopCount(tab) {
+return [8, SHIPS.length, 12, shopGunCount(), 2 + BOOSTS.length, shopUpgradeCount()][tab];
+}
+function shopPrice(tab, idx) {
+if (tab === 0) return THEME_PRICE[idx];
+if (tab === 1) return SHIP_PRICE[idx % SHIPS.length];
+if (tab === 2) return idx === 0 ? 0 : 15;
+if (tab === 3) return idx === 0 ? 0 : 90;
+if (tab === 4) {
+if (idx <= 0) return 10;
+if (idx === 1) return 15;
+return BOOSTS[idx - 2].price;
+}
+const gun = shopUpgradeGun(idx);
+if (gun === -2) return 300;
+if (gun < 0) return 60 * (save.thrust + 1);
+return 50 * (gunLv(gun) + 1);
+}
+function shopOwned(tab, idx) {
+if (tab === 0) return themeOwned(idx);
+if (tab === 1) return shipOwned(idx);
+if (tab === 2) return laserOwned(idx);
+if (tab === 3) return gunOwned(shopGunAt(idx));
+return false;
+}
+function shopActive(tab, idx) {
+if (tab === 0) return save.theme === idx;
+if (tab === 1) return save.ship === idx;
+if (tab === 2) return save.laser === idx;
+if (tab === 3) return save.gunEquip === shopGunAt(idx);
+if (tab === 4 && idx >= 2) return !!(save.armed && save.armed[idx - 2] > 0);
+if (tab === 5) {
+const gun = shopUpgradeGun(idx);
+return gun >= 0 && gun === save.gunEquip;
+}
+return false;
+}
+function shopName(tab, idx) {
+if (tab === 0) return THEME_NAMES[idx];
+if (tab === 1) return SHIPS[idx];
+if (tab === 2) return LASERS[idx][0];
+if (tab === 3) return gunToken(shopGunAt(idx));
+if (tab === 4) {
+if (idx <= 0) return "SHIELD";
+if (idx === 1) return "SPARE HEART";
+return BOOSTS[idx - 2].name;
+}
+const gun = shopUpgradeGun(idx);
+if (gun === -2) return "MULTI";
+return gun < 0 ? "THRUSTERS" : gunToken(gun);
+}
+function shopStatus(tab, idx) {
+if (tab <= 3) {
+if (shopActive(tab, idx)) return "ON";
+if (shopOwned(tab, idx)) return "OWNED";
+return "$" + shopPrice(tab, idx);
+}
+if (tab === 4) {
+if (idx >= 2) return save.armed && save.armed[idx - 2] > 0 ? "READY" : "$" + shopPrice(tab, idx);
+return "$" + shopPrice(tab, idx) + " x" + (idx === 0 ? save.shield : save.spare);
+}
+const gun = shopUpgradeGun(idx);
+if (gun === -2) {
+const slots = Math.min(12, 1 + (save.dmul | 0));
+return slots >= 12 ? "MAX" : "x" + slots + " $300";
+}
+if (gun < 0) {
+if (save.thrust >= 2) return "MAX";
+return "LV" + save.thrust + " $" + shopPrice(tab, idx);
+}
+if (gunLv(gun) >= 5) return "MAX";
+return "LV" + gunLv(gun) + " $" + shopPrice(tab, idx);
+}
+function pay(price) {
+if (save.coins < price) { shopMsg = "NOT ENOUGH COINS"; return false; }
+save.coins -= price;
+return true;
+}
+function shopAct(idx) {
+const tab = shopTab;
+if (idx < 0 || idx >= shopCount(tab)) return;
+shopMsg = "";
+if (tab <= 3) {
+const gun = tab === 3 ? shopGunAt(idx) : idx;
+if (!shopOwned(tab, idx)) {
+if (tab === 3 && (gun <= 0 || gun >= GUN_COUNT)) return;
+if (!pay(shopPrice(tab, idx))) return;
+if (tab === 0) save.themes |= (1 << idx);
+else if (tab === 1) save.ships |= (1 << idx);
+else if (tab === 2) save.lasers |= (1 << idx);
+else save.guns |= (1 << (gun - 1));
+shopMsg = "BOUGHT";
+}
+if (tab === 0) save.theme = idx;
+else if (tab === 1) save.ship = idx;
+else if (tab === 2) save.laser = idx;
+else save.gunEquip = gun;
+persist();
+return;
+}
+if (tab === 4) {
+if (!pay(shopPrice(tab, idx))) return;
+if (idx <= 0) save.shield = Math.min(shieldCap(), save.shield + 1);
+else if (idx === 1) save.spare = Math.min(9, save.spare + 1);
+else {
+if (!save.armed) save.armed = [0, 0, 0, 0, 0];
+save.armed[idx - 2] = BOOSTS[idx - 2].len;
+}
+shopMsg = "BOUGHT";
+persist();
+return;
+}
+const gun = shopUpgradeGun(idx);
+if (gun === -2) {
+if (Math.min(12, 1 + (save.dmul | 0)) >= 12) { shopMsg = "MAXED"; return; }
+if (!pay(300)) return;
+save.dmul = (save.dmul | 0) + 1;
+shopMsg = "MULTI";
+persist();
+return;
+}
+if (gun < 0) {
+if (save.thrust >= 2) { shopMsg = "MAXED"; return; }
+} else if (gunLv(gun) >= 5) { shopMsg = "MAXED"; return; }
+if (!pay(shopPrice(tab, idx))) return;
+if (gun < 0) save.thrust += 1;
+else save.gunLv[gun] = gunLv(gun) + 1;
+shopMsg = "UPGRADED";
+persist();
+}
+function forgeItemCount(tab) { return tab === 0 ? 9 : 2; }
+function forgeItemName(tab, idx) {
+if (tab === 0) return GUNS[idx];
+if (tab === 1) return idx === 0 ? "SHIELD" : "SPARE HEART";
+return idx === 0 ? "GUN POWER" : "THRUSTERS";
+}
+function forgeItemOwned(tab, idx) { return tab !== 0 || gunOwned(idx); }
+function forgeAttrName(tab, item, attr) {
+if (attr < 0 || attr >= 5) return "";
+if (tab === 0) return GUN_ATTRS[item][attr][0];
+if (tab === 1) return POWER_ATTRS[item][attr][0];
+return UPGRADE_ATTRS[item][attr][0];
+}
+function forgeAttrPrice(attr) { return (5 - attr) * 10; }
+function forgeTotal() { return forgeAttrPrice(forgeAttrA) + forgeAttrPrice(forgeAttrB); }
+function forgePerkOf(tab, item, attr) {
+if (attr < 0 || attr >= 5) return 0;
+if (tab === 1) return POWER_ATTRS[item][attr][1];
+if (tab === 2) return UPGRADE_ATTRS[item][attr][1];
+return 0;
+}
+function forgeRevealName() {
+if (forgeTab === 0) return gunToken(activeForgeGun());
+return forgeAttrName(forgeTab, forgeFirst, forgeAttrA) + "+" +
+forgeAttrName(forgeTab, forgeSecond, forgeAttrB);
+}
+function beginForge() {
+forgeTab = 0;
+forgeStep = 0;
+forgePage = 0;
+forgeFirst = 0;
+forgeSecond = 0;
+forgeAttrA = 0;
+forgeAttrB = 0;
+forgeMsg = "";
+forgeFlash = 0;
+forgeFocus = -1;
+if (equippedForged()) forgeFocus = save.gunEquip - GUN_COUNT;
+else {
+for (let i = MAX_FORGED - 1; i >= 0; i--) {
+if (save.forges[i]) { forgeFocus = i; break; }
+}
+}
+setScr("forge");
+}
+function forgeBack() {
+if (forgeStep === 0 || forgeStep === 5) { goMenu(); return; }
+forgeStep -= 1;
+forgeMsg = "";
+if (forgeStep === 1) forgePage = 0;
+}
+function forgePick(row) {
+if (forgeStep === 0) {
+const idx = forgePage * 6 + row;
+if (idx >= forgeItemCount(forgeTab) || !forgeItemOwned(forgeTab, idx)) return;
+forgeFirst = idx;
+forgeStep = 1;
+forgePage = 0;
+forgeMsg = "";
+return;
+}
+if (forgeStep === 1) {
+const idx = forgePage * 6 + row;
+if (idx >= forgeItemCount(forgeTab) || !forgeItemOwned(forgeTab, idx)) return;
+forgeSecond = idx;
+forgeStep = 2;
+forgeAttrA = 0;
+forgeMsg = "";
+return;
+}
+if (row < 0 || row >= 5) return;
+if (forgeStep === 2) {
+forgeAttrA = row;
+forgeStep = 3;
+forgeAttrB = 0;
+forgeMsg = "";
+return;
+}
+if (forgeStep === 3) {
+forgeAttrB = row;
+forgeStep = 4;
+forgeMsg = "";
+}
+}
+function forgeConfirm() {
+const total = forgeTotal();
+if (save.coins < total) { forgeMsg = "NOT ENOUGH COINS"; return; }
+let slot = -1;
+if (forgeTab === 0) {
+slot = firstEmptyForge();
+if (slot < 0) { forgeMsg = "FORGE FULL"; return; }
+}
+save.coins -= total;
+if (forgeTab === 0) {
+save.forges[slot] = sanitizeForge({
+valid: true, base: forgeFirst, donor: forgeSecond, attrA: forgeAttrA, attrB: forgeAttrB
+});
+save.gunLv[GUN_COUNT + slot] = 0;
+save.gunEquip = GUN_COUNT + slot;
+forgeFocus = slot;
+} else if (forgeTab === 1) {
+save.fpw = (save.fpw | forgePerkOf(1, forgeFirst, forgeAttrA) |
+forgePerkOf(1, forgeSecond, forgeAttrB)) >>> 0;
+} else {
+save.fup = (save.fup | forgePerkOf(2, forgeFirst, forgeAttrA) |
+forgePerkOf(2, forgeSecond, forgeAttrB)) >>> 0;
+}
+persist();
+forgeStep = 5;
+forgeMsg = "";
+forgeFlash = 24;
+}
+function forgeUpgradeGun() {
+if (!forgeAnyValid()) return;
+const gun = activeForgeGun();
+const lv = gunLv(gun);
+if (lv >= 5) { forgeMsg = "MAXED"; return; }
+const price = 50 * (lv + 1);
+if (save.coins < price) { forgeMsg = "NOT ENOUGH COINS"; return; }
+save.coins -= price;
+save.gunLv[gun] = lv + 1;
+save.gunEquip = gun;
+forgeFocus = gun - GUN_COUNT;
+persist();
+forgeTab = 0;
+forgeStep = 5;
+forgeMsg = "";
+forgeFlash = 24;
+}
+function cycleTheme() {
+do { save.theme = (save.theme + 1) & 7; } while (!themeOwned(save.theme));
+persist();
+}
+function cycleShip() {
+do { save.ship = (save.ship + 1) % SHIPS.length; } while (!shipOwned(save.ship));
+persist();
+}
+function cycleLaser() {
+do { save.laser = (save.laser + 1) % 12; } while (!laserOwned(save.laser));
+persist();
+}
+function gunLine(g) {
+if (!gunOwned(g)) return gunToken(g) + " LOCKED";
+return gunToken(g) + " LV" + (gunLv(g) + 1) + " " + (g === save.gunEquip ? "ON" : "READY");
+}
+function equipGun(g) {
+if (!gunOwned(g)) return;
+save.gunEquip = g;
+persist();
+}
+function startCampaign() {
+demo = false;
+const armed = Array.isArray(save.armed) ? save.armed.slice() : [0, 0, 0, 0, 0];
+R = newRun(save.level || 1);
+R.boost = armed;
+save.armed = [0, 0, 0, 0, 0];
+R.lives = 3 + (perk(PERK.life) ? 1 : 0);
+if (save.spare > 0) { save.spare -= 1; R.lives += 1; }
+if (perk(PERK.shieldStart) && save.shield < shieldCap()) save.shield += 1;
+R.revived = false;
+persist();
+startLevel();
+}
+function startDemo() {
+demo = true;
+R = newRun(1 + rnd(5));
+R.lives = 3;
+startLevel();
+setScr("demo");
+}
+function goMenu() {
+demo = false;
+setScr("menu");
+persist();
+}
+function beginPause() {
+R.beamOn = false;
+if (R.beamBurst > 0) {
+R.beamBurst = 0;
+R.beamCool = beamCoolLen();
+}
+setScr("pause");
+}
+function resumePlay() {
+setScr("play");
+}
+function restartGame() {
+save.level = 1;
+save.camp = 0;
+save.raidWon = false;
+// Cleared levels and god waves stay, so a restarted run still pays the replay cut.
+persist();
+startCampaign();
+}
+const STARS = [];
+(function makeStars() {
+let s = 0x51a7;
+for (let i = 0; i < 42; i++) {
+s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+const x = s % W;
+s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+STARS.push({ x, y: 28 + (s % 360), layer: i & 1 });
+}
+})();
+function drawKey(text, box, isHeld, P) {
+fillRect(box.x, box.y, box.w, box.h, isHeld ? P.buttonOn : P.button);
+drawRect(box.x, box.y, box.w, box.h, P.accent);
+drawText(text, box.x + Math.floor(box.w / 2), box.y + Math.floor(box.h / 2), P.ink, "f2", "mc");
+}
+function drawCard(title, sub, box, P) {
+fillRect(box.x, box.y, box.w, box.h, P.button);
+drawRect(box.x, box.y, box.w, box.h, P.accent);
+const cx = box.x + Math.floor(box.w / 2), cy = box.y + Math.floor(box.h / 2);
+drawText(title, cx, cy - (sub ? 8 : 0), P.ink, "f2", "mc");
+if (sub) drawText(sub, cx, cy + 12, P.muted, "f2", "mc");
+}
+function reg(box, fn) {
+btns.push({ x: box.x, y: box.y, w: box.w, h: box.h, fn });
+}
+function paintStars(P) {
+for (const s of STARS) px(s.x, s.y, s.layer ? P.star : P.muted);
+}
+function paintPlanet(P) {
+for (let i = 0; i < 12; i++) {
+const inset = Math.floor((i * i) / 4);
+const y = 404 + i;
+if (y >= BUTTON_Y - 2) break;
+fillRect(inset, y, W - inset * 2, 1, P.planet);
+}
+}
+function drawScrap(s, P) {
+if (R.terrain === 0) {
+fillRect(s.x, s.y, s.w, s.h, P.barrier);
+if (s.w > 5 && s.h > 3) fillRect(s.x + 2, s.y + 2, Math.floor(s.w / 2), Math.floor(s.h / 2), P.muted);
+return;
+}
+if (R.terrain === 1) { fillRect(s.x, s.y, s.w, 2, P.planet); return; }
+if (R.terrain === 2) { fillRect(0, s.y, W, 2, P.planet); return; }
+fillRect(s.x, s.y, s.w, 2, P.top);
+}
+function drawGodRobot(x, y, P) {
+const metal = clr([176, 184, 196]);
+const dark = clr([40, 44, 56]);
+const ink = godInk();
+const cx = x + Math.floor(GOD_W / 2);
+drawCircle(cx, y + 8, 7, ink);
+drawCircle(cx, y + 8, 4, clr([255, 244, 210]));
+fillRect(cx - 6, y + 14, 12, 10, metal);
+fillRect(cx - 3, y + 17, 2, 2, ink);
+fillRect(cx + 1, y + 17, 2, 2, ink);
+fillRect(cx - 10, y + 26, 20, 16, metal);
+fillRect(cx - 8, y + 28, 16, 8, dark);
+fillRect(cx - 2, y + 30, 4, 4, ink);
+fillRect(x + 2, y + 28, 5, 14, metal);
+fillRect(x + GOD_W - 7, y + 28, 5, 14, metal);
+fillRect(cx - 8, y + 43, 6, 10, metal);
+fillRect(cx + 2, y + 43, 6, 10, metal);
+fillRect(cx - 9, y + 52, 8, 3, dark);
+fillRect(cx + 1, y + 52, 8, 3, dark);
+const pool = Math.max(1, R.godHpMax);
+const left = clamp(R.godHp, 0, pool);
+if (left > 0) fillRect(x + 4, y + GOD_H - 4, Math.floor((GOD_W - 8) * left / pool), 3, ink);
+}
+function drawAlienAt(x, y, kind, P, opts) {
+const body = kind === 0 ? P.low : P.top;
+const eye = P.bg;
+if (kind === 8) {
+const net = clr([80, 210, 255]);
+fillRect(x + 3, y + 3, 12, 8, P.top);
+fillRect(x + 6, y, 6, 3, net);
+drawLine(x + 4, y + 5, x + 14, y + 9, net);
+drawLine(x + 14, y + 5, x + 4, y + 9, net);
+fillRect(x + 2, y + 11, 4, 3, net);
+fillRect(x + 12, y + 11, 4, 3, net);
+return;
+}
+if (kind === 3) {
+fillRect(x + 2, y + 2, 12, 8, P.accent);
+fillRect(x, y + 4, 4, 3, P.top);
+fillRect(x + 12, y + 4, 4, 3, P.top);
+return;
+}
+if (kind === 4) {
+const plate = clr([255, 120, 96]);
+fillRect(x + 4, y + 2, 10, 7, plate);
+fillRect(x + 1, y + 8, 16, 4, body);
+fillRect(x + 2, y + 12, 3, 2, plate);
+fillRect(x + 13, y + 12, 3, 2, plate);
+fillRect(x + 5, y + 9, 2, 4, eye);
+fillRect(x + 11, y + 9, 2, 4, eye);
+return;
+}
+if (kind === 5) {
+const plate = clr([255, 150, 60]);
+fillRect(x + 1, y + 4, 20, 9, body);
+fillRect(x + 6, y + 1, 10, 4, plate);
+fillRect(x + 8, y + 13, 6, 3, plate);
+fillRect(x + 3, y + 6, 3, 3, eye);
+fillRect(x + 15, y + 6, 3, 3, eye);
+fillRect(x + 9, y + 8, 4, 2, clr([255, 220, 120]));
+return;
+}
+if (kind === 6) {
+const plate = opts && opts.god ? godInk() : P.accent;
+fillRect(x + 4, y + 4, MINI_W - 8, MINI_H - 8, P.top);
+fillRect(x, y + 8, 5, 6, plate);
+fillRect(x + MINI_W - 5, y + 8, 5, 6, plate);
+fillRect(x + 9, y + 7, 4, 4, eye);
+fillRect(x + MINI_W - 13, y + 7, 4, 4, eye);
+fillRect(x + 12, y + MINI_H - 4, 6, 3, plate);
+const pool = opts && opts.max > 0 ? opts.max : 1;
+const left = clamp(opts && opts.hp !== undefined ? opts.hp : pool, 0, pool);
+fillRect(x + 4, y + MINI_H - 3, Math.floor((MINI_W - 8) * left / pool), 2, plate);
+return;
+}
+if (kind === 7) {
+const plate = godInk();
+fillRect(x + 4, y + 4, 10, 7, plate);
+fillRect(x, y + 2, 4, 4, plate);
+fillRect(x + ALLY_W - 4, y + 2, 4, 4, plate);
+fillRect(x + 7, y + 6, 4, 3, eye);
+return;
+}
+if (kind === 2) {
+fillRect(x + 8, y + 4, 28, 16, body);
+fillRect(x + 4, y, 6, 8, body);
+fillRect(x + 34, y, 6, 8, body);
+fillRect(x + 14, y + 8, 4, 4, eye);
+fillRect(x + 26, y + 8, 4, 4, eye);
+fillRect(x + 6, y + 20, 8, 6, body);
+fillRect(x + 30, y + 20, 8, 6, body);
+const pool = opts && opts.max > 0 ? opts.max : 1;
+const left = clamp(opts && opts.hp !== undefined ? opts.hp : pool, 0, pool);
+let inner = Math.floor((BOSS_W - 8) * left / pool);
+if (inner < 4) inner = 4;
+fillRect(x + 4, y + BOSS_H - 4, inner, 3, P.shot);
+return;
+}
+if (kind === 1) {
+fillRect(x + 4, y + 2, 10, 8, body);
+fillRect(x + 2, y, 2, 4, body);
+fillRect(x + 14, y, 2, 4, body);
+fillRect(x + 6, y + 4, 2, 2, eye);
+fillRect(x + 10, y + 4, 2, 2, eye);
+fillRect(x + 2, y + 10, 4, 3, body);
+fillRect(x + 12, y + 10, 4, 3, body);
+return;
+}
+fillRect(x + 3, y + 1, 12, 4, body);
+fillRect(x + 1, y + 5, 16, 6, body);
+fillRect(x + 5, y + 6, 2, 2, eye);
+fillRect(x + 11, y + 6, 2, 2, eye);
+fillRect(x + 2, y + 11, 3, 3, body);
+fillRect(x + 13, y + 11, 3, 3, body);
+}
+function drawShipHull(x, y, model, P) {
+const ink = P.ship, acc = P.accent;
+const m = model % SHIPS.length;
+if (m === 1) {
+fillRect(x + 15, y, 2, 15, ink);
+fillRect(x + 6, y + 7, 20, 5, ink);
+fillRect(x + 1, y + 3, 3, 12, ink);
+fillRect(x + 28, y + 3, 3, 12, ink);
+fillRect(x + 14, y + 5, 4, 3, acc);
+return;
+}
+if (m === 2) {
+fillRect(x + 6, y + 2, 5, 14, ink);
+fillRect(x + 21, y + 2, 5, 14, ink);
+fillRect(x + 11, y + 5, 10, 7, ink);
+fillRect(x, y + 10, 32, 4, ink);
+fillRect(x + 14, y + 6, 4, 4, acc);
+return;
+}
+if (m === 3) {
+fillTriangle(x + 16, y, x, y + 14, x + 31, y + 14, ink);
+fillRect(x + 6, y + 13, 6, 3, acc);
+fillRect(x + 20, y + 13, 6, 3, acc);
+fillRect(x + 14, y + 6, 4, 3, acc);
+return;
+}
+if (m === 4) {
+fillRect(x + 4, y + 4, 24, 11, ink);
+fillRect(x, y + 7, 32, 6, ink);
+fillRect(x + 5, y, 3, 5, acc);
+fillRect(x + 14, y, 4, 5, acc);
+fillRect(x + 24, y, 3, 5, acc);
+fillRect(x + 10, y + 8, 12, 3, acc);
+return;
+}
+if (m === 5) {
+fillRect(x + 14, y, 4, 16, ink);
+fillRect(x + 3, y + 4, 10, 3, ink);
+fillRect(x + 19, y + 4, 10, 3, ink);
+fillRect(x, y + 10, 12, 4, ink);
+fillRect(x + 20, y + 10, 12, 4, ink);
+fillRect(x + 13, y + 6, 6, 4, acc);
+return;
+}
+fillRect(x + SHIP_W / 2 - 2, y, 4, SHIP_H, ink);
+fillRect(x, y + 9, SHIP_W, 6, ink);
+fillRect(x + SHIP_W / 2 - 1, y + 5, 2, 4, acc);
+}
+function drawShipAt(x, P) {
+drawShipHull(x, SHIP_Y, save.ship, P);
+}
+function drawEllipse(x0, y0, rx, ry, c) {
+let x = 0, y = ry;
+let d1 = ry * ry - rx * rx * ry + 0.25 * rx * rx;
+let dx = 2 * ry * ry * x;
+let dy = 2 * rx * rx * y;
+while (dx < dy) {
+px(x0 + x, y0 + y, c); px(x0 - x, y0 + y, c);
+px(x0 + x, y0 - y, c); px(x0 - x, y0 - y, c);
+x += 1; dx += 2 * ry * ry;
+if (d1 < 0) d1 += dx + ry * ry;
+else {
+y -= 1; dy -= 2 * rx * rx;
+d1 += dx - dy + ry * ry;
+}
+}
+let d2 = ry * ry * (x + 0.5) * (x + 0.5) + rx * rx * (y - 1) * (y - 1) - rx * rx * ry * ry;
+while (y >= 0) {
+px(x0 + x, y0 + y, c); px(x0 - x, y0 + y, c);
+px(x0 + x, y0 - y, c); px(x0 - x, y0 - y, c);
+if (d2 > 0) {
+y -= 1; dy -= 2 * rx * rx; d2 += rx * rx - dy;
+} else {
+y -= 1; x += 1; dx += 2 * ry * ry; dy -= 2 * rx * rx;
+d2 += dx - dy + rx * rx;
+}
+}
+}
+function drawShieldBubble(x) {
+if (save.shield <= 0) return;
+const cx = x + SHIP_W / 2;
+const cy = SHIP_Y + SHIP_H / 2;
+const ring = perk(PERK.shieldGlow) ? clr([170, 245, 255]) : clr([96, 200, 255]);
+const dim = clr([38, 92, 150]);
+drawEllipse(cx, cy, 22, 15, ring);
+drawEllipse(cx, cy, 21, 14, dim);
+if (perk(PERK.shieldGlow)) drawEllipse(cx, cy, 20, 13, ring);
+px(cx - 10, cy - 12, clr([255, 255, 255]));
+if (R.shieldHole > 0) {
+fillRect(cx - 4, cy - 16, 8, 7, palFor(save.theme).bg);
+fillRect(cx - 2, cy - 15, 4, 4, clr([255, 140, 48]));
+}
+}
+function drawHeart(x, y, c) {
+fillCircle(x + 3, y + 3, 3, c);
+fillCircle(x + 8, y + 3, 3, c);
+fillTriangle(x, y + 4, x + 11, y + 4, x + 5, y + 10, c);
+}
+function drawMachineBars(P) {
+const idx = [];
+for (let i = 0; i < 12; i++) if (divineOn(i)) idx.push(i);
+if (!idx.length) return;
+let w = 10, gap = 2;
+let total = idx.length * w + (idx.length - 1) * gap;
+let x = W - 8 - total;
+if (x < 4) {
+w = 6; gap = 1;
+total = idx.length * w + (idx.length - 1) * gap;
+x = Math.max(2, W - 8 - total);
+}
+for (let s = 0; s < idx.length; s++) {
+const i = idx[s];
+const cool = MACHINES[i].cool;
+const left = R.divCool[i] || 0;
+const bx = x + s * (w + gap);
+fillRect(bx, 20, w, 3, P.button);
+let fill = w;
+if (cool > 0 && left > 0) fill = Math.floor(w * (cool - Math.min(left, cool)) / cool);
+if (fill > 0) fillRect(bx, 20, fill, 3, clr(GOD_INK[i]));
+}
+}
+function drawHearts(P) {
+const slots = heartSlots();
+let x = W - 8 - slots * 14;
+if (x < 84) x = 84;
+for (let i = 0; i < slots; i++) drawHeart(x + i * 14, 6, i < R.lives ? clr([255, 64, 96]) : P.button);
+drawMachineBars(P);
+return { x, slots };
+}
+function drawCoin(x, y) {
+const r = Math.floor(COIN_SIZE / 2);
+fillCircle(x + r, y + r, r, clr([196, 204, 214]));
+fillCircle(x + r, y + r, r - 1, clr([222, 228, 236]));
+fillRect(x + 3, y + 3, 3, 3, clr([255, 255, 255]));
+}
+function drawHud(P) {
+fillRect(0, 0, W, 24, P.bg);
+const boosts = boostHud();
+let line;
+if (R.msgT > 0) line = R.msg;
+else if (R.god && R.godEntrance) line = godName();
+else if (R.god && boosts) line = boosts + " " + (R.godWave + 1) + "/" + godWaveTotal();
+else if (R.god) line = godName() + " " + (R.godWave + 1) + "/" + godWaveTotal();
+else if (boosts) line = boosts + " " + R.level + " " + R.score;
+else if (R.mini) line = "MINI " + R.level + " " + R.score;
+else if (R.boss) {
+let tag = "CORE";
+if (R.raid && R.units.some(u => u.alive)) tag = "GOONS";
+else if (R.raid) tag = "RAID";
+line = tag + " " + R.level + " " + R.score;
+} else line = "MACHINA " + R.level + " " + R.score;
+const hearts = heartSlots();
+if (textWidth(line) > W - 24 - hearts * 14) {
+line = boosts && R.msgT <= 0 ? boosts : "M " + R.level + " " + R.score;
+}
+if (demo) line = "DEMO " + R.level;
+drawText(line, 8, 12, P.ink, "f2", "ml");
+const hr = drawHearts(P);
+drawText("$" + save.coins, hr.x - 6, 12, P.accent, "f2", "mr");
+if (R.boss || R.godEntrance) drawBossBar(P);
+}
+function drawBossBar(P) {
+if (R.godEntrance) {
+const bh = 4;
+const ink = godInk();
+for (let bar = 0; bar < 3; bar++) {
+const y = 24 + (2 - bar) * bh;
+fillRect(0, y, W, bh, P.button);
+if (bar >= R.godBars) continue;
+const pool = Math.max(1, R.godHpMax);
+const left = bar === R.godBars - 1 ? clamp(R.godHp, 0, pool) : pool;
+const fill = Math.floor(W * left / pool);
+if (fill > 0) fillRect(0, y, fill, bh, ink);
+}
+return;
+}
+const pool = Math.max(1, R.boss.max);
+const left = clamp(R.boss.hp, 0, pool);
+fillRect(8, 26, 200, 8, P.bg);
+fillRect(8, 26, 160, 6, P.button);
+if (left > 0) fillRect(8, 26, Math.floor(160 * left / pool), 6, P.shot);
+}
+function paintLevel(P, input) {
+FB.fill(P.bg);
+paintStars(P);
+if (R.god) paintGodArena(P);
+else {
+if (R.terrain === 1) paintPlanet(P);
+for (const s of R.scraps) drawScrap(s, P);
+}
+if (R.sky) {
+if (R.sky.kind === 0) {
+fillCircle(R.sky.x, R.sky.y, R.sky.r, P.planet);
+fillCircle(R.sky.x - Math.floor(R.sky.r / 3), R.sky.y - Math.floor(R.sky.r / 4), Math.floor(R.sky.r / 4), P.muted);
+} else {
+drawCircle(R.sky.x, R.sky.y, R.sky.r, P.muted);
+drawCircle(R.sky.x, R.sky.y, Math.floor((R.sky.r * 2) / 3), P.accent);
+fillCircle(R.sky.x, R.sky.y, Math.floor(R.sky.r / 3), P.bg);
+}
+}
+for (const b of R.barriers) {
+for (let col = 0; col < 10; col++) {
+for (let row = 0; row < b.cols[col]; row++) fillRect(b.x + col * 3, b.y + row * 3, 3, 2, P.barrier);
+}
+}
+for (const u of R.units) {
+if (!u.alive) continue;
+drawAlienAt(R.ox + u.ox, R.oy + u.oy, u.kind, P, { god: !!R.god, max: u.max, hp: u.hp });
+}
+for (const m of R.raidMates) drawAlienAt(m.x, m.y, 2, P, { max: m.max, hp: m.hp });
+if (R.boss) {
+const b = R.boss;
+if (R.godEntrance) {
+for (const e of R.escorts) drawAlienAt(escortX(e), ESCORT_Y, 7, P, {});
+drawGodRobot(Math.round(b.x), b.y, P);
+} else {
+drawAlienAt(Math.round(b.x), b.y, 2, P, { max: b.max, hp: b.hp });
+if (R.raid && b.style === 2 && !b.open) fillRect(Math.round(b.x), b.y, BOSS_W, 8, P.muted);
+if (b.style === 4 || b.style === 6) {
+const bx = Math.round(b.x);
+fillRect(bx + 20, b.y + 4, 4, 16, clr([255, 48, 40]));
+if (b.style === 6) {
+drawLine(bx + 8, b.y + 8, bx + 16, b.y + 14, clr([80, 220, 255]));
+drawLine(bx + 16, b.y + 8, bx + 8, b.y + 14, clr([80, 220, 255]));
+}
+}
+}
+if (R.boss && !R.godEntrance && (R.boss.style === 4 || R.boss.style === 6) && R.raidBeamT) {
+const phase = R.raidBeamT % 100;
+if (phase >= 2 && phase <= 35) fillRect(R.raidBeamX, 36, 2, SHIP_Y - 36, clr([90, 36, 36]));
+else if (phase >= 36 && phase < 48) fillRect(R.raidBeamX - 1, 36, 4, SHIP_Y - 36, clr([255, 48, 40]));
+}
+}
+if (R.god === 10 && R.hephT) {
+for (let i = 0; i < 3; i++) {
+const beam = R.heph[i];
+if (!beam.on) continue;
+const phase = (R.hephT + i * 30) % 90;
+const hot = phase >= 29 && phase <= 40;
+const warn = phase >= 2 && phase <= 28;
+if (!hot && !warn) continue;
+const ink = hot ? clr([255, 176, 48]) : clr([180, 72, 24]);
+drawLine(beam.x0, beam.y0, beam.x1, beam.y1, ink);
+if (hot) {
+drawLine(beam.x0 - 1, beam.y0, beam.x1 - 1, beam.y1, ink);
+drawLine(beam.x0 + 1, beam.y0, beam.x1 + 1, beam.y1, ink);
+}
+}
+}
+if (R.god === 7 && R.godEntrance && R.apolloT) {
+const phase = R.apolloT % 100;
+const phase2 = (R.apolloT + 50) % 100;
+if (phase >= 2 && phase <= 35) fillRect(R.apolloX, 36, 2, SHIP_Y - 36, clr([255, 210, 120]));
+else if (phase >= 36 && phase < 48) fillRect(R.apolloX - 1, 36, 4, SHIP_Y - 36, clr([255, 244, 180]));
+if (phase2 >= 2 && phase2 <= 35) fillRect(R.apolloX2, 36, 2, SHIP_Y - 36, clr([255, 210, 120]));
+else if (phase2 >= 36 && phase2 < 48) fillRect(R.apolloX2 - 1, 36, 4, SHIP_Y - 36, clr([255, 244, 180]));
+}
+if (R.zapT > 0) fillRect(R.zapX, 30, 4, SHIP_Y - 30, clr([255, 240, 120]));
+for (const f of R.foes) {
+const fx = Math.round(f.x), fy = Math.round(f.y);
+if (f.kind === 3) {
+const ink = foeInk(f);
+fillRect(fx, fy, 10, 10, clr([16, 12, 20]));
+fillRect(fx + 2, fy, 6, 10, ink);
+fillRect(fx, fy + 2, 10, 6, ink);
+fillRect(fx + 3, fy + 3, 4, 4, clr([255, 255, 255]));
+} else if (f.kind === 4) {
+const ink = R.god ? godInk() : clr([120, 220, 96]);
+fillRect(fx, fy, f.w, f.h, ink);
+if (f.w > 6 && f.h > 6) fillRect(fx + 3, fy + 3, f.w - 6, f.h - 6, clr([255, 255, 255]));
+} else if (f.kind === 5) {
+fillRect(fx, fy, f.w, f.h, clr([255, 140, 200]));
+} else if (f.kind === 6) {
+const ink = clr([80, 220, 255]);
+drawRect(fx, fy, f.w, f.h, ink);
+drawLine(fx, fy, fx + f.w - 1, fy + f.h - 1, ink);
+drawLine(fx + f.w - 1, fy, fx, fy + f.h - 1, ink);
+drawLine(fx, fy + Math.floor(f.h / 2), fx + f.w - 1, fy + Math.floor(f.h / 2), ink);
+} else {
+fillRect(fx, fy, f.w, f.h, foeInk(f));
+}
+}
+const lc = laserColour(save.laser);
+if (R.beamOn) for (const x of beamXs()) fillRect(x, 36, 3, SHIP_Y - 36, lc);
+if (R.sunT > 0) fillRect(R.sunX, 36, 6, SHIP_Y - 36, (R.sunT & 2) ? clr([255, 250, 220]) : clr([255, 196, 64]));
+if (R.waveY >= 0) {
+fillRect(0, R.waveY, W, 12, clr([48, 160, 255]));
+fillRect(0, R.waveY + 4, W, 4, clr([190, 230, 255]));
+}
+for (const bolt of R.bolts) fillRect(Math.round(bolt.x), Math.round(bolt.y), bolt.w, bolt.h, lc);
+if (R.drop_) {
+const d = R.drop_;
+let color = clr([255, 220, 80]);
+if (d.which === 9) color = clr([255, 64, 96]);
+else if (d.which === 10) color = clr([255, 210, 48]);
+else if (d.which === 11) color = clr([96, 200, 255]);
+else if (d.which >= 12 && d.which < 17) {
+const rgb = [[255, 140, 32], [255, 60, 48], [80, 220, 255], [230, 230, 255], [255, 80, 220]];
+color = clr(rgb[d.which - 12]);
+} else if (d.which >= 1 && d.which <= 8) color = clr(DROP_RGB[d.which - 1]);
+fillRect(d.x, d.y, 14, 14, color);
+fillRect(d.x + 4, d.y + 4, 6, 6, P.bg);
+}
+for (const c of R.coins) drawCoin(c.x, c.y);
+for (const bl of R.blasts) {
+const r = Math.min(BLAST_R, 5 * Math.ceil((24 - bl.t + 1) / 6));
+for (let rr = 5; rr <= r; rr += 5) drawCircle(bl.x, bl.y, rr, clr([255, 176, 60]));
+}
+const blinkOff = R.invuln > 50 && Math.floor((80 - R.invuln) / 5) % 2 === 1;
+if (!blinkOff) drawShipAt(R.px, P);
+if (R.playerStun > 0) {
+const net = clr([80, 220, 255]);
+const nx = R.px - 2, ny = SHIP_Y - 2;
+for (let i = 0; i < 4; i++) drawLine(nx, ny + i * 5, nx + SHIP_W + 4, ny + i * 5, net);
+for (let i = 0; i < 5; i++) drawLine(nx + i * 8, ny, nx + i * 8, ny + 16, net);
+}
+if (R.cloneAlive) drawShipAt(R.cloneX, P);
+if (!demo) {
+let dn = 0;
+for (let i = 0; i < 12; i++) {
+if (!divineOn(i)) continue;
+const x = clamp(R.px - 6 + dn * 10, 2, W - 10);
+fillRect(x, SHIP_Y - 14, 8, 6, clr(GOD_INK[i]));
+fillRect(x + 2, SHIP_Y - 12, 4, 2, clr([255, 255, 255]));
+dn += 1;
+}
+}
+if (R.aegisHits > 0) drawRect(R.px - 3, SHIP_Y - 3, SHIP_W + 6, SHIP_H + 6, clr([220, 230, 245]));
+if (!blinkOff) drawShieldBubble(R.px);
+drawHud(P);
+if (demo) {
+fillRect(0, BUTTON_Y, W, H - BUTTON_Y, P.bg);
+drawKey("PLAY", BOX.play, false, P);
+reg(BOX.play, () => goMenu());
+return;
+}
+reg(BOX.back, () => beginPause());
+drawKey("BACK", BOX.back, false, P);
+drawKey("LEFT", BOX.left, input.left, P);
+drawKey("FIRE", BOX.fire, input.fire, P);
+drawKey("RIGHT", BOX.right, input.right, P);
+}
+function paintGodMark(ink, bg) {
+const cx = Math.floor(W / 2);
+const g = ((R.god - 1) % 12) + 1;
+if (g === 1) {
+drawLine(cx - 44, 98, cx - 34, 114, ink);
+drawLine(cx - 34, 114, cx - 46, 114, ink);
+drawLine(cx - 46, 114, cx - 32, 134, ink);
+drawLine(cx + 44, 98, cx + 34, 114, ink);
+drawLine(cx + 34, 114, cx + 46, 114, ink);
+drawLine(cx + 46, 114, cx + 32, 134, ink);
+} else if (g === 2) {
+for (const dx of [-28, 0, 28]) {
+drawCircle(cx + dx, 102, 6, ink);
+fillCircle(cx + dx, 102, 2, ink);
+}
+} else if (g === 3) {
+for (const y of [104, 122]) {
+for (let x = 48; x < W - 56; x += 10) {
+const down = ((x / 10) & 1) === 0;
+drawLine(x, y + (down ? 0 : 5), x + 10, y + (down ? 5 : 0), ink);
+}
+}
+} else if (g === 4) {
+for (const x of [cx - 36, cx, cx + 36]) {
+fillRect(x, 92, 2, 16, ink);
+drawLine(x, 96, x - 6, 92, ink);
+drawLine(x + 1, 100, x + 7, 96, ink);
+drawLine(x, 104, x - 6, 100, ink);
+}
+} else if (g === 5) {
+drawLine(cx, 90, cx - 14, 104, ink);
+drawLine(cx, 90, cx + 14, 104, ink);
+drawLine(cx - 14, 104, cx - 14, 118, ink);
+drawLine(cx + 14, 104, cx + 14, 118, ink);
+drawLine(cx - 14, 118, cx, 132, ink);
+drawLine(cx + 14, 118, cx, 132, ink);
+} else if (g === 6) {
+drawLine(cx - 30, 94, cx - 8, 132, ink);
+drawLine(cx + 30, 94, cx + 8, 132, ink);
+} else if (g === 7) {
+for (let dx = -1; dx <= 1; dx++) {
+for (let dy = -1; dy <= 1; dy++) {
+if (!dx && !dy) continue;
+const inner = dx && dy ? 6 : 8;
+const outer = dx && dy ? 14 : 18;
+drawLine(cx + dx * inner, 108 + dy * inner, cx + dx * outer, 108 + dy * outer, ink);
+}
+}
+} else if (g === 8) {
+drawCircle(cx, 108, 10, ink);
+fillCircle(cx + 6, 106, 8, bg);
+} else if (g === 9) {
+fillCircle(cx - 5, 100, 5, ink);
+fillCircle(cx + 5, 100, 5, ink);
+drawLine(cx - 10, 102, cx, 118, ink);
+drawLine(cx + 10, 102, cx, 118, ink);
+} else if (g === 10) {
+fillRect(cx - 12, 96, 24, 5, ink);
+fillRect(cx - 6, 101, 12, 8, ink);
+fillRect(cx - 14, 109, 28, 4, ink);
+} else if (g === 11) {
+drawLine(cx - 8, 108, cx - 28, 100, ink);
+drawLine(cx - 8, 108, cx - 26, 112, ink);
+drawLine(cx - 16, 106, cx - 28, 108, ink);
+drawLine(cx + 8, 108, cx + 28, 100, ink);
+drawLine(cx + 8, 108, cx + 26, 112, ink);
+drawLine(cx + 16, 106, cx + 28, 108, ink);
+} else {
+fillCircle(cx, 96, 3, ink);
+fillCircle(cx - 8, 100, 3, ink);
+fillCircle(cx + 8, 100, 3, ink);
+fillCircle(cx - 4, 108, 3, ink);
+fillCircle(cx + 4, 108, 3, ink);
+fillCircle(cx, 114, 3, ink);
+}
+}
+function paintGodArena(P) {
+const ink = godInk();
+for (let i = 0; i < 6; i++) {
+const x = 18 + i * 56;
+fillRect(x, 40, 6, SHIP_Y - 44, ink);
+fillRect(x - 6, 40, 18, 5, ink);
+}
+drawCircle(W / 2, 150, 78, ink);
+drawCircle(W / 2, 150, 60, ink);
+paintGodMark(ink, P.bg);
+drawText(godName() + " DOMAIN", W / 2, 150, ink, "f2", "mc");
+}
+function paintMenu(P) {
+FB.fill(P.bg);
+drawText("INVADERS", W / 2, 24, P.ink, "f4", "mc");
+drawKey("BACK", BOX.back, false, P);
+reg(BOX.back, () => startDemo());
+drawText("MACHINA", W / 2, 48, P.accent, "f2", "mc");
+drawText("$" + save.coins, W - 12, 48, P.accent, "f2", "mr");
+drawCard("PLAY", "level " + save.level, BOX.menuPlay, P);
+drawCard("CHECKPOINTS", popCount(save.camp) + " unlocked", BOX.menuCheck, P);
+drawCard("CUSTOM", "ship, guns, laser", BOX.menuCustom, P);
+drawCard("SHOP", "themes, guns, power-ups", BOX.menuShop, P);
+drawCard(THEME_NAMES[save.theme], "tap to switch", BOX.menuTheme, P);
+drawCard("DIVINE MACHINES", popCount(save.gods) + " unlocked", BOX.menuHome, P);
+drawCard("FORGE", "combine attributes", BOX.menuForge, P);
+drawKey("RESTART GAME", BOX.menuRestart, false, P);
+reg(BOX.menuPlay, () => startCampaign());
+reg(BOX.menuCheck, () => setScr("checks"));
+reg(BOX.menuCustom, () => { customFromPause = false; customPage = 0; setScr("custom"); });
+reg(BOX.menuShop, () => { setScr("shop"); });
+reg(BOX.menuTheme, () => cycleTheme());
+reg(BOX.menuHome, () => { divPage = 0; divMsg = ""; setScr("divine"); });
+reg(BOX.menuForge, () => beginForge());
+reg(BOX.menuRestart, () => setScr("confirm"));
+}
+function popCount(n) { let k = 0; n = n | 0; while (n) { k += n & 1; n >>>= 1; } return k; }
+function paintDivine(P) {
+FB.fill(P.bg);
+drawText("DIVINE MACHINES", W / 2, 18, P.ink, "f2", "mc");
+drawText(popCount(save.dive) + "/" + divineSlots() + " EQUIPPED", W / 2, 40, P.accent, "f2", "mc");
+if (divMsg) drawText(divMsg, W / 2, 62, P.muted, "f2", "mc");
+for (let row = 0; row < 6; row++) {
+const idx = divPage * 6 + row;
+if (idx >= 12) break;
+const b = shopRowBox(row);
+const on = divineOn(idx);
+const owned = ((save.gods >> idx) & 1) !== 0;
+fillRect(b.x, b.y, b.w, b.h, on ? P.buttonOn : P.button);
+drawRect(b.x, b.y, b.w, b.h, on ? P.accent : P.muted);
+drawText(GODS[idx] + " " + MACHINES[idx].name, b.x + 8, b.y + 14, owned ? P.ink : P.muted, "f2", "ml");
+drawText(MACHINES[idx].hint, b.x + 8, b.y + 32, P.muted, "f2", "ml");
+drawText(on ? "ON" : (owned ? "READY" : "LOCKED"), b.x + b.w - 8, b.y + Math.floor(b.h / 2), on ? P.accent : P.muted, "f2", "mr");
+reg(b, () => divineToggle(idx));
+}
+drawKey("PAGE", BOX.shopPage, false, P);
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.shopPage, () => { divPage ^= 1; });
+reg(BOX.home, () => goMenu());
+}
+function divineToggle(idx) {
+divMsg = "";
+const bit = 1 << idx;
+if ((save.gods & bit) === 0) { divMsg = "LOCKED"; return; }
+if ((save.dive & bit) !== 0) save.dive = (save.dive & ~bit) & 0xfff;
+else if (popCount(save.dive) >= divineSlots()) { divMsg = "NEED MULTI"; return; }
+else save.dive = (save.dive | bit) & 0xfff;
+save.dive &= save.gods;
+persist();
+}
+function paintChecks(P) {
+FB.fill(P.bg);
+drawText("CHECKPOINTS", W / 2, 26, P.ink, "f2", "mc");
+for (let i = 0; i < 15; i++) {
+const cell = checkCell(i);
+const open = (save.camp & (1 << i)) !== 0;
+fillRect(cell.x, cell.y, cell.w, cell.h, open ? P.button : P.bg);
+drawRect(cell.x, cell.y, cell.w, cell.h, open ? P.accent : P.button);
+const from = (i + 1) * 20;
+const godName = nextGodName(from);
+const godLine = textWidth(godName) > cell.w - 4 ? godName.slice(0, 4) : godName;
+const godLv = nextGodLevel(from);
+const godIdx = ((Math.floor(godLv / 25) - 1) % 12 + 12) % 12;
+drawText(String(from), cell.x + Math.floor(cell.w / 2), cell.y + 18, open ? P.ink : P.muted, "f2", "mc");
+drawText(godLine, cell.x + Math.floor(cell.w / 2), cell.y + 38, open ? clr(GOD_INK[godIdx]) : P.muted, "f2", "mc");
+reg(cell, () => {
+if (!open) return;
+demo = false;
+R = newRun((i + 1) * 20);
+startLevel();
+});
+}
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.home, () => goMenu());
+}
+function paintConfirm(P) {
+FB.fill(P.bg);
+drawText("RESTART GAME?", W / 2, 120, P.ink, "f4", "mc");
+drawText("Are you sure?", W / 2, 156, P.muted, "f2", "mc");
+drawKey("YES", BOX.yes, false, P);
+drawKey("NO", BOX.no, false, P);
+reg(BOX.yes, () => restartGame());
+reg(BOX.no, () => goMenu());
+}
+function forgedListBox(row) { return { x: 16, y: 48 + row * 40, w: 288, h: 36 }; }
+function customForgeBox() { return { x: 198, y: 4, w: 114, h: 28 }; }
+function paintCustom(P) {
+FB.fill(P.bg);
+if (customPage !== 0) {
+drawText("FORGED", W / 2, 22, P.ink, "f2", "mc");
+let row = 0;
+for (let i = 0; i < MAX_FORGED; i++) {
+if (!save.forges[i]) continue;
+const b = forgedListBox(row);
+const slot = GUN_COUNT + i;
+drawCard(gunLine(slot), null, b, P);
+reg(b, () => equipGun(slot));
+row += 1;
+}
+if (row === 0) {
+drawText("NONE YET", W / 2, 160, P.muted, "f2", "mc");
+drawText("COMBINE TWO GUNS IN FORGE", W / 2, 188, P.muted, "f2", "mc");
+}
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.home, () => { customPage = 0; });
+return;
+}
+drawText("CUSTOM", W / 2, 22, P.ink, "f2", "mc");
+drawKey("FORGED", customForgeBox(), false, P);
+reg(customForgeBox(), () => { customPage = 1; });
+drawCard("LASER " + LASERS[save.laser][0], "tap to change", BOX.color, P);
+reg(BOX.color, () => cycleLaser());
+drawCard("SHIP " + SHIPS[save.ship], "tap to change", BOX.ship, P);
+reg(BOX.ship, () => cycleShip());
+for (let g = 0; g < GUN_COUNT; g++) {
+const b = gunBox(g);
+drawCard(gunLine(g), null, b, P);
+reg(b, () => equipGun(g));
+}
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.home, () => (customFromPause ? beginPause() : goMenu()));
+}
+function paintPause(P) {
+fillRect(24, 128, 272, 230, P.bg);
+drawRect(24, 128, 272, 230, P.accent);
+drawText("INVADERS MACHINA", W / 2, 152, P.ink, "f2", "mc");
+drawCard("RESUME", null, BOX.resume, P);
+drawCard("CUSTOM", "ship and guns", BOX.pauseCustom, P);
+drawCard("HOME", null, BOX.pauseHome, P);
+reg(BOX.resume, () => resumePlay());
+reg(BOX.pauseCustom, () => { customFromPause = true; customPage = 0; setScr("custom"); });
+reg(BOX.pauseHome, () => goMenu());
+}
+function paintAdvance(P) {
+fillRect(16, 140, W - 32, 100, P.bg);
+drawRect(16, 140, W - 32, 100, P.accent);
+drawText("INVADERS MACHINA", W / 2, 164, P.ink, "f2", "mc");
+const next = R.level;
+if (next % 5 === 0 && next % 25 !== 0) {
+const style = R.nextStyle >= 0 ? R.nextStyle : 0;
+drawText("BOSS " + next, W / 2, 188, P.ink, "f2", "mc");
+drawText(bossGimmick(style), W / 2, 212, P.accent, "f2", "mc");
+} else {
+drawText("LEVEL " + next, W / 2, 198, P.ink, "f2", "mc");
+}
+}
+function paintSplash(P) {
+FB.fill(P.bg);
+if (R.raidSplash) {
+drawText("RAID", W / 2, 170, P.accent, "f4", "mc");
+drawText(raidTell(R.boss ? R.boss.style : 0), W / 2, 230, P.ink, "f2", "mc");
+return;
+}
+const name = godName();
+let font = "f6";
+if (textWidth(name, "f6") > W - 24) font = "f4";
+drawText(name, W / 2, 190, godInk(), font, "mc");
+drawText("DESCENDS", W / 2, 250, P.muted, "f2", "mc");
+}
+function paintOver(P) {
+FB.fill(P.bg);
+drawText("INVADERS MACHINA", W / 2, 150, P.muted, "f2", "mc");
+drawText(R.won ? "CLEARED" : "YOU DIED", W / 2, 186, P.ink, "f2", "mc");
+if (!R.won) drawText(R.hitBy + " Killed you", W / 2, 214, P.accent, "f2", "mc");
+drawText("LV " + R.level + "   " + R.score, W / 2, 244, P.muted, "f2", "mc");
+drawKey("HOME", BOX.home, false, P);
+reg(BOX.home, () => goMenu());
+}
+function paintShop(P) {
+FB.fill(P.bg);
+drawText("SHOP", 12, 18, P.ink, "f2", "ml");
+drawText("$" + save.coins, W - 12, 18, P.accent, "f2", "mr");
+const tabs = ["THEME", "SHIPS", "COLOR", "GUNS", "POWER", "UPGRD"];
+for (let t = 0; t < 6; t++) {
+drawKey(tabs[t], shopTabBox(t), t === shopTab, P);
+reg(shopTabBox(t), () => { shopTab = t; shopPage = 0; shopMsg = ""; });
+}
+const count = shopCount(shopTab);
+const pages = Math.ceil(count / 6);
+if (shopPage >= pages) shopPage = 0;
+for (let row = 0; row < 6; row++) {
+const idx = shopPage * 6 + row;
+if (idx >= count) break;
+const b = shopRowBox(row);
+const active = shopActive(shopTab, idx);
+fillRect(b.x, b.y, b.w, b.h, P.button);
+drawRect(b.x, b.y, b.w, b.h, active ? P.accent : P.button);
+if (shopTab === 0) fillRect(b.x + 8, b.y + 12, 22, 22, clr(PAL_RGB[idx][3]));
+if (shopTab === 1) drawShipHull(b.x + 4, b.y + 15, idx, P);
+if (shopTab === 2) fillRect(b.x + 8, b.y + 12, 22, 22, laserColour(idx));
+drawText(shopName(shopTab, idx), b.x + (shopTab === 1 ? 42 : 38), b.y + Math.floor(b.h / 2), P.ink, "f2", "ml");
+drawText(shopStatus(shopTab, idx), b.x + b.w - 10, b.y + Math.floor(b.h / 2), P.muted, "f2", "mr");
+reg(b, () => shopAct(idx));
+}
+if (pages > 1) {
+drawKey("PAGE " + (shopPage + 1) + "/" + pages, BOX.shopPage, false, P);
+reg(BOX.shopPage, () => { shopPage = (shopPage + 1) % pages; });
+}
+if (shopMsg) drawText(shopMsg, 140, 410, P.accent, "f2", "ml");
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.home, () => goMenu());
+}
+function paintForge(P) {
+FB.fill(P.bg);
+if (forgeFlash > 0) return;
+drawText("FORGE", 12, 18, P.ink, "f2", "ml");
+drawText("$" + save.coins, W - 12, 18, P.accent, "f2", "mr");
+if (forgeStep === 0 || forgeStep === 1) {
+const tabs = ["GUNS", "POWER", "UPGRADE"];
+for (let t = 0; t < 3; t++) {
+drawKey(tabs[t], forgeTabBox(t), t === forgeTab, P);
+reg(forgeTabBox(t), () => {
+forgeTab = t;
+forgeStep = 0;
+forgePage = 0;
+forgeFirst = 0;
+forgeSecond = 0;
+forgeMsg = "";
+});
+}
+if (forgeStep === 0) drawText("PICK THE FIRST ITEM", W / 2, 78, P.muted, "f2", "mc");
+else drawText("FIRST: " + forgeItemName(forgeTab, forgeFirst), W / 2, 78, P.muted, "f2", "mc");
+const count = forgeItemCount(forgeTab);
+const pages = Math.ceil(count / 6);
+if (forgePage >= pages) forgePage = 0;
+for (let row = 0; row < 6; row++) {
+const idx = forgePage * 6 + row;
+if (idx >= count) break;
+const b = forgeRowBox(row);
+const first = forgeStep === 1 && idx === forgeFirst;
+fillRect(b.x, b.y, b.w, b.h, P.button);
+drawRect(b.x, b.y, b.w, b.h, first ? P.accent : P.button);
+drawText(forgeItemName(forgeTab, idx), b.x + 12, b.y + Math.floor(b.h / 2), P.ink, "f2", "ml");
+let status = "PICK";
+if (forgeTab === 0 && !forgeItemOwned(0, idx)) status = "LOCKED";
+else if (first) status = "FIRST";
+drawText(status, b.x + b.w - 10, b.y + Math.floor(b.h / 2), P.muted, "f2", "mr");
+reg(b, () => forgePick(row));
+}
+if (pages > 1) {
+drawKey("PAGE " + (forgePage + 1) + "/" + pages, BOX.forgePage, false, P);
+reg(BOX.forgePage, () => { forgePage = (forgePage + 1) % pages; });
+}
+if (forgeAnyValid() && (forgeTab === 0 || forgeTab === 2)) {
+const lv = gunLv(activeForgeGun());
+const lbl = lv >= 5 ? "FORGED MAX" : "UPG LV" + (lv + 1) + " $" + (50 * (lv + 1));
+drawKey(lbl, BOX.forgeUp, false, P);
+reg(BOX.forgeUp, () => forgeUpgradeGun());
+}
+if (forgeMsg) drawText(forgeMsg, 12, 402, P.accent, "f2", "ml");
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.home, () => forgeBack());
+return;
+}
+if (forgeStep === 2 || forgeStep === 3) {
+const item = forgeStep === 2 ? forgeFirst : forgeSecond;
+if (forgeStep === 2) {
+drawText("FIRST: " + forgeItemName(forgeTab, item), W / 2, 56, P.muted, "f2", "mc");
+drawText("PICK AN ATTRIBUTE", W / 2, 76, P.accent, "f2", "mc");
+} else {
+drawText("FIRST: " + forgeItemName(forgeTab, forgeFirst) + " " +
+forgeAttrName(forgeTab, forgeFirst, forgeAttrA), W / 2, 56, P.muted, "f2", "mc");
+drawText("SECOND: " + forgeItemName(forgeTab, item), W / 2, 76, P.muted, "f2", "mc");
+}
+for (let a = 0; a < 5; a++) {
+const b = forgeAttrRowBox(a);
+fillRect(b.x, b.y, b.w, b.h, P.button);
+drawRect(b.x, b.y, b.w, b.h, P.button);
+drawText(forgeAttrName(forgeTab, item, a), b.x + 12, b.y + Math.floor(b.h / 2), P.ink, "f2", "ml");
+drawText("$" + forgeAttrPrice(a), b.x + b.w - 10, b.y + Math.floor(b.h / 2), P.accent, "f2", "mr");
+reg(b, () => forgePick(a));
+}
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.home, () => forgeBack());
+return;
+}
+if (forgeStep === 4) {
+drawText("COMBINE?", W / 2, 100, P.ink, "f4", "mc");
+drawText(forgeItemName(forgeTab, forgeFirst) + " " +
+forgeAttrName(forgeTab, forgeFirst, forgeAttrA), W / 2, 148, P.ink, "f2", "mc");
+drawText("+", W / 2, 172, P.muted, "f2", "mc");
+drawText(forgeItemName(forgeTab, forgeSecond) + " " +
+forgeAttrName(forgeTab, forgeSecond, forgeAttrB), W / 2, 196, P.ink, "f2", "mc");
+drawText("TOTAL $" + forgeTotal(), W / 2, 228, P.accent, "f2", "mc");
+if (forgeMsg) drawText(forgeMsg, W / 2, 252, P.accent, "f2", "mc");
+drawKey("YES", BOX.forgeYes, false, P);
+drawKey("NO", BOX.forgeNo, false, P);
+reg(BOX.forgeYes, () => forgeConfirm());
+reg(BOX.forgeNo, () => { forgeStep = 3; forgeMsg = ""; });
+return;
+}
+drawText("FORGED!", W / 2, 92, P.ink, "f4", "mc");
+drawText(forgeRevealName(), W / 2, 138, P.accent, "f2", "mc");
+if (forgeTab === 0 && forgeAnyValid()) {
+const lv = gunLv(activeForgeGun());
+drawText("LV" + (lv + 1) + "  " + forgedSlotCount() + "/8 TRAITS (+" + forgedLatestTrait() + ")",
+W / 2, 168, P.muted, "f2", "mc");
+} else {
+drawText(forgeTab === 1 ? "NEW POWER-UP" : "NEW UPGRADE", W / 2, 168, P.muted, "f2", "mc");
+}
+if (forgeMsg) drawText(forgeMsg, W / 2, 204, P.accent, "f2", "mc");
+if (forgeTab === 0 && forgeAnyValid() && gunLv(activeForgeGun()) < 5) {
+const lv = gunLv(activeForgeGun());
+drawKey("UPGRADE $" + (50 * (lv + 1)), BOX.forgeRevealUp, false, P);
+reg(BOX.forgeRevealUp, () => forgeUpgradeGun());
+}
+drawKey(forgeTab === 0 ? "EQUIP" : "DONE", BOX.forgeEquip, false, P);
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.forgeEquip, () => {
+if (forgeTab === 0 && forgeAnyValid()) { save.gunEquip = activeForgeGun(); persist(); }
+goMenu();
+});
+reg(BOX.home, () => forgeBack());
+}
+function render() {
+const P = palFor(save.theme);
+btns = [];
+if (scr === "demo" || scr === "play" || scr === "splash" || scr === "advance" || scr === "pause" || scr === "over") {
+if (scr === "over") {
+paintOver(P);
+} else if (scr === "splash") {
+paintLevel(P, { left: false, right: false, fire: false });
+paintSplash(P);
+} else if (scr === "pause") {
+paintLevel(P, { left: false, right: false, fire: false });
+paintPause(P);
+} else if (scr === "advance") {
+paintLevel(P, { left: false, right: false, fire: false });
+paintAdvance(P);
+} else {
+paintLevel(P, scr === "demo" ? { left: false, right: false, fire: false } : playerInput());
+}
+} else if (scr === "menu") paintMenu(P);
+else if (scr === "divine") paintDivine(P);
+else if (scr === "checks") paintChecks(P);
+else if (scr === "shop") paintShop(P);
+else if (scr === "forge") paintForge(P);
+else if (scr === "custom") paintCustom(P);
+else if (scr === "confirm") paintConfirm(P);
+if (kbActive && btns[sel]) {
+const b = btns[sel];
+drawRect(b.x + 2, b.y + 2, b.w - 4, b.h - 4, P.ink);
+}
+ctx.putImageData(IMG, 0, 0);
+}
+function menuNav() {
+if (pressed.has("up") && btns.length) sel = (sel + btns.length - 1) % btns.length;
+if (pressed.has("down") && btns.length) sel = (sel + 1) % btns.length;
+if (pressed.has("left") && scr === "shop") { shopTab = (shopTab + 5) % 6; shopPage = 0; }
+if (pressed.has("right") && scr === "shop") { shopTab = (shopTab + 1) % 6; shopPage = 0; }
+if (pressed.has("tab") && scr === "shop") shopPage = (shopPage + 1) % Math.max(1, Math.ceil(shopCount(shopTab) / 6));
+if ((pressed.has("left") || pressed.has("right")) && scr === "forge" && forgeStep <= 1) {
+forgeTab = (forgeTab + (pressed.has("left") ? 2 : 1)) % 3;
+forgeStep = 0;
+forgePage = 0;
+forgeFirst = 0;
+forgeSecond = 0;
+forgeMsg = "";
+}
+if (pressed.has("tab") && scr === "forge" && forgeStep <= 1) {
+forgePage = (forgePage + 1) % Math.max(1, Math.ceil(forgeItemCount(forgeTab) / 6));
+}
+if (pressed.has("enter") || pressed.has("space")) {
+const b = btns[sel];
+if (b && b.fn) b.fn();
+}
+if (pressed.has("esc")) {
+if (scr === "pause") resumePlay();
+else if (scr === "play") beginPause();
+else if (scr === "demo") goMenu();
+else if (scr === "custom" && customFromPause) beginPause();
+else if (scr === "forge") forgeBack();
+else if (scr === "over") goMenu();
+else if (scr !== "menu") goMenu();
+}
+}
+function step() {
+if (scr === "forge" && forgeFlash > 0) forgeFlash -= 1;
+if (scr === "demo") {
+if (pressed.has("enter") || pressed.has("space") || pressed.has("esc")) goMenu();
+} else if (scr === "play") {
+if (pressed.has("esc")) beginPause();
+} else if (scr !== "splash" && scr !== "advance") {
+menuNav();
+}
+pressed.clear();
+if (scr === "demo") stepPlay(demoInput());
+else if (scr === "play") stepPlay(playerInput());
+else if (scr === "advance") {
+if (--R.timer <= 0) startLevel();
+} else if (scr === "splash") {
+if (--R.timer <= 0) {
+if (R.raidSplash) {
+R.raidSplash = false;
+R.msg = raidTell(R.boss ? R.boss.style : 0);
+R.msgT = 45;
+setScr("play");
+} else godFight();
+}
+}
+}
+let acc = 0;
+let last = performance.now();
+function loop(now) {
+acc += Math.min(100, now - last);
+last = now;
+while (acc >= TICK_MS) {
+step();
+acc -= TICK_MS;
+}
+render();
+requestAnimationFrame(loop);
+}
+startDemo();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
