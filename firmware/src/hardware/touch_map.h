@@ -1,10 +1,10 @@
 #pragma once
 
-// One screen mapping for this panel's XPT2046.
+// Screen mapping for the ESP32-3248S035 XPT2046.
 // Both axes are mirrored. A finger on the bottom PLAY key reads a low raw Y
-// (the boot sample was raw y=585), and the left of the glass is the left of
-// the picture. A second orientation is not tried, so a point outside a drawn
-// rectangle cannot be pulled onto a button.
+// (about 585), and the left of the glass is the left of the picture.
+// A second orientation is not tried, so a point outside a drawn rectangle
+// cannot be pulled onto a button.
 
 static constexpr int kTouchRawLo = 280;
 static constexpr int kTouchRawHi = 3860;
