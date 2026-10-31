@@ -76,8 +76,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     touch_begin();
     prefs_.begin("jitters", false);
     theme_ = prefs_.getUChar("theme", 0) & 3;
-    loadGear();
-    loadCampaign();
+    if (!prefs_.isKey("lv")) {
+      loadGear();
+      resetRun();
+    } else {
+      loadGear();
+      loadCampaign();
+    }
     makeStars();
     rng_ = esp_random();
     if (rng_ == 0) rng_ = 1;
@@ -917,14 +922,28 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     fadeIn();
   }
 
-  void restartCampaign() {
+  // Fresh campaign. Laser colour stays; it is a display preference.
+  // Level, checkpoints, guns, gun levels, and the drone are per-run.
+  void resetRun() {
+    score_ = 0;
     level_ = 1;
+    camp_level_ = 1;
+    lives_ = 3;
     camp_ = 0;
     raid_won_ = false;
-    score_ = 0;
-    prefs_.putUShort("lv", 1);
-    prefs_.putUShort("cp", 0);
-    prefs_.putUChar("raidok", 0);
+    raid_ = false;
+    buddy_ = false;
+    god_ = 0;
+    god_wave_ = 0;
+    gun_unlock_ = 0;
+    gun_equip_ = 0;
+    for (int i = 0; i < kGunCount; ++i) gun_lv_[i] = 0;
+    saveGear();
+    saveCampaign();
+  }
+
+  void restartCampaign() {
+    resetRun();
     beginCampaign();
   }
 
