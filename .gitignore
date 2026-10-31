@@ -1,6 +1,9 @@
 desktop/node_modules/
 desktop/dist/
+desktop/port.local.json
 firmware/.pio/
 firmware/.vscode/
+firmware/platformio.local.ini
+firmware/port.local
 .env
 *.env

@@ -215,8 +215,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
  private:
   enum class Mode : uint8_t { Wander, Home, Calendar, Play, Advance, Over, Away };
   enum class Presence : uint8_t { Solo, Linked, Leaving, Away };
-  // Cece (a neko-like cat) wanders, notices a pointer, eases toward it, then
-  // reacts briefly. These are the same beats, driven by taps on this glass.
+  // The cat wanders, notices a pointer, eases toward it, then reacts briefly.
+  // These are the same beats, driven by taps on the glass.
   enum class Mood : uint8_t { Roam, Notice, Approach, React, Pause };
 
   struct Box {

@@ -40,6 +40,11 @@ await esbuild.build({
   outfile: path.join(out, "edge.test.cjs"),
 });
 await esbuild.build({
+  ...node,
+  entryPoints: [path.join(root, "src/transport/ports.test.ts")],
+  outfile: path.join(out, "ports.test.cjs"),
+});
+await esbuild.build({
   entryPoints: [path.join(root, "src/renderer/app.tsx")],
   outfile: path.join(out, "renderer.js"),
   bundle: true,
