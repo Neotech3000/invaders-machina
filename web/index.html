@@ -843,7 +843,7 @@ const MACHINES = [
 { name: "TSUNAMI", hint: "wave blocks 8s", cool: 500 },
 { name: "HEAL RAY", hint: "+2 then +1", cool: 313 },
 { name: "AEGIS", hint: "3s shield x2", cool: 437 },
-{ name: "BERSERKER", hint: "1-life proc", cool: 0 },
+{ name: "BERSERKER", hint: "at 1 life", cool: 0 },
 { name: "SOLARIS", hint: "burn beam 5s", cool: 312 },
 { name: "SILVER", hint: "homing 6s", cool: 375 },
 { name: "CHARM", hint: "stop fire 9s", cool: 562 },
@@ -873,7 +873,7 @@ R.msg = MACHINES[god - 1].name;
 R.msgT = 45;
 }
 function tryBerserk() {
-if (R.lives !== 1 || !divineOn(5) || rnd(10) !== 0) return;
+if (R.lives !== 1 || !divineOn(5)) return;
 R.berserk = 500;
 for (let i = 0; i < 12; i++) R.divCool[i] = R.divCool[i] > 125 ? R.divCool[i] - 125 : 0;
 R.gunCool = R.gunCool > 125 ? R.gunCool - 125 : 0;
@@ -948,8 +948,10 @@ if (R.berserk > 0) R.berserk -= 1;
 if (R.demeterT > 0) {
 R.demeterT -= 1;
 if (R.demeterT === 0 && R.demeterBonus > 0) {
+const before = R.lives;
 R.lives = Math.max(1, R.lives - R.demeterBonus);
 R.demeterBonus = 0;
+if (before > 1 && R.lives === 1) tryBerserk();
 }
 }
 if (R.aegisT > 0) {

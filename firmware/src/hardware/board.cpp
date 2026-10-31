@@ -2518,7 +2518,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   const char* machineHint(int i) const {
     static const char* hints[kGods] = {
         "stun zap 5s", "clone ship", "wave blocks 8s", "+2 then +1",
-        "3s shield x2", "1-life proc", "burn beam 5s", "homing 6s",
+        "3s shield x2", "at 1 life", "burn beam 5s", "homing 6s",
         "stop fire 9s", "blast 6s", "dash 6s", "slow shots 8s"};
     if (i < 0 || i >= kGods) return "";
     return hints[i];
@@ -2569,7 +2569,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void tryBerserk() {
     if (lives_ != 1 || !divineOn(5)) return;
-    if ((nextRng() % 10) != 0) return;
     berserk_ticks_ = 500;
     for (int i = 0; i < kGods; ++i) {
       div_cool_[i] = div_cool_[i] > 125 ? div_cool_[i] - 125 : 0;
@@ -5732,9 +5731,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (demeter_timer_ > 0) {
       demeter_timer_ -= 1;
       if (demeter_timer_ == 0 && demeter_bonus_ > 0) {
+        const int before = lives_;
         lives_ -= demeter_bonus_;
         if (lives_ < 1) lives_ = 1;
         demeter_bonus_ = 0;
+        if (before > 1 && lives_ == 1) tryBerserk();
         drawHud();
       }
     }
