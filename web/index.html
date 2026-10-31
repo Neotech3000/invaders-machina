@@ -217,8 +217,17 @@ shield: 0, spare: 0, thrust: 0, forges: blankForges(), fpw: 0, fup: 0,
 armed: [0, 0, 0, 0, 0], gods: 0, dive: 0, dmul: 0
 };
 let loadedSave = {};
-try { loadedSave = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}") || {}; }
-catch (e) { loadedSave = {}; }
+let hadSave = false;
+try {
+  const raw = localStorage.getItem(SAVE_KEY);
+  if (raw) {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      loadedSave = parsed;
+      hadSave = parsed.level != null;
+    }
+  }
+} catch (e) { loadedSave = {}; hadSave = false; }
 let save = Object.assign({}, DEFAULT_SAVE, loadedSave);
 save.gunLv = blankLevels();
 const srcLv = Array.isArray(loadedSave.gunLv) ? loadedSave.gunLv : [];
@@ -2378,12 +2387,35 @@ setScr("pause");
 function resumePlay() {
 setScr("play");
 }
+function resetRun() {
+  const look = {
+    theme: save.theme | 0,
+    laser: save.laser | 0,
+    ship: save.ship | 0
+  };
+  save = Object.assign({}, DEFAULT_SAVE, {
+    gunLv: blankLevels(),
+    forges: blankForges(),
+    armed: [0, 0, 0, 0, 0]
+  });
+  save.theme = look.theme & 7;
+  save.laser = ((look.laser % 12) + 12) % 12;
+  save.ship = ((look.ship % SHIPS.length) + SHIPS.length) % SHIPS.length;
+  if (!themeOwned(save.theme)) save.theme = 0;
+  if (!laserOwned(save.laser)) save.laser = 0;
+  if (!shipOwned(save.ship)) save.ship = 0;
+  if (!gunOwned(save.gunEquip)) save.gunEquip = 0;
+  persist();
+}
+if (!hadSave) resetRun();
 function restartGame() {
-save.level = 1;
-save.camp = 0;
-save.raidWon = false;
-persist();
-startCampaign();
+  resetRun();
+  forgeFocus = -1;
+  forgeStep = 0;
+  forgeFirst = 0;
+  forgeSecond = 0;
+  shopMsg = "";
+  startCampaign();
 }
 const STARS = [];
 (function makeStars() {
