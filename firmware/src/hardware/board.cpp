@@ -3882,6 +3882,91 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
+  // Five-by-seven poster letters. Adjacent quotes are one 35-cell glyph.
+  const char* coverGlyph(char ch) const {
+    switch (ch) {
+      case 'I': return "#####" "..#.." "..#.." "..#.." "..#.." "..#.." "#####";
+      case 'M': return "#...#" "##.##" "#.#.#" "#.#.#" "#...#" "#...#" "#...#";
+      case 'a': return "....." ".###." "....#" ".####" "#...#" "#...#" ".####";
+      case 'c': return "....." ".###." "#...#" "#...." "#...." "#...#" ".###.";
+      case 'd': return "....#" "....#" ".####" "#...#" "#...#" "#...#" ".####";
+      case 'e': return "....." ".###." "#...#" "#####" "#...." "#...#" ".###.";
+      case 'h': return "#...#" "#...#" "#####" "#...#" "#...#" "#...#" "#...#";
+      case 'i': return "..#.." "....." ".###." "..#.." "..#.." "..#.." ".###.";
+      case 'n': return "....." "####." "#...#" "#...#" "#...#" "#...#" "#...#";
+      case 'r': return "....." "#.##." "##..#" "#...." "#...." "#...." "#....";
+      case 'v': return "#...#" "#...#" "#...#" ".#.#." ".#.#." "..#.." "..#..";
+      default: return nullptr;
+    }
+  }
+
+  void drawCoverGlyph(char ch, int x, int y, int s, uint16_t ink) {
+    const char* rows = coverGlyph(ch);
+    if (rows == nullptr) return;
+    for (int row = 0; row < 7; ++row) {
+      for (int col = 0; col < 5; ++col) {
+        if (rows[row * 5 + col] != '#') continue;
+        fillRect(x + col * s, y + row * s, s, s, ink);
+      }
+    }
+  }
+
+  void drawCoverWord(const char* word, int y, int s, uint16_t ink) {
+    const int gap = 3;
+    const int n = static_cast<int>(std::strlen(word));
+    const int ww = n * 5 * s + (n - 1) * gap;
+    int x = (kPanelWidth - ww) / 2;
+    for (int i = 0; i < n; ++i) {
+      drawCoverGlyph(word[i], x, y, s, ink);
+      x += 5 * s + gap;
+    }
+  }
+
+  // Poster title over the attract demo. The fight keeps running around the plate.
+  void paintAttractCover() {
+    if (!demo_) return;
+    const int x = 12;
+    const int y = 116;
+    const int w = kPanelWidth - 24;
+    const int h = 156;
+    const uint16_t plate = color565(28, 2, 10);
+    const uint16_t gold = color565(255, 196, 48);
+    const uint16_t white = color565(255, 248, 232);
+    const uint16_t red = color565(232, 16, 32);
+    fillRect(x, y, w, h, plate);
+    const int cx = x + w / 2;
+    const int cy = y + h / 2;
+    const int x0 = x + 8;
+    const int y0 = y + 8;
+    const int x1 = x + w - 9;
+    const int y1 = y + h - 9;
+    const int rays[][2] = {
+        {cx, y0}, {x1, y0}, {x1, cy}, {x1, y1}, {cx, y1}, {x0, y1}, {x0, cy}, {x0, y0},
+        {x0 + (x1 - x0) / 3, y0}, {x0 + 2 * (x1 - x0) / 3, y0},
+        {x0 + (x1 - x0) / 3, y1}, {x0 + 2 * (x1 - x0) / 3, y1},
+    };
+    for (int i = 0; i < 12; ++i) {
+      drawLine(cx, cy, rays[i][0], rays[i][1], (i & 2) != 0 ? white : gold);
+    }
+    for (int i = 0; i < 8; ++i) {
+      if (((space_tick_ / 4 + i) % 5) == 0) continue;
+      const int sx = x + 14 + (i * 34) % (w - 28);
+      const int sy = (i & 1) != 0 ? y + 10 : y + h - 14;
+      drawLine(sx - 3, sy, sx + 3, sy, white);
+      drawLine(sx, sy - 3, sx, sy + 3, gold);
+    }
+    drawRect(x, y, w, h, gold);
+    drawRect(x + 3, y + 3, w - 6, h - 6, white);
+    const int s = 7;
+    const int line = y + 16;
+    drawCoverWord("Invader", line + 3, s, gold);
+    drawCoverWord("Machina", line + 64, s, gold);
+    drawCoverWord("Invader", line - 2, s, white);
+    drawCoverWord("Machina", line + 59, s, white);
+    drawCoverWord("Invader", line, s, red);
+    drawCoverWord("Machina", line + 61, s, red);
+  }
+
   void paintLevel() {
     const Palette ink = palette();
     fillScreen(ink.bg);
@@ -3921,6 +4006,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawHud();
     if (demo_) {
       // The attract loop shows one big PLAY key where the ship controls sit.
+      paintAttractCover();
       fillRect(0, kButtonY, kPanelWidth, kPanelHeight - kButtonY, ink.bg);
       drawKey("PLAY", playBox(), false);
       return;
@@ -6428,6 +6514,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       hit_by_ = "LASER";
     }
     if (god_entrance_) drawBossBar();
+    if (demo_) paintAttractCover();
     endWrite();
     if (mode_ != Mode::Play) return;
     if (lost) {
