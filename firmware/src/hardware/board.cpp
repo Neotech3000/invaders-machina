@@ -151,6 +151,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     loadGear();
     loadShop();
     loadCampaign();
+    if (!prefs_.isKey("lv")) resetRun();
     makeStars();
     ledcSetup(kSoundCh, 2000, 8);
     ledcAttachPin(kPinSpeaker, kSoundCh);
@@ -2483,15 +2484,59 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     fadeIn();
   }
 
-  void restartCampaign() {
+  // Fresh run. A free theme, hull, or laser colour can stay. Coins, guns,
+  // forge, shop purchases, divine machines, level, and checkpoints reset.
+  void resetRun() {
+    score_ = 0;
     level_ = 1;
+    camp_level_ = 1;
+    lives_ = 3;
     camp_ = 0;
     raid_won_ = false;
-    score_ = 0;
     // Cleared levels and god waves stay. A restarted run still pays the replay cut.
-    prefs_.putUShort("lv", 1);
-    prefs_.putUShort("cp", 0);
-    prefs_.putUChar("raidok", 0);
+    raid_ = false;
+    buddy_ = false;
+    revived_ = false;
+    god_ = 0;
+    god_wave_ = 0;
+    gun_unlock_ = 0;
+    gun_equip_ = 0;
+    for (int i = 0; i < kGunSlots; ++i) gun_lv_[i] = 0;
+    for (int i = 0; i < kMaxForged; ++i) forged_[i] = {};
+    forge_focus_ = -1;
+    forge_attr_a_ = 0;
+    forge_attr_b_ = 0;
+    forge_power_ = 0;
+    forge_up_ = 0;
+    bank_ = 0;
+    themes_owned_ = 0x0F;
+    ships_owned_ = 0x01;
+    lasers_owned_ = 0x0001;
+    shield_ = 0;
+    spare_ = 0;
+    thrust_ = 0;
+    ship_step_ = kShipStep;
+    div_unlock_ = 0;
+    div_equip_ = 0;
+    div_multi_ = 0;
+    for (int i = 0; i < kGods; ++i) div_cool_[i] = 0;
+    for (int i = 0; i < kBoosts; ++i) {
+      boost_armed_[i] = 0;
+      boost_ticks_[i] = 0;
+    }
+    if (!themeOwned(theme_)) {
+      theme_ = 0;
+      prefs_.putUChar("theme", theme_);
+    }
+    if (!shipOwned(ship_model_)) ship_model_ = 0;
+    if (!laserOwned(laser_color_)) laser_color_ = 0;
+    saveGear();
+    saveShop();
+    saveCampaign();
+  }
+
+  void restartCampaign() {
+    resetRun();
     beginCampaign();
   }
 
