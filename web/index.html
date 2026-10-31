@@ -537,7 +537,8 @@ stun: 0, charm: 0, revel: 0, hermes: 0, berserk: 0,
 waveY: -1, sunT: 0, sunX: 0, godBeamT: 0, godBeamX: 0, godWard: 0,
 cloneAlive: false, cloneX: 16, cloneCool: 0,
 playerStun: 0, apolloT: 0, apolloX: 160, apolloX2: 200, nextStyle: -1,
-hephT: 0, heph: [{ on: false }, { on: false }, { on: false }]
+hephT: 0, heph: [{ on: false }, { on: false }, { on: false }],
+poseidonCool: 40, poseidonWarn: 0, poseidonXs: []
 };
 }
 function rnd(n) { return Math.floor(Math.random() * n); }
@@ -998,15 +999,9 @@ if (have > 0) break;
 spawnGodOrb(12, 44, 1, 2);
 spawnGodOrb(W - 22, 44, -1, 2);
 break;
-case 3: {
-if (have > 0) break;
-const gap = 48 + rnd(Math.max(1, W - 140));
-for (let sx = 20; sx < W - 30; sx += 84) {
-if (sx > gap - 28 && sx < gap + 28) continue;
-spawnGodOrb(sx, 40, 0, 2);
-}
+case 3:
+// Poseidon rain is stepped in stepPoseidonRain with telegraph + nerfed density.
 break;
-}
 case 4:
 if (have > 0) break;
 spawnGodOrb(20 + rnd(W - 50), 40, 0, 1);
@@ -1042,6 +1037,45 @@ default:
 spawnGodOrb(24 + rnd(W - 58), 40, rnd(3) - 1, 1);
 break;
 }
+}
+function quietPoseidon() {
+if (!R) return;
+R.poseidonWarn = 0;
+R.poseidonXs = [];
+}
+function planPoseidonRain() {
+const gap = 56 + rnd(Math.max(1, W - 168));
+R.poseidonXs = [];
+for (let sx = 24; sx < W - 34 && R.poseidonXs.length < 2; sx += 128) {
+if (sx > gap - 56 && sx < gap + 56) continue;
+R.poseidonXs.push(sx);
+}
+if (!R.poseidonXs.length) R.poseidonXs.push(gap < W / 2 ? W - 48 : 24);
+}
+function drawPoseidonTell(P) {
+const ink = clr([64, 190, 255]);
+for (const x of R.poseidonXs) {
+fillRect(x, 38, 10, 3, ink);
+fillRect(x + 3, 42, 4, 10, ink);
+fillRect(x + 1, 52, 8, 2, ink);
+}
+}
+function stepPoseidonRain() {
+if (!R || R.god !== 3 || scr !== "play") { quietPoseidon(); if (R) R.poseidonCool = 0; return; }
+if (R.poseidonCool > 0) R.poseidonCool -= 1;
+if (R.poseidonWarn > 0) {
+R.poseidonWarn -= 1;
+if (R.poseidonWarn === 0) {
+for (const x of R.poseidonXs) spawnGodOrb(x, 40, 0, 1);
+R.poseidonXs = [];
+R.poseidonCool = 80;
+}
+return;
+}
+if (R.poseidonCool > 0) return;
+if (countFoeKind(3) > 0) return;
+planPoseidonRain();
+R.poseidonWarn = 40;
 }
 function stepMachines() {
 if (demo || scr !== "play") return;
@@ -2151,6 +2185,7 @@ if (R.charm <= 0) enemyShoot();
 }
 fireStunners();
 stepFoes();
+stepPoseidonRain();
 if (scr === entry && stepApollo()) {
 shipHit("GOD BEAM");
 if (scr !== entry) return;
@@ -3140,6 +3175,7 @@ else if (phase >= 36 && phase < 48) fillRect(R.apolloX - 1, 36, 4, SHIP_Y - 36, 
 if (phase2 >= 2 && phase2 <= 35) fillRect(R.apolloX2, 36, 2, SHIP_Y - 36, clr([255, 210, 120]));
 else if (phase2 >= 36 && phase2 < 48) fillRect(R.apolloX2 - 1, 36, 4, SHIP_Y - 36, clr([255, 244, 180]));
 }
+if (R.god === 3 && R.poseidonWarn > 0) drawPoseidonTell(P);
 if (R.zapT > 0) fillRect(R.zapX, 30, 4, SHIP_Y - 30, clr([255, 240, 120]));
 for (const f of R.foes) {
 const fx = Math.round(f.x), fy = Math.round(f.y);

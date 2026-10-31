@@ -3564,6 +3564,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     addUnit(god_ox + kGodW + 8, 18, 7);
     apollo_tick_ = 0;
     apollo_live_ = false;
+    poseidon_cool_ = 40;
+    poseidon_warn_ = 0;
+    poseidon_n_ = 0;
     heph_tick_ = 0;
     heph_on_[0] = heph_on_[1] = heph_on_[2] = false;
     // A raid boss stays in the fight after the god descends.
@@ -5982,15 +5985,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         spawnGodOrb(12, 44, 1, 2);
         spawnGodOrb(kPanelWidth - 22, 44, -1, 2);
         break;
-      case 3: {
-        if (have > 0) break;
-        const int gap = 48 + static_cast<int>(nextRng() % (kPanelWidth - 140));
-        for (int sx = 20; sx < kPanelWidth - 30; sx += 84) {
-          if (sx > gap - 28 && sx < gap + 28) continue;
-          spawnGodOrb(sx, 40, 0, 2);
-        }
+      case 3:
+        // Poseidon rain is stepped in stepPoseidonRain with telegraph + nerfed density.
         break;
-      }
       case 4:
         if (have > 0) break;
         spawnGodOrb(20 + static_cast<int>(nextRng() % (kPanelWidth - 50)), 40, 0, 1);
@@ -6122,6 +6119,71 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (overlap(x, y, w, h, coins_[i].x, coins_[i].y, kCoinW, kCoinW)) drawCoin(coins_[i].x, coins_[i].y);
     }
     drawShipAt(player_x_);
+  }
+
+  // Poseidon domain rain: fewer orbs, wider safe lane, slow fall, clear telegraph.
+  void quietPoseidon() {
+    if (poseidon_warn_ > 0) {
+      for (int i = 0; i < poseidon_n_; ++i) {
+        repair(poseidon_xs_[i] - 2, 36, 14, 18);
+      }
+    }
+    poseidon_warn_ = 0;
+    poseidon_n_ = 0;
+  }
+
+  void drawPoseidonTell() {
+    const uint16_t ink = color565(64, 190, 255);
+    for (int i = 0; i < poseidon_n_; ++i) {
+      const int x = poseidon_xs_[i];
+      fillRect(x, 38, 10, 3, ink);
+      fillRect(x + 3, 42, 4, 10, ink);
+      fillRect(x + 1, 52, 8, 2, ink);
+    }
+  }
+
+  void planPoseidonRain() {
+    // Spacing 128 (was 84), safe gap +/-56 (was +/-28), max 2 orbs (was ~3-4).
+    const int gap = 56 + static_cast<int>(nextRng() % (kPanelWidth - 168));
+    poseidon_n_ = 0;
+    for (int sx = 24; sx < kPanelWidth - 34 && poseidon_n_ < 2; sx += 128) {
+      if (sx > gap - 56 && sx < gap + 56) continue;
+      poseidon_xs_[poseidon_n_] = sx;
+      poseidon_n_ += 1;
+    }
+    if (poseidon_n_ == 0) {
+      poseidon_xs_[0] = gap < kPanelWidth / 2 ? kPanelWidth - 48 : 24;
+      poseidon_n_ = 1;
+    }
+  }
+
+  bool stepPoseidonRain() {
+    if (god_ != 3 || mode_ != Mode::Play) {
+      quietPoseidon();
+      poseidon_cool_ = 0;
+      return false;
+    }
+    if (poseidon_cool_ > 0) poseidon_cool_ -= 1;
+    if (poseidon_warn_ > 0) {
+      drawPoseidonTell();
+      poseidon_warn_ -= 1;
+      if (poseidon_warn_ == 0) {
+        for (int i = 0; i < poseidon_n_; ++i) {
+          repair(poseidon_xs_[i] - 2, 36, 14, 18);
+          // vy 1 (was 2): slower fall for readable dodge.
+          spawnGodOrb(poseidon_xs_[i], 40, 0, 1);
+        }
+        poseidon_n_ = 0;
+        poseidon_cool_ = 80;  // was immediate refill when clear
+      }
+      return false;
+    }
+    if (poseidon_cool_ > 0) return false;
+    if (countFoeKind(3) > 0) return false;
+    planPoseidonRain();
+    poseidon_warn_ = 40;  // telegraph before the rain
+    drawPoseidonTell();
+    return false;
   }
 
   // Apollo's weapon is a pair of aimed beams, a half-cycle apart.
@@ -6960,6 +7022,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       lost = true;
       hit_by_ = godName();
     }
+    stepPoseidonRain();
     if (!lost && stepApolloLaser()) {
       lost = true;
       hit_by_ = "LASER";
@@ -7086,6 +7149,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   uint8_t help_page_ = 0;
   char over_title_[16] = {};
   char over_killer_[24] = {};
+  int poseidon_cool_ = 0;
+  int poseidon_warn_ = 0;
+  int poseidon_n_ = 0;
+  int poseidon_xs_[3] = {};
   bool mini_ = false;
   bool raid_ = false;
   bool raid_won_ = false;
