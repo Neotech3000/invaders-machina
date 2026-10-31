@@ -215,8 +215,26 @@ themes: 0x0f, ships: 0x01, ship: 0, lasers: 0x0001, guns: 0, gunEquip: 0,
 gunLv: blankLevels(), laser: 0, theme: 0,
 shield: 0, spare: 0, thrust: 0, forges: blankForges(), fpw: 0, fup: 0,
 armed: [0, 0, 0, 0, 0], gods: 0, dive: 0, dmul: 0,
-clearedLv: [], clearedGw: []
+clearedLv: [], clearedGw: [],
+best: [0, 0, 0], ach: 0, coinsLife: 0
 };
+const ACH = [
+["FIRST BLOOD", "Destroy an alien"],
+["WAVE CLEAR", "Clear a wave"],
+["IRON WAVE", "Clear a wave unhit"],
+["BOSS BREAKER", "Destroy a boss"],
+["OLYMPIAN", "Defeat a god"],
+["RAID CLEARED", "Clear a raid"],
+["NEW STEEL", "Unlock a gun"],
+["ARMED", "Buy a gun in the shop"],
+["PURSE", "Collect 50 coins"],
+["COIN HOARD", "Collect 200 coins"],
+["FORGED", "Forge a gun"],
+["CHOSEN", "Unlock a divine machine"],
+["FIVE GRAND", "Score 5,000"],
+["CENTURY", "Reach level 100"],
+["MACHINA", "Clear all 300 levels"]
+];
 let loadedSave = {};
 let hadSave = false;
 try {
@@ -400,6 +418,12 @@ function gunToken(gun) {
 if (!themeOwned(save.theme)) save.theme = 0;
 if (!shipOwned(save.ship)) save.ship = 0;
 if (!laserOwned(save.laser)) save.laser = 0;
+save.best = [0, 0, 0];
+if (Array.isArray(loadedSave.best)) {
+for (let i = 0; i < 3 && i < loadedSave.best.length; i++) save.best[i] = Math.max(0, loadedSave.best[i] | 0);
+}
+save.ach = (loadedSave.ach | 0) & 0xffff;
+save.coinsLife = Math.max(0, loadedSave.coinsLife | 0);
 if (!gunOwned(save.gunEquip)) save.gunEquip = 0;
 save.thrust = Math.min(2, save.thrust || 0);
 const PAL_CACHE = [];
@@ -467,6 +491,7 @@ let scr = "demo";
 let sel = 0;
 let btns = [];
 let shopTab = 0, shopPage = 0, shopMsg = "";
+let scorePage = 0;
 let divPage = 0, divMsg = "";
 let forgeTab = 0, forgeStep = 0, forgePage = 0;
 let forgeFirst = 0, forgeSecond = 0, forgeAttrA = 0, forgeAttrB = 0;
@@ -548,6 +573,7 @@ function startLevel() {
 const L = R.level;
 R.foes = []; R.bolts = []; R.blasts = []; R.escorts = []; R.raidMates = []; R.boss = null;
 R.mini = false; R.raid = false; R.god = 0; R.godEntrance = false;
+R.hurt = false;
 R.raidSplash = false; R.shieldHole = 0; R.raidBeamT = 0; R.playerStun = 0; R.apolloT = 0; R.hephT = 0;
 if (R.heph) for (const h of R.heph) h.on = false;
 R.invuln = 0; R.cool = 0; R.foeCool = 0; R.gunCool = 0;
@@ -563,6 +589,7 @@ if (L % 25 === 0) buildGod();
 else if (L % 5 === 0) buildBoss();
 else if (save.raidWon && Math.random() < 0.4) buildMini();
 else buildFormation();
+if (!demo && L >= 100) grant(13);
 if (!demo && L % 20 === 0) {
 const bit = L / 20 - 1;
 if (bit >= 0 && bit < 15) save.camp |= (1 << bit);
@@ -943,6 +970,7 @@ function grantDivine(god) {
 if (god < 1 || god > 12) return;
 save.gods = (save.gods | (1 << (god - 1))) & 0xfff;
 persist();
+grant(11);
 R.msg = MACHINES[god - 1].name;
 R.msgT = 45;
 }
@@ -1254,6 +1282,7 @@ if (d.which >= 1 && d.which <= 8) {
 save.guns |= (1 << (d.which - 1));
 save.gunEquip = d.which;
 persist();
+grant(6);
 setMsg(GUNS[d.which]);
 } else if (d.which === 9) {
 const cap = perk(PERK.maxHp) ? 9 : 8;
@@ -1291,18 +1320,23 @@ if (overlapRect(d.x, ny, 14, 14, R.px, SHIP_Y, SHIP_W, SHIP_H)) { collectDrop();
 if (ny > SHIP_Y + 8) { R.drop_ = null; return; }
 d.y = ny;
 }
-function addScore(n) { R.score = Math.min(99999, R.score + n); }
+function addScore(n) {
+R.score = Math.min(99999, R.score + n);
+if (R.score >= 5000) grant(12);
+}
 function killUnit(u) {
 u.alive = false;
 const [sw, sh] = unitSize(u);
 const [cx, cy] = centerOf(R.ox + u.ox, R.oy + u.oy, sw, sh);
 if (u.kind === 6) {
 addScore(20);
+grant(0);
 const mini = (R.god && !R.godEntrance) ? 5 : bossBounty(2);
 dropCoins(cx, cy, payout(mini));
 maybeMiniDrop(cx, cy);
 } else {
 addScore(10);
+grant(0);
 if (rnd(100) < COIN_CHANCE) dropCoins(cx, cy, payout(1));
 maybeDrop(false);
 }
@@ -1366,6 +1400,7 @@ R.godBars = 0;
 R.godHp = 0;
 R.godWard = 0;
 R.godBeamT = 0;
+grant(4);
 grantDivine(slain);
 }
 }
@@ -1377,6 +1412,8 @@ if (R.boss.hp <= 0) {
 const [cx, cy] = centerOf(R.boss.x, R.boss.y, bossW(), bossH());
 dropCoins(cx, cy, payout(bossBounty(R.raid ? 4 : 3)));
 if (R.raid) { save.raidWon = true; persist(); }
+grant(0);
+grant(3);
 R.boss = null;
 maybeDrop(true);
 }
@@ -1730,6 +1767,7 @@ startLevel();
 return;
 }
 if (R.invuln > 0 || boostOn(3)) return;
+R.hurt = true;
 const inv = perk(PERK.invuln) ? 100 : 80;
 R.foes = []; R.bolts = [];
 R.beamOn = false;
@@ -1791,6 +1829,7 @@ R.beamBurst = 0;
 save.level = R.level;
 persist();
 R.over = true;
+noteScore(R.score);
 setScr("over");
 }
 function moveFormation() {
@@ -1941,6 +1980,7 @@ const ny = c.y + 2;
 if (overlapRect(c.x, ny, COIN_SIZE, COIN_SIZE, R.px, SHIP_Y, SHIP_W, SHIP_H)) {
 R.coins.splice(i, 1);
 if (!demo && save.coins < 65535) save.coins += 1;
+noteCoin();
 beep(1046, 45);
 continue;
 }
@@ -1966,8 +2006,14 @@ startLevel();
 return;
 }
 markLevel(R.level);
+grant(1);
+if (!R.hurt) grant(2);
+if (R.raid) grant(5);
+if (R.godEntrance) grant(4);
 if (R.level >= LEVELS) {
 save.level = LEVELS;
+noteScore(R.score);
+grant(14);
 persist();
 R.won = true;
 setScr("over");
@@ -2137,6 +2183,9 @@ if (R.coins.length && !anyLeft) return;
 if (!anyLeft && !R.godEntrance) {
 if (R.god && R.godWave < godWaveTotal()) {
 markGodWave(R.level, R.godWave);
+grant(1);
+if (!R.hurt) grant(2);
+R.hurt = false;
 R.godWave += 1;
 if (R.godWave < godWaveTotal()) spawnGodWave();
 else { R.raidSplash = false; setScr("splash"); R.timer = 60; }
@@ -2175,13 +2224,15 @@ pauseCustom: { x: 32, y: 232, w: 256, h: 46 },
 pauseHome: { x: 32, y: 288, w: 256, h: 46 },
 color: { x: 16, y: 46, w: 140, h: 36 },
 ship: { x: 164, y: 46, w: 140, h: 36 },
-menuPlay: { x: 16, y: 60, w: 288, h: 48 },
-menuCheck: { x: 16, y: 116, w: 288, h: 40 },
-menuCustom: { x: 16, y: 164, w: 288, h: 40 },
-menuShop: { x: 16, y: 212, w: 288, h: 40 },
-menuTheme: { x: 16, y: 260, w: 288, h: 40 },
-menuHome: { x: 16, y: 308, w: 288, h: 40 },
-menuForge: { x: 16, y: 356, w: 288, h: 40 },
+menuPlay: { x: 16, y: 54, w: 288, h: 38 },
+menuCheck: { x: 16, y: 96, w: 288, h: 38 },
+menuCustom: { x: 16, y: 138, w: 288, h: 38 },
+menuShop: { x: 16, y: 180, w: 288, h: 38 },
+menuScores: { x: 16, y: 222, w: 288, h: 38 },
+menuTheme: { x: 16, y: 264, w: 288, h: 38 },
+menuHome: { x: 16, y: 306, w: 288, h: 38 },
+menuForge: { x: 16, y: 348, w: 288, h: 38 },
+scorePage: { x: 16, y: 388, w: 120, h: 32 },
 menuRestart: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
 shopPage: { x: 8, y: 396, w: 120, h: 28 },
 forgePage: { x: 8, y: 388, w: 120, h: 28 },
@@ -2303,7 +2354,11 @@ if (!pay(shopPrice(tab, idx))) return;
 if (tab === 0) save.themes |= (1 << idx);
 else if (tab === 1) save.ships |= (1 << idx);
 else if (tab === 2) save.lasers |= (1 << idx);
-else save.guns |= (1 << (gun - 1));
+else {
+save.guns |= (1 << (gun - 1));
+grant(6);
+grant(7);
+}
 shopMsg = "BOUGHT";
 }
 if (tab === 0) save.theme = idx;
@@ -2440,6 +2495,7 @@ if (forgeTab === 0) {
 save.forges[slot] = sanitizeForge({
 valid: true, base: forgeFirst, donor: forgeSecond, attrA: forgeAttrA, attrB: forgeAttrB
 });
+grant(10);
 save.gunLv[GUN_COUNT + slot] = 0;
 save.gunEquip = GUN_COUNT + slot;
 forgeFocus = slot;
@@ -2529,24 +2585,57 @@ setScr("pause");
 function resumePlay() {
 setScr("play");
 }
+function grant(id) {
+if (demo || id < 0 || id >= ACH.length) return;
+const bit = 1 << id;
+if (save.ach & bit) return;
+save.ach = (save.ach | bit) & 0xffff;
+persist();
+if (scr === "play" && R) { R.msg = ACH[id][0]; R.msgT = 70; }
+}
+function noteScore(score) {
+if (demo || score <= 0) return;
+if (!Array.isArray(save.best)) save.best = [0, 0, 0];
+let slot = -1;
+for (let i = 0; i < 3; i++) if (score > (save.best[i] | 0)) { slot = i; break; }
+if (slot < 0) return;
+for (let i = 2; i > slot; i--) save.best[i] = save.best[i - 1];
+save.best[slot] = score;
+persist();
+}
+function noteCoin() {
+if (demo) return;
+save.coinsLife = Math.min(65535, (save.coinsLife | 0) + 1);
+if (save.coinsLife >= 50) grant(8);
+if (save.coinsLife >= 200) grant(9);
+persist();
+}
 function resetRun() {
   const look = {
     theme: save.theme | 0,
     laser: save.laser | 0,
     ship: save.ship | 0,
     clearedLv: Array.isArray(save.clearedLv) ? save.clearedLv.slice() : [],
-    clearedGw: Array.isArray(save.clearedGw) ? save.clearedGw.slice() : []
+    clearedGw: Array.isArray(save.clearedGw) ? save.clearedGw.slice() : [],
+    best: Array.isArray(save.best) ? save.best.slice(0, 3) : [0, 0, 0],
+    ach: save.ach | 0,
+    coinsLife: save.coinsLife | 0
   };
   save = Object.assign({}, DEFAULT_SAVE, {
     gunLv: blankLevels(),
     forges: blankForges(),
     armed: [0, 0, 0, 0, 0],
     clearedLv: look.clearedLv,
-    clearedGw: look.clearedGw
+    clearedGw: look.clearedGw,
+    best: [0, 0, 0]
   });
   save.theme = look.theme & 7;
   save.laser = ((look.laser % 12) + 12) % 12;
   save.ship = ((look.ship % SHIPS.length) + SHIPS.length) % SHIPS.length;
+  save.best = [0, 0, 0];
+  for (let i = 0; i < 3; i++) save.best[i] = Math.max(0, look.best[i] | 0);
+  save.ach = look.ach & 0xffff;
+  save.coinsLife = Math.max(0, look.coinsLife | 0);
   if (!themeOwned(save.theme)) save.theme = 0;
   if (!laserOwned(save.laser)) save.laser = 0;
   if (!shipOwned(save.ship)) save.ship = 0;
@@ -3154,6 +3243,37 @@ drawCircle(W / 2, 150, 60, ink);
 paintGodMark(ink, P.bg);
 drawText(godName() + " DOMAIN", W / 2, 150, ink, "f2", "mc");
 }
+function paintScores(P) {
+FB.fill(P.bg);
+drawText("SCORES", W / 2, 16, P.ink, "f2", "mc");
+const best = Array.isArray(save.best) ? save.best : [0, 0, 0];
+for (let i = 0; i < 3; i++) {
+const label = best[i] ? (i + 1) + "   " + best[i] : (i + 1) + "   -----";
+drawText(label, 28, 40 + i * 20, i === 0 && best[0] ? P.accent : P.ink, "f2", "ml");
+}
+let got = 0;
+for (let i = 0; i < ACH.length; i++) if (save.ach & (1 << i)) got += 1;
+drawText("ACHIEVEMENTS " + got + "/" + ACH.length, W / 2, 104, P.accent, "f2", "mc");
+const pages = Math.max(1, Math.ceil(ACH.length / 5));
+if (scorePage >= pages) scorePage = 0;
+for (let r = 0; r < 5; r++) {
+const idx = scorePage * 5 + r;
+if (idx >= ACH.length) break;
+const open = (save.ach & (1 << idx)) !== 0;
+const row = { x: 16, y: 118 + r * 52, w: 288, h: 48 };
+fillRect(row.x, row.y, row.w, row.h, P.button);
+drawRect(row.x, row.y, row.w, row.h, open ? P.accent : P.muted);
+drawText(ACH[idx][0], 24, row.y + 15, open ? P.ink : P.muted, "f2", "ml");
+drawText(open ? "OPEN" : "LOCKED", 296, row.y + 15, open ? P.ink : P.muted, "f2", "mr");
+drawText(ACH[idx][1], 24, row.y + 34, P.muted, "f2", "ml");
+}
+if (pages > 1) {
+drawKey("PAGE", BOX.scorePage, false, P);
+reg(BOX.scorePage, () => { scorePage = (scorePage + 1) % pages; });
+}
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.home, () => goMenu());
+}
 function paintMenu(P) {
 FB.fill(P.bg);
 drawText("INVADERS", W / 2, 24, P.ink, "f4", "mc");
@@ -3165,6 +3285,7 @@ drawCard("PLAY", "level " + save.level, BOX.menuPlay, P);
 drawCard("CHECKPOINTS", popCount(save.camp) + " unlocked", BOX.menuCheck, P);
 drawCard("CUSTOM", "ship, guns, laser", BOX.menuCustom, P);
 drawCard("SHOP", "themes, guns, power-ups", BOX.menuShop, P);
+drawCard("SCORES", "best and marks", BOX.menuScores, P);
 drawCard(THEME_NAMES[save.theme], "tap to switch", BOX.menuTheme, P);
 drawCard("DIVINE MACHINES", popCount(save.gods) + " unlocked", BOX.menuHome, P);
 drawCard("FORGE", "combine attributes", BOX.menuForge, P);
@@ -3173,6 +3294,7 @@ reg(BOX.menuPlay, () => startCampaign());
 reg(BOX.menuCheck, () => setScr("checks"));
 reg(BOX.menuCustom, () => { customFromPause = false; customPage = 0; setScr("custom"); });
 reg(BOX.menuShop, () => { setScr("shop"); });
+reg(BOX.menuScores, () => { scorePage = 0; setScr("scores"); });
 reg(BOX.menuTheme, () => cycleTheme());
 reg(BOX.menuHome, () => { divPage = 0; divMsg = ""; setScr("divine"); });
 reg(BOX.menuForge, () => beginForge());
@@ -3495,6 +3617,7 @@ paintAdvance(P);
 paintLevel(P, scr === "demo" ? { left: false, right: false, fire: false } : playerInput());
 }
 } else if (scr === "menu") paintMenu(P);
+else if (scr === "scores") paintScores(P);
 else if (scr === "divine") paintDivine(P);
 else if (scr === "checks") paintChecks(P);
 else if (scr === "shop") paintShop(P);
@@ -3513,6 +3636,9 @@ if (pressed.has("down") && btns.length) sel = (sel + 1) % btns.length;
 if (pressed.has("left") && scr === "shop") { shopTab = (shopTab + 5) % 6; shopPage = 0; }
 if (pressed.has("right") && scr === "shop") { shopTab = (shopTab + 1) % 6; shopPage = 0; }
 if (pressed.has("tab") && scr === "shop") shopPage = (shopPage + 1) % Math.max(1, Math.ceil(shopCount(shopTab) / 6));
+if ((pressed.has("left") || pressed.has("right") || pressed.has("tab")) && scr === "scores") {
+scorePage = (scorePage + 1) % Math.max(1, Math.ceil(ACH.length / 5));
+}
 if ((pressed.has("left") || pressed.has("right")) && scr === "forge" && forgeStep <= 1) {
 forgeTab = (forgeTab + (pressed.has("left") ? 2 : 1)) % 3;
 forgeStep = 0;
