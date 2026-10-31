@@ -1,5 +1,6 @@
 #include "board.h"
 
+#include "coin_drop.h"
 #include "hardware_config.h"
 #include "resistive_touch.h"
 
@@ -490,6 +491,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kShotH = 8;
   static constexpr int kShipStep = 8;
   static constexpr int kCoins = 16;
+  static_assert(kCoins == kCoinCap, "coin slot cap");
+  static_assert(kLevels == kCampaignLevels, "campaign length");
   static constexpr int kCoinW = 11;
   static constexpr int kShopRows = 6;
   static constexpr int kShipCount = 6;
@@ -662,6 +665,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (level_ > kLevels) level_ = kLevels;
     camp_ = prefs_.getUShort("cp", 0);
     raid_won_ = prefs_.getUChar("raidok", 0) != 0;
+    if (prefs_.getBytes("clv", cleared_lv_, sizeof cleared_lv_) != sizeof cleared_lv_) {
+      std::memset(cleared_lv_, 0, sizeof cleared_lv_);
+    }
+    if (prefs_.getBytes("cgw", cleared_gw_, sizeof cleared_gw_) != sizeof cleared_gw_) {
+      std::memset(cleared_gw_, 0, sizeof cleared_gw_);
+    }
   }
 
   void saveCampaign() {
@@ -669,6 +678,20 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     prefs_.putUShort("lv", static_cast<uint16_t>(level_));
     prefs_.putUShort("cp", camp_);
     prefs_.putUChar("raidok", raid_won_ ? 1 : 0);
+    prefs_.putBytes("clv", cleared_lv_, sizeof cleared_lv_);
+    prefs_.putBytes("cgw", cleared_gw_, sizeof cleared_gw_);
+  }
+
+  void noteLevelCleared() {
+    if (demo_ || level_cleared(cleared_lv_, level_)) return;
+    mark_level_cleared(cleared_lv_, level_);
+    prefs_.putBytes("clv", cleared_lv_, sizeof cleared_lv_);
+  }
+
+  void noteGodWaveCleared() {
+    if (demo_ || god_wave_cleared(cleared_gw_, level_, god_wave_)) return;
+    mark_god_wave_cleared(cleared_gw_, level_, god_wave_);
+    prefs_.putBytes("cgw", cleared_gw_, sizeof cleared_gw_);
   }
 
   const char* laserName() const { return laserNameOf(laser_color_); }
@@ -2465,6 +2488,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     camp_ = 0;
     raid_won_ = false;
     score_ = 0;
+    // Cleared levels and god waves stay. A restarted run still pays the replay cut.
     prefs_.putUShort("lv", 1);
     prefs_.putUShort("cp", 0);
     prefs_.putUChar("raidok", 0);
@@ -2738,10 +2762,14 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool stunnersOn() const { return level_ >= 75; }
 
   // Coins paid when a boss falls. The base rises by one every 25 levels.
-  int bossBounty(int base) const {
-    int n = base + level_ / 25;
-    if (n > kCoins) n = kCoins;
-    return n;
+  int bossBounty(int base) const { return boss_bounty(base, level_); }
+
+  // Goon waves that lead a god. The god fight itself is not one of these waves.
+  bool inGodGoonWave() const { return god_ != 0 && !god_entrance_; }
+
+  int coinPayout(int base) const {
+    const bool replay = coin_replay(cleared_lv_, cleared_gw_, level_, inGodGoonWave(), god_wave_);
+    return coin_payout(base, replay);
   }
 
   uint16_t godInkOf(int god) const {
@@ -4648,7 +4676,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         unit.alive = false;
         const int cx = origin_x_ + unit.ox + unitW(unit) / 2;
         const int cy = origin_y_ + unit.oy + unitH(unit) / 2;
-        dropCoins(cx - kCoinW / 2, cy - kCoinW / 2, bossBounty(2));
+        const int mini_coins = inGodGoonWave() ? kGodWaveMiniCoins : bossBounty(2);
+        dropCoins(cx - kCoinW / 2, cy - kCoinW / 2, coinPayout(mini_coins));
         maybeMiniDrop(cx - 7, cy);
         return true;
       }
@@ -4667,8 +4696,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       unit.hp = 0;
       unit.alive = false;
       if ((nextRng() % 100) < 20) {
-        spawnCoin(origin_x_ + unit.ox + unitW(unit) / 2 - kCoinW / 2,
-                  origin_y_ + unit.oy + unitH(unit) / 2 - kCoinW / 2);
+        dropCoins(origin_x_ + unit.ox + unitW(unit) / 2 - kCoinW / 2,
+                  origin_y_ + unit.oy + unitH(unit) / 2 - kCoinW / 2, coinPayout(1));
       }
       return true;
     }
@@ -4685,7 +4714,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         unit.hp = 0;
         unit.alive = false;
         dropCoins(origin_x_ + unit.ox + kBossW / 2 - kCoinW / 2,
-                  origin_y_ + unit.oy + kBossH / 2 - kCoinW / 2, bossBounty(3));
+                  origin_y_ + unit.oy + kBossH / 2 - kCoinW / 2, coinPayout(bossBounty(3)));
         return true;
       }
       if (god_ != 0 && god_entrance_) {
@@ -4717,7 +4746,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
             god_ward_ = 0;
             god_beam_ticks_ = 0;
             grantDivine(slain);
-            dropCoins(origin_x_ + unit.ox + kBossW / 2 - kCoinW / 2, origin_y_ + unit.oy + kBossH / 2 - kCoinW / 2, bossBounty(10));
+            dropCoins(origin_x_ + unit.ox + kBossW / 2 - kCoinW / 2, origin_y_ + unit.oy + kBossH / 2 - kCoinW / 2, coinPayout(bossBounty(10)));
             maybeDrop(true);
             return true;
           }
@@ -4750,7 +4779,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
           raid_won_ = true;
           saveCampaign();
         }
-        dropCoins(origin_x_ + unit.ox + unitW(unit) / 2 - kCoinW / 2, origin_y_ + unit.oy + unitH(unit) / 2 - kCoinW / 2, bossBounty(raid_ ? 4 : 3));
+        dropCoins(origin_x_ + unit.ox + unitW(unit) / 2 - kCoinW / 2, origin_y_ + unit.oy + unitH(unit) / 2 - kCoinW / 2, coinPayout(bossBounty(raid_ ? 4 : 3)));
         maybeDrop(true);
         return true;
       }
@@ -4766,7 +4795,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     unit.alive = false;
     addScore(10);
     if ((nextRng() % 100) < 20) {
-      spawnCoin(origin_x_ + unit.ox + unitW(unit) / 2 - kCoinW / 2, origin_y_ + unit.oy + unitH(unit) / 2 - kCoinW / 2);
+      dropCoins(origin_x_ + unit.ox + unitW(unit) / 2 - kCoinW / 2,
+                origin_y_ + unit.oy + unitH(unit) / 2 - kCoinW / 2, coinPayout(1));
     }
     maybeDrop(false);
     return true;
@@ -6185,6 +6215,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     if (!anyAlive()) {
+      // The goon wave is beaten once its units are gone, even while coins are still falling.
+      if (!demo_ && god_ != 0 && !god_entrance_) noteGodWaveCleared();
       if (drop_on_ || anyCoin()) return;
       if (demo_) {
         level_ += 1;
@@ -6194,6 +6226,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       if (god_ != 0) {
         if (god_entrance_) {
+          noteLevelCleared();
           quietHeph();
           god_ = 0;
           god_entrance_ = false;
@@ -6203,6 +6236,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
           return;
         }
         // Goon waves each end with a mini boss. Then the god drops in.
+        noteGodWaveCleared();
         god_wave_ = static_cast<uint8_t>(god_wave_ + 1);
         if (god_wave_ < godWaveTotal()) {
           spawnGodWave();
@@ -6213,6 +6247,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         return;
       }
       if (mini_) {
+        noteLevelCleared();
         mini_ = false;
         beginAdvance();
         return;
@@ -6232,8 +6267,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         raid_ = false;
       }
       if (level_ >= kLevels) {
+        noteLevelCleared();
         endRound(true);
       } else {
+        noteLevelCleared();
         if (granted) noteUnlock("DRONE");
         beginAdvance();
       }
@@ -6399,6 +6436,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int drone_x_[kGods] = {};
   char div_msg_[16] = {};
   uint16_t camp_ = 0;
+  uint8_t cleared_lv_[kClearedLevelBytes] = {};
+  uint8_t cleared_gw_[kClearedWaveBytes] = {};
   bool buddy_ = false;
   bool laser_live_ = false;
   bool buddy_drawn_ = false;

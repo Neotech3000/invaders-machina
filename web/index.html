@@ -214,7 +214,8 @@ level: 1, camp: 0, raidWon: false, coins: 0,
 themes: 0x0f, ships: 0x01, ship: 0, lasers: 0x0001, guns: 0, gunEquip: 0,
 gunLv: blankLevels(), laser: 0, theme: 0,
 shield: 0, spare: 0, thrust: 0, forges: blankForges(), fpw: 0, fup: 0,
-armed: [0, 0, 0, 0, 0], gods: 0, dive: 0, dmul: 0
+armed: [0, 0, 0, 0, 0], gods: 0, dive: 0, dmul: 0,
+clearedLv: [], clearedGw: []
 };
 let loadedSave = {};
 try { loadedSave = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}") || {}; }
@@ -259,6 +260,20 @@ save.dive = (loadedSave.dive | 0) & save.gods;
 }
 save.ships = ((save.ships | 0) | 1) & 0x3f;
 save.ship = (save.ship | 0) % SHIPS.length;
+save.clearedLv = [];
+if (Array.isArray(loadedSave.clearedLv)) {
+  for (const n of loadedSave.clearedLv) {
+    if (!Number.isInteger(n) || n < 1 || n > LEVELS || save.clearedLv.indexOf(n) >= 0) continue;
+    save.clearedLv.push(n);
+  }
+}
+save.clearedGw = [];
+if (Array.isArray(loadedSave.clearedGw)) {
+  for (const n of loadedSave.clearedGw) {
+    if (!Number.isInteger(n) || n < 0 || n >= 12 * 26 || save.clearedGw.indexOf(n) >= 0) continue;
+    save.clearedGw.push(n);
+  }
+}
 function persist() {
 try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* private mode */ }
 }
@@ -730,11 +745,61 @@ if (Math.random() * 100 < 30) return 4;
 const slot = ((Math.floor(lv / 5) - 1) % 5 + 5) % 5;
 return [0, 1, 2, 3, 6][slot];
 }
+// COIN_RULES_START
+// Same amounts as firmware/src/hardware/coin_drop.h.
 function bossBounty(base) {
+if (base < 0) return 0;
 let n = base + Math.floor(R.level / 25);
 if (n > COIN_MAX) n = COIN_MAX;
+if (n < 0) n = 0;
 return n;
 }
+function inGodGoonWave() { return !!(R && R.god && !R.godEntrance); }
+function godWaveId(level, wave) {
+if (level < 1 || level > LEVELS || level % 25 !== 0) return -1;
+if (wave < 0 || wave >= 26) return -1;
+const god = Math.floor(level / 25) - 1;
+if (god < 0 || god >= 12) return -1;
+return god * 26 + wave;
+}
+function levelCleared(level) {
+return Array.isArray(save.clearedLv) && save.clearedLv.indexOf(level) >= 0;
+}
+function godWaveCleared(level, wave) {
+const id = godWaveId(level, wave);
+return id >= 0 && Array.isArray(save.clearedGw) && save.clearedGw.indexOf(id) >= 0;
+}
+function replayCut() {
+if (demo) return false;
+if (levelCleared(R.level)) return true;
+if (inGodGoonWave() && godWaveCleared(R.level, R.godWave)) return true;
+return false;
+}
+function payout(base) {
+let n = base;
+if (n > COIN_MAX) n = COIN_MAX;
+if (n < 0) n = 0;
+if (replayCut()) n -= 4;
+if (n < 0) n = 0;
+return n;
+}
+function markLevel(level) {
+if (demo || level < 1 || level > LEVELS) return;
+if (!Array.isArray(save.clearedLv)) save.clearedLv = [];
+if (save.clearedLv.indexOf(level) >= 0) return;
+save.clearedLv.push(level);
+persist();
+}
+function markGodWave(level, wave) {
+if (demo) return;
+const id = godWaveId(level, wave);
+if (id < 0) return;
+if (!Array.isArray(save.clearedGw)) save.clearedGw = [];
+if (save.clearedGw.indexOf(id) >= 0) return;
+save.clearedGw.push(id);
+persist();
+}
+// COIN_RULES_END
 function nextGodLevel(from) { return Math.floor((from + 24) / 25) * 25; }
 function nextGodName(from) {
 const g = nextGodLevel(from);
@@ -1224,11 +1289,12 @@ const [sw, sh] = unitSize(u);
 const [cx, cy] = centerOf(R.ox + u.ox, R.oy + u.oy, sw, sh);
 if (u.kind === 6) {
 addScore(20);
-dropCoins(cx, cy, bossBounty(2));
+const mini = (R.god && !R.godEntrance) ? 5 : bossBounty(2);
+dropCoins(cx, cy, payout(mini));
 maybeMiniDrop(cx, cy);
 } else {
 addScore(10);
-if (rnd(100) < COIN_CHANCE) spawnCoin(cx, cy);
+if (rnd(100) < COIN_CHANCE) dropCoins(cx, cy, payout(1));
 maybeDrop(false);
 }
 }
@@ -1247,7 +1313,7 @@ m.hp -= playerDamage();
 addScore(10);
 if (m.hp <= 0) {
 const [cx, cy] = centerOf(m.x, m.y, BOSS_W, BOSS_H);
-dropCoins(cx, cy, bossBounty(3));
+dropCoins(cx, cy, payout(bossBounty(3)));
 R.raidMates.splice(i, 1);
 }
 }
@@ -1283,7 +1349,7 @@ R.foes = [];
 } else {
 const slain = R.god;
 const [cx, cy] = centerOf(R.boss.x, R.boss.y, bossW(), bossH());
-dropCoins(cx, cy, bossBounty(10));
+dropCoins(cx, cy, payout(bossBounty(10)));
 maybeDrop(true);
 R.boss = null;
 R.escorts = [];
@@ -1300,7 +1366,7 @@ R.boss.hp -= playerDamage();
 addScore(10);
 if (R.boss.hp <= 0) {
 const [cx, cy] = centerOf(R.boss.x, R.boss.y, bossW(), bossH());
-dropCoins(cx, cy, bossBounty(R.raid ? 4 : 3));
+dropCoins(cx, cy, payout(bossBounty(R.raid ? 4 : 3)));
 if (R.raid) { save.raidWon = true; persist(); }
 R.boss = null;
 maybeDrop(true);
@@ -1890,6 +1956,7 @@ R.level = R.level >= LEVELS ? 1 : R.level + 1;
 startLevel();
 return;
 }
+markLevel(R.level);
 if (R.level >= LEVELS) {
 save.level = LEVELS;
 persist();
@@ -2056,9 +2123,11 @@ break;
 }
 }
 const anyLeft = R.units.some(u => u.alive) || !!R.boss || R.escorts.length > 0 || R.raidMates.length > 0;
+if (!anyLeft && R.god && !R.godEntrance && R.godWave < godWaveTotal()) markGodWave(R.level, R.godWave);
 if (R.coins.length && !anyLeft) return;
 if (!anyLeft && !R.godEntrance) {
 if (R.god && R.godWave < godWaveTotal()) {
+markGodWave(R.level, R.godWave);
 R.godWave += 1;
 if (R.godWave < godWaveTotal()) spawnGodWave();
 else { R.raidSplash = false; setScr("splash"); R.timer = 60; }
@@ -2455,6 +2524,7 @@ function restartGame() {
 save.level = 1;
 save.camp = 0;
 save.raidWon = false;
+// Cleared levels and god waves stay, so a restarted run still pays the replay cut.
 persist();
 startCampaign();
 }
