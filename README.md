@@ -228,7 +228,7 @@ On Linux the window uses X11 so the cat can be transparent. On a Wayland-only se
 - **INVADERS MACHINA** is 300 levels. You start with 3 lives. Every 5th level is a boss. Beating a normal boss can start a raid (1 chance in 5). Bosses include shield, shut, spray, laser, and drone patterns. Custom has nine guns and twelve laser colours. Guns level up while you play.
 - **TETRIS** and **SNAKE** are on their own cards. Tetris shows a score.
 - **CARE** has **FEED** (fills hunger) and **CARE** (lifts mood). Both fall while the cat is on the panel.
-- Themes are **DARK NEON**, **LIGHT**, **BLUE**, and **AMBER**. The theme, the equipped gun, and the laser colour are stored on the panel and kept across reboot.
+- Themes are **DARK NEON**, **LIGHT**, **BLUE**, and **AMBER**. The theme and the laser colour are stored on the panel and kept across reboot. Starting Invaders Machina begins a fresh run with the basic gun.
 - While the cat is on the laptop the panel says so. While the handoff starts it says the cat is heading to the laptop.
 
 ## Layout

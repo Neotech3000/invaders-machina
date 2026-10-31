@@ -86,6 +86,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     prefs_.begin("jitters", false);
     theme_ = prefs_.getUChar("theme", 0) & 3;
     loadGear();
+    resetRun();
     makeStars();
     sprite_ok_ = bake(idle_sprite_, kCatIdle) && bake(blink_sprite_, kCatBlink) &&
                  bake(mouth_sprite_, kCatMouth);
@@ -456,6 +457,20 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     prefs_.putUChar("laser", laser_color_);
     prefs_.putUChar("buddy", buddy_ ? 1 : 0);
     prefs_.putBytes("glv", gun_lv_, sizeof gun_lv_);
+  }
+
+  // Fresh invaders run. Theme and laser colour stay; they are display
+  // preferences. Guns, gun levels, and the drone belong to the run.
+  void resetRun() {
+    score_ = 0;
+    level_ = 1;
+    lives_ = 3;
+    raid_ = false;
+    buddy_ = false;
+    gun_unlock_ = 0;
+    gun_equip_ = 0;
+    for (int i = 0; i < kGunCount; ++i) gun_lv_[i] = 0;
+    saveGear();
   }
 
   const char* laserName() const {
@@ -1771,13 +1786,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void beginGame() {
     fadeOut();
-    score_ = 0;
-    level_ = 1;
-    lives_ = 3;
+    resetRun();
     clearFoe();
     foe_cool_ = 0;
     hud_msg_ticks_ = 0;
-    raid_ = false;
     beam_burst_ = 0;
     beam_cool_ = 0;
     sky_on_ = false;
