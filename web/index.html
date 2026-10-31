@@ -1262,6 +1262,12 @@ const BOOSTS = [
 { name: "VEIL", rate: 3, len: 250, price: 40 },
 { name: "SALVO", rate: 15, len: 500, price: 20 }
 ];
+const BOOST_RGB = [[255, 140, 32], [255, 60, 48], [80, 220, 255], [230, 230, 255], [255, 80, 220]];
+function powerRGB(idx) {
+if (idx === 0) return [255, 210, 48];
+if (idx === 1) return [255, 64, 96];
+return BOOST_RGB[idx - 2];
+}
 for (let i = 0; i < BOOSTS.length; i++) {
 if (!save.armed || save.armed[i] !== BOOSTS[i].len) {
 if (!save.armed) save.armed = [0, 0, 0, 0, 0];
@@ -3216,8 +3222,7 @@ if (d.which === 9) color = clr([255, 64, 96]);
 else if (d.which === 10) color = clr([255, 210, 48]);
 else if (d.which === 11) color = clr([96, 200, 255]);
 else if (d.which >= 12 && d.which < 17) {
-const rgb = [[255, 140, 32], [255, 60, 48], [80, 220, 255], [230, 230, 255], [255, 80, 220]];
-color = clr(rgb[d.which - 12]);
+color = clr(BOOST_RGB[d.which - 12]);
 } else if (d.which >= 1 && d.which <= 8) color = clr(DROP_RGB[d.which - 1]);
 fillRect(d.x, d.y, 14, 14, color);
 fillRect(d.x + 4, d.y + 4, 6, 6, P.bg);
@@ -3665,6 +3670,7 @@ drawRect(b.x, b.y, b.w, b.h, active ? P.accent : P.button);
 if (shopTab === 0) fillRect(b.x + 8, b.y + 12, 22, 22, clr(PAL_RGB[idx][3]));
 if (shopTab === 1) drawShipHull(b.x + 4, b.y + 15, idx, P);
 if (shopTab === 2) fillRect(b.x + 8, b.y + 12, 22, 22, laserColour(idx));
+if (shopTab === 4) fillRect(b.x + 8, b.y + 12, 22, 22, clr(powerRGB(idx)));
 drawText(shopName(shopTab, idx), b.x + (shopTab === 1 ? 42 : 38), b.y + Math.floor(b.h / 2), P.ink, "f2", "ml");
 drawText(shopStatus(shopTab, idx), b.x + b.w - 10, b.y + Math.floor(b.h / 2), P.muted, "f2", "mr");
 reg(b, () => shopAct(idx));
