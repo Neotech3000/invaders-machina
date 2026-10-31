@@ -223,6 +223,19 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       return;
     }
+    if (mode_ == Mode::Help) {
+      if (!rose || !on) return;
+      if (std::strcmp(where, "HBACK") == 0) leaveHelp();
+      else if (std::strcmp(where, "HPAGE") == 0) {
+        help_page_ = static_cast<uint8_t>(help_page_ + 1);
+        paintHelp();
+      }
+      return;
+    }
+    if (rose && on && std::strcmp(where, "HELP") == 0) {
+      beginHelp();
+      return;
+    }
     if (mode_ == Mode::Forge) {
       if (!rose || !on) return;
       if (std::strcmp(where, "FBACK") == 0) {
@@ -378,7 +391,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
  private:
   enum class Mode : uint8_t {
-    Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom, Splash, Shop, Forge, Divine, Scores
+    Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom, Splash, Shop, Forge, Divine, Scores, Help
   };
 
   struct Box {
@@ -1070,7 +1083,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Box colorBox() const { return {16, 46, 140, 36}; }
   Box shipBox() const { return {164, 46, 140, 36}; }
   Box gunBox(int slot) const { return {16, 88 + slot * 34, 288, 32}; }
-  Box customForgeBox() const { return {198, 4, 114, 28}; }
+  Box customForgeBox() const { return {150, 4, 84, 28}; }
   Box forgedListBox(int row) const { return {16, 48 + row * 40, 288, 36}; }
   Box pauseResumeBox() const { return {32, 176, 256, 46}; }
   Box pauseCustomBox() const { return {32, 232, 256, 46}; }
@@ -1080,6 +1093,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Box fireBox() const { return {112, kButtonY, 96, 44}; }
   Box rightBox() const { return {216, kButtonY, 96, 44}; }
   Box backBox() const { return {4, 2, 70, 26}; }
+  // Large top-right hit target for resistive touch (mirrorx/mirrory already applied).
+  Box helpBox() const { return {240, 2, 76, 34}; }
+
 
   bool contains(const Box& box, int x, int y) const {
     return x >= box.x && y >= box.y && x < box.x + box.w && y < box.y + box.h;
@@ -1087,6 +1103,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   const char* controlAt(int x, int y) const {
     if (demo_) return contains(playBox(), x, y) ? "PLAY" : "none";
+    if (mode_ == Mode::Help) {
+      if (contains(homeBox(), x, y)) return "HBACK";
+      if (contains(shopPageBox(), x, y)) return "HPAGE";
+      return "none";
+    }
+    // "?" sits on every non-play screen. Hit-test it before denser controls.
+    if (mode_ != Mode::Play && mode_ != Mode::Advance && mode_ != Mode::Splash &&
+        contains(helpBox(), x, y)) {
+      return "HELP";
+    }
     if (mode_ == Mode::Menu) {
       if (contains(backBox(), x, y)) return "LEAVE";
       if (contains(menuPlayBox(), x, y)) return "PLAY";
@@ -1485,6 +1511,315 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
+
+  // ---- Help --------------------------------------------------------------
+
+  void drawHelpButton() {
+    drawKey("?", helpBox(), false);
+  }
+
+  const char* const* helpLines(Mode from, int* count) const {
+    static const char* menu_lines[] = {
+      "CAMPAIGN MENU",
+      "",
+      "PLAY - continue from your",
+      "current level.",
+      "CHECKPOINTS - jump to any",
+      "unlocked checkpoint (every",
+      "20 levels).",
+      "CUSTOM - pick ship, laser,",
+      "and guns, including forged.",
+      "SHOP - spend coins on gear,",
+      "themes, and timed boosts.",
+      "SCORES - best runs and marks.",
+      "THEME - cycle owned themes.",
+      "DIVINE MACHINES - equip",
+      "Olympian powers you unlocked.",
+      "FORGE - combine two guns or",
+      "perk items into a new one.",
+      "RESTART GAME - wipe this run.",
+      "BACK - return to the attract",
+      "demo. Progress stays saved.",
+    };
+    static const char* shop_lines[] = {
+      "SHOP",
+      "",
+      "Tabs across the top change",
+      "what is for sale. PAGE flips",
+      "long lists. BACK leaves.",
+      "",
+      "THEME - color packs. First is",
+      "free; others cost coins.",
+      "SHIPS - STRIKER, INTERCEPT,",
+      "VALKYRIE, PHANTOM, TITAN,",
+      "SERAPH hulls.",
+      "COLOR - laser tint. First free,",
+      "others $15.",
+      "GUNS - unlock and equip.",
+      "CANNON free; others $90.",
+      "",
+      "POWER tab:",
+      "SHIELD $10 - one shield charge.",
+      "SPARE HEART $15 - extra life",
+      "for the next run.",
+      "RUSH $20 - timed faster fire.",
+      "FURY $25 - timed harder hits.",
+      "WIDE $15 - timed wider bolts.",
+      "VEIL $40 - timed invulnerability.",
+      "SALVO $20 - timed side bolts.",
+      "Armed boosts start on PLAY.",
+      "",
+      "UPGRD tab:",
+      "level each owned gun ($50 x",
+      "next level), THRUSTERS (speed),",
+      "and MULTI $300 (equip one more",
+      "Divine Machine).",
+    };
+    static const char* custom_lines[] = {
+      "CUSTOM / WEAPONS",
+      "",
+      "LASER - cycle owned beam tint.",
+      "SHIP - cycle owned hull.",
+      "Tap a gun row to equip it.",
+      "Guns: CANNON, SHOTGUN,",
+      "ASSAULT, BEAM, TWIN, WAVE,",
+      "RAIL, NOVA, HOMING.",
+      "FORGED opens your combined",
+      "guns. Equip one from that list.",
+      "BACK returns without changing",
+      "the fight you left.",
+    };
+    static const char* forge_lines[] = {
+      "FORGE",
+      "",
+      "Tabs: GUNS, POWER, UPGRD.",
+      "Pick a first item, then a",
+      "second. Confirm COMBINE to",
+      "spend coins and create a new",
+      "forged gun or perk.",
+      "",
+      "Gun attributes include HEAVY,",
+      "RAPID, WIDE, TWIN, PIERCE,",
+      "SPREAD, BURST, COOL, WAVE,",
+      "HOMING, POWER.",
+      "Power forge perks: THICK,",
+      "AEGIS, REPAIR, GLOW, LONGER,",
+      "VITAL, MAXHP, HEAL, REVIVE,",
+      "ARMOR.",
+      "Upgrade forge perks: DAMAGE,",
+      "RAPID, WIDE, TWIN, PIERCE,",
+      "SPEED, SALVO, COOL, BURST.",
+      "",
+      "Forged guns keep their own",
+      "level. UPGRADE raises that",
+      "level. EQUIP puts a forged gun",
+      "on the ship. BACK steps out.",
+    };
+    static const char* divine_lines[] = {
+      "DIVINE MACHINES",
+      "",
+      "Beat each Olympian to unlock",
+      "its machine. Tap a row to equip",
+      "or unequip. PAGE shows more.",
+      "MULTI from the shop adds slots.",
+      "",
+      "ZEUS LIGHTNING - stun zap 5s.",
+      "HERA DOUBLE - clone ship that",
+      "mirrors you and fires with you.",
+      "POSEIDON TSUNAMI - wave that",
+      "blocks shots 8s.",
+      "DEMETER HEAL RAY - +2 life,",
+      "then +1, temporary.",
+      "ATHENA AEGIS - brief shield.",
+      "ARES BERSERKER - triggers at",
+      "one life: faster fire and cool.",
+      "APOLLO SOLARIS - burn beam.",
+      "ARTEMIS SILVER - homing bolts.",
+      "APHRODITE CHARM - stop enemy",
+      "fire for 9s.",
+      "HEPHAESTUS ANVIL - blast.",
+      "HERMES CADUCEUS - dash speed.",
+      "DIONYSUS REVEL - slow enemy",
+      "shots.",
+    };
+    static const char* check_lines[] = {
+      "CHECKPOINTS",
+      "",
+      "Every 20 levels opens a cell.",
+      "OPEN cells are reachable.",
+      "LOCKED cells stay dark until",
+      "you pass that mark in a run.",
+      "Tap an OPEN cell to jump there",
+      "and continue the campaign.",
+      "BACK returns to the menu.",
+      "Jumping does not erase shop",
+      "gear or divine unlocks.",
+    };
+    static const char* confirm_lines[] = {
+      "RESTART CONFIRM",
+      "",
+      "YES wipes this campaign run:",
+      "level, coins, bought guns,",
+      "forged gear, shop stock, armed",
+      "boosts, and divine machines.",
+      "Best scores and achievements",
+      "stay. NO cancels and returns",
+      "to the menu unchanged.",
+    };
+    static const char* scores_lines[] = {
+      "SCORES AND ACHIEVEMENTS",
+      "",
+      "Top scores from finished runs",
+      "are listed first.",
+      "PAGE flips achievement marks.",
+      "OPEN means you earned it.",
+      "LOCKED means it is still ahead.",
+      "BACK returns to the menu.",
+    };
+    static const char* pause_lines[] = {
+      "PAUSE",
+      "",
+      "RESUME - back to the fight.",
+      "Bolts reset so you are not",
+      "ambushed mid-shot.",
+      "CUSTOM - change ship or gun,",
+      "then return here.",
+      "HOME - leave the level and open",
+      "the campaign menu. The level is",
+      "not cleared.",
+    };
+    static const char* over_lines[] = {
+      "RUN OVER",
+      "",
+      "Shows whether you cleared the",
+      "campaign or lost a life count.",
+      "If you died, the killer name is",
+      "listed under YOU DIED.",
+      "HOME opens the campaign menu.",
+      "Coins and unlocks from the run",
+      "are already saved.",
+    };
+    switch (from) {
+      case Mode::Menu:
+        *count = static_cast<int>(sizeof menu_lines / sizeof menu_lines[0]);
+        return menu_lines;
+      case Mode::Shop:
+        *count = static_cast<int>(sizeof shop_lines / sizeof shop_lines[0]);
+        return shop_lines;
+      case Mode::Custom:
+        *count = static_cast<int>(sizeof custom_lines / sizeof custom_lines[0]);
+        return custom_lines;
+      case Mode::Forge:
+        *count = static_cast<int>(sizeof forge_lines / sizeof forge_lines[0]);
+        return forge_lines;
+      case Mode::Divine:
+        *count = static_cast<int>(sizeof divine_lines / sizeof divine_lines[0]);
+        return divine_lines;
+      case Mode::Check:
+        *count = static_cast<int>(sizeof check_lines / sizeof check_lines[0]);
+        return check_lines;
+      case Mode::Confirm:
+        *count = static_cast<int>(sizeof confirm_lines / sizeof confirm_lines[0]);
+        return confirm_lines;
+      case Mode::Scores:
+        *count = static_cast<int>(sizeof scores_lines / sizeof scores_lines[0]);
+        return scores_lines;
+      case Mode::Pause:
+        *count = static_cast<int>(sizeof pause_lines / sizeof pause_lines[0]);
+        return pause_lines;
+      case Mode::Over:
+        *count = static_cast<int>(sizeof over_lines / sizeof over_lines[0]);
+        return over_lines;
+      default:
+        *count = static_cast<int>(sizeof menu_lines / sizeof menu_lines[0]);
+        return menu_lines;
+    }
+  }
+
+  void paintHelp() {
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    int count = 0;
+    const char* const* lines = helpLines(help_from_, &count);
+    static constexpr int kHelpRows = 16;
+    int pages = (count + kHelpRows - 1) / kHelpRows;
+    if (pages < 1) pages = 1;
+    if (help_page_ >= pages) help_page_ = 0;
+    const int start = help_page_ * kHelpRows;
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_left);
+    setTextColor(ink.ink);
+    drawString("HELP", 12, 18);
+    setTextDatum(lgfx::middle_right);
+    setTextColor(ink.muted);
+    char page[20];
+    snprintf(page, sizeof page, "%d/%d", help_page_ + 1, pages);
+    drawString(page, kPanelWidth - 12, 18);
+    for (int i = 0; i < kHelpRows; ++i) {
+      const int idx = start + i;
+      if (idx >= count) break;
+      const char* line = lines[idx];
+      const int y = 48 + i * 20;
+      setTextDatum(lgfx::middle_left);
+      setTextColor(i == 0 && help_page_ == 0 ? ink.accent : ink.ink);
+      if (line[0] == '\0') continue;
+      drawString(line, 12, y);
+    }
+    if (pages > 1) {
+      char label[24];
+      snprintf(label, sizeof label, "PAGE %d/%d", help_page_ + 1, pages);
+      drawKey(label, shopPageBox(), false);
+    }
+    drawKey("BACK", homeBox(), false);
+  }
+
+  void beginHelp() {
+    help_from_ = mode_;
+    help_page_ = 0;
+    mode_ = Mode::Help;
+    paintHelp();
+  }
+
+  void leaveHelp() {
+    mode_ = help_from_;
+    switch (mode_) {
+      case Mode::Menu:
+        paintMenu();
+        break;
+      case Mode::Shop:
+        paintShop();
+        break;
+      case Mode::Custom:
+        paintCustom();
+        break;
+      case Mode::Forge:
+        paintForge();
+        break;
+      case Mode::Divine:
+        paintDivine();
+        break;
+      case Mode::Check:
+        paintChecks();
+        break;
+      case Mode::Confirm:
+        paintConfirm();
+        break;
+      case Mode::Scores:
+        paintScores();
+        break;
+      case Mode::Pause:
+        paintLevel();
+        paintPausePanel();
+        break;
+      case Mode::Over:
+        paintOverScreen();
+        break;
+      default:
+        paintMenu();
+        break;
+    }
+  }
+
   // ---- Attract demo ------------------------------------------------------
 
   void beginDemo() {
@@ -1563,6 +1898,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawCard("DIVINE MACHINES", divineMenuLine(), menuDivineBox());
     drawCard("FORGE", "combine attributes", menuForgeBox());
     drawKey("RESTART GAME", menuRestartBox(), false);
+    drawHelpButton();
   }
 
   const char* continueLine() const {
@@ -1979,7 +2315,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setTextColor(ink.accent);
     char coins[16];
     snprintf(coins, sizeof coins, "$%u", static_cast<unsigned>(bank_));
-    drawString(coins, kPanelWidth - 12, 18);
+    drawString(coins, 232, 18);
     static const char* const kTabs[kShopTabs] = {"THEME", "SHIPS", "COLOR", "GUNS", "POWER", "UPGRD"};
     for (int t = 0; t < kShopTabs; ++t) {
       drawKey(kTabs[t], shopTab(t), t == shop_tab_);
@@ -2012,6 +2348,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setTextColor(ink.accent);
     drawString(shop_msg_, 140, 410);
     drawKey("BACK", homeBox(), false);
+    drawHelpButton();
   }
 
   void beginShop() {
@@ -2076,7 +2413,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setTextColor(ink.accent);
     char coins[16];
     snprintf(coins, sizeof coins, "$%u", static_cast<unsigned>(bank_));
-    drawString(coins, kPanelWidth - 12, 18);
+    drawString(coins, 232, 18);
 
     if (forge_step_ == 0 || forge_step_ == 1) {
       static const char* const kTabs[3] = {"GUNS", "POWER", "UPGRADE"};
@@ -2128,6 +2465,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         drawString(forge_msg_, 12, 402);
       }
       drawKey("BACK", homeBox(), false);
+      drawHelpButton();
       return;
     }
 
@@ -2162,6 +2500,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         drawString(price, b.x + b.w - 10, b.y + b.h / 2);
       }
       drawKey("BACK", homeBox(), false);
+      drawHelpButton();
       return;
     }
 
@@ -2191,6 +2530,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       drawKey("YES", forgeYesBox(), false);
       drawKey("NO", forgeNoBox(), false);
+      drawHelpButton();
       return;
     }
 
@@ -2223,6 +2563,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     drawKey(forge_tab_ == 0 ? "EQUIP" : "DONE", forgeEquipBox(), false);
     drawKey("BACK", homeBox(), false);
+    drawHelpButton();
   }
 
   void beginForge() {
@@ -2450,6 +2791,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       drawString(god_line, cell.x + cell.w / 2, cell.y + 38);
     }
     drawKey("BACK", homeBox(), false);
+    drawHelpButton();
   }
 
   void beginChecks() {
@@ -2473,6 +2815,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawString("Are you sure?", kPanelWidth / 2, 156);
     drawKey("YES", yesBox(), false);
     drawKey("NO", noBox(), false);
+    drawHelpButton();
   }
 
   void beginConfirm() {
@@ -2693,6 +3036,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (pages > 1) drawKey("PAGE", scorePageBox(), false);
     drawKey("BACK", homeBox(), false);
+    drawHelpButton();
   }
 
   void beginScores() {
@@ -2849,6 +3193,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     drawKey("PAGE", shopPageBox(), false);
     drawKey("BACK", homeBox(), false);
+    drawHelpButton();
   }
 
   void beginDivine() {
@@ -4210,6 +4555,29 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
+  void paintOverScreen() {
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.muted);
+    drawString("INVADERS MACHINA", kPanelWidth / 2, 150);
+    setTextColor(ink.ink);
+    drawString(over_title_, kPanelWidth / 2, 186);
+    if (over_killer_[0] != '\0') {
+      char who[40];
+      snprintf(who, sizeof who, "%s Killed you", over_killer_);
+      setTextColor(ink.accent);
+      drawString(who, kPanelWidth / 2, 214);
+    }
+    char line[24];
+    snprintf(line, sizeof line, "LV %d   %d", level_, score_);
+    setTextColor(ink.muted);
+    drawString(line, kPanelWidth / 2, 244);
+    drawKey("HOME", homeBox(), false);
+    drawHelpButton();
+  }
+
   void showOver(const char* title, const char* killer) {
     fadeOut();
     clearCoins();
@@ -4219,25 +4587,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     clearFoe();
     beam_on_ = false;
     beam_burst_ = 0;
-    const Palette ink = palette();
-    fillScreen(ink.bg);
-    setFont(&fonts::Font2);
-    setTextDatum(lgfx::middle_center);
-    setTextColor(ink.muted);
-    drawString("INVADERS MACHINA", kPanelWidth / 2, 150);
-    setTextColor(ink.ink);
-    drawString(title, kPanelWidth / 2, 186);
-    if (killer != nullptr) {
-      char who[40];
-      snprintf(who, sizeof who, "%s Killed you", killer);
-      setTextColor(ink.accent);
-      drawString(who, kPanelWidth / 2, 214);
-    }
-    char line[24];
-    snprintf(line, sizeof line, "LV %d   %d", level_, score_);
-    setTextColor(ink.muted);
-    drawString(line, kPanelWidth / 2, 244);
-    drawKey("HOME", homeBox(), false);
+    snprintf(over_title_, sizeof over_title_, "%s", title != nullptr ? title : "");
+    if (killer != nullptr) snprintf(over_killer_, sizeof over_killer_, "%s", killer);
+    else over_killer_[0] = '\0';
+    paintOverScreen();
     fadeIn();
   }
 
@@ -5284,6 +5637,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       drawString("COMBINE TWO GUNS IN FORGE", kPanelWidth / 2, 188);
     }
     drawKey("BACK", homeBox(), false);
+    drawHelpButton();
   }
 
   void paintCustom() {
@@ -5310,6 +5664,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       drawCard(line, nullptr, gunBox(gun));
     }
     drawKey("BACK", homeBox(), false);
+    drawHelpButton();
   }
 
   void beginCustom(bool from_pause) {
@@ -5319,6 +5674,20 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     mode_ = Mode::Custom;
     paintCustom();
     fadeIn();
+  }
+
+  void paintPausePanel() {
+    const Palette ink = palette();
+    fillRect(24, 128, 272, 230, ink.bg);
+    drawRect(24, 128, 272, 230, ink.accent);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.ink);
+    drawString("INVADERS MACHINA", kPanelWidth / 2, 152);
+    drawCard("RESUME", nullptr, pauseResumeBox());
+    drawCard("CUSTOM", "ship and guns", pauseCustomBox());
+    drawCard("HOME", nullptr, pauseHomeBox());
+    drawHelpButton();
   }
 
   void beginPause() {
@@ -5339,16 +5708,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (mode_ == Mode::Advance) pause_advance_ = true;
     else if (!keep_advance) pause_advance_ = false;
     mode_ = Mode::Pause;
-    const Palette ink = palette();
-    fillRect(24, 128, 272, 230, ink.bg);
-    drawRect(24, 128, 272, 230, ink.accent);
-    setFont(&fonts::Font2);
-    setTextDatum(lgfx::middle_center);
-    setTextColor(ink.ink);
-    drawString("INVADERS MACHINA", kPanelWidth / 2, 152);
-    drawCard("RESUME", nullptr, pauseResumeBox());
-    drawCard("CUSTOM", "ship and guns", pauseCustomBox());
-    drawCard("HOME", nullptr, pauseHomeBox());
+    paintPausePanel();
   }
 
   void leaveCustom() {
@@ -6722,6 +7082,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool regions_logged_ = false;
   bool boss_ = false;
   bool demo_ = false;
+  Mode help_from_ = Mode::Menu;
+  uint8_t help_page_ = 0;
+  char over_title_[16] = {};
+  char over_killer_[24] = {};
   bool mini_ = false;
   bool raid_ = false;
   bool raid_won_ = false;

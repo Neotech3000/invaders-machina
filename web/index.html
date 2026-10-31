@@ -497,6 +497,8 @@ let forgeTab = 0, forgeStep = 0, forgePage = 0;
 let forgeFirst = 0, forgeSecond = 0, forgeAttrA = 0, forgeAttrB = 0;
 let forgeMsg = "", forgeFlash = 0;
 let customFromPause = false;
+let helpFrom = "menu";
+let helpPage = 0;
 let customPage = 0;
 let forgeFocus = -1;
 let demo = true;
@@ -2215,6 +2217,7 @@ left: { x: 8, y: BUTTON_Y, w: 96, h: 44 },
 fire: { x: 112, y: BUTTON_Y, w: 96, h: 44 },
 right: { x: 216, y: BUTTON_Y, w: 96, h: 44 },
 back: { x: 4, y: 2, w: 70, h: 26 },
+help: { x: 240, y: 2, w: 76, h: 34 },
 play: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
 home: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
 restart: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
@@ -3314,6 +3317,78 @@ drawCircle(W / 2, 150, 60, ink);
 paintGodMark(ink, P.bg);
 drawText(godName() + " DOMAIN", W / 2, 150, ink, "f2", "mc");
 }
+
+const HELP_TEXT = {
+menu: [
+"CAMPAIGN MENU","","PLAY - continue from your","current level.","CHECKPOINTS - jump to any","unlocked checkpoint (every","20 levels).","CUSTOM - pick ship, laser,","and guns, including forged.","SHOP - spend coins on gear,","themes, and timed boosts.","SCORES - best runs and marks.","THEME - cycle owned themes.","DIVINE MACHINES - equip","Olympian powers you unlocked.","FORGE - combine two guns or","perk items into a new one.","RESTART GAME - wipe this run.","BACK - return to the attract","demo. Progress stays saved."
+],
+shop: [
+"SHOP","","Tabs across the top change","what is for sale. PAGE flips","long lists. BACK leaves.","","THEME - color packs. First is","free; others cost coins.","SHIPS - STRIKER, INTERCEPT,","VALKYRIE, PHANTOM, TITAN,","SERAPH hulls.","COLOR - laser tint. First free,","others $15.","GUNS - unlock and equip.","CANNON free; others $90.","","POWER tab:","SHIELD $10 - one shield charge.","SPARE HEART $15 - extra life","for the next run.","RUSH $20 - timed faster fire.","FURY $25 - timed harder hits.","WIDE $15 - timed wider bolts.","VEIL $40 - timed invulnerability.","SALVO $20 - timed side bolts.","Armed boosts start on PLAY.","","UPGRD tab:","level each owned gun ($50 x","next level), THRUSTERS (speed),","and MULTI $300 (equip one more","Divine Machine)."
+],
+custom: [
+"CUSTOM / WEAPONS","","LASER - cycle owned beam tint.","SHIP - cycle owned hull.","Tap a gun row to equip it.","Guns: CANNON, SHOTGUN,","ASSAULT, BEAM, TWIN, WAVE,","RAIL, NOVA, HOMING.","FORGED opens your combined","guns. Equip one from that list.","BACK returns without changing","the fight you left."
+],
+forge: [
+"FORGE","","Tabs: GUNS, POWER, UPGRD.","Pick a first item, then a","second. Confirm COMBINE to","spend coins and create a new","forged gun or perk.","","Gun attributes include HEAVY,","RAPID, WIDE, TWIN, PIERCE,","SPREAD, BURST, COOL, WAVE,","HOMING, POWER.","Power forge perks: THICK,","AEGIS, REPAIR, GLOW, LONGER,","VITAL, MAXHP, HEAL, REVIVE,","ARMOR.","Upgrade forge perks: DAMAGE,","RAPID, WIDE, TWIN, PIERCE,","SPEED, SALVO, COOL, BURST.","","Forged guns keep their own","level. UPGRADE raises that","level. EQUIP puts a forged gun","on the ship. BACK steps out."
+],
+divine: [
+"DIVINE MACHINES","","Beat each Olympian to unlock","its machine. Tap a row to equip","or unequip. PAGE shows more.","MULTI from the shop adds slots.","","ZEUS LIGHTNING - stun zap 5s.","HERA DOUBLE - clone ship that","mirrors you and fires with you.","POSEIDON TSUNAMI - wave that","blocks shots 8s.","DEMETER HEAL RAY - +2 life,","then +1, temporary.","ATHENA AEGIS - brief shield.","ARES BERSERKER - triggers at","one life: faster fire and cool.","APOLLO SOLARIS - burn beam.","ARTEMIS SILVER - homing bolts.","APHRODITE CHARM - stop enemy","fire for 9s.","HEPHAESTUS ANVIL - blast.","HERMES CADUCEUS - dash speed.","DIONYSUS REVEL - slow enemy","shots."
+],
+checks: [
+"CHECKPOINTS","","Every 20 levels opens a cell.","OPEN cells are reachable.","LOCKED cells stay dark until","you pass that mark in a run.","Tap an OPEN cell to jump there","and continue the campaign.","BACK returns to the menu.","Jumping does not erase shop","gear or divine unlocks."
+],
+confirm: [
+"RESTART CONFIRM","","YES wipes this campaign run:","level, coins, bought guns,","forged gear, shop stock, armed","boosts, and divine machines.","Best scores and achievements","stay. NO cancels and returns","to the menu unchanged."
+],
+scores: [
+"SCORES AND ACHIEVEMENTS","","Top scores from finished runs","are listed first.","PAGE flips achievement marks.","OPEN means you earned it.","LOCKED means it is still ahead.","BACK returns to the menu."
+],
+pause: [
+"PAUSE","","RESUME - back to the fight.","Bolts reset so you are not","ambushed mid-shot.","CUSTOM - change ship or gun,","then return here.","HOME - leave the level and open","the campaign menu. The level is","not cleared."
+],
+over: [
+"RUN OVER","","Shows whether you cleared the","campaign or lost a life count.","If you died, the killer name is","listed under YOU DIED.","HOME opens the campaign menu.","Coins and unlocks from the run","are already saved."
+]
+};
+const HELP_SCREENS = new Set(["menu","shop","custom","forge","divine","checks","confirm","scores","pause","over"]);
+function drawHelpButton(P) {
+drawKey("?", BOX.help, false, P);
+reg(BOX.help, () => beginHelp());
+}
+function beginHelp() {
+if (!HELP_SCREENS.has(scr)) return;
+helpFrom = scr;
+helpPage = 0;
+setScr("help");
+}
+function leaveHelp() {
+setScr(helpFrom);
+}
+function paintHelp(P) {
+FB.fill(P.bg);
+const lines = HELP_TEXT[helpFrom] || HELP_TEXT.menu;
+const rows = 16;
+const pages = Math.max(1, Math.ceil(lines.length / rows));
+if (helpPage >= pages) helpPage = 0;
+drawText("HELP", 12, 18, P.ink, "f2", "ml");
+drawText((helpPage + 1) + "/" + pages, W - 12, 18, P.muted, "f2", "mr");
+const start = helpPage * rows;
+for (let i = 0; i < rows; i++) {
+const idx = start + i;
+if (idx >= lines.length) break;
+const line = lines[idx];
+if (!line) continue;
+const y = 48 + i * 20;
+drawText(line, 12, y, (i === 0 && helpPage === 0) ? P.accent : P.ink, "f2", "ml");
+}
+if (pages > 1) {
+drawKey("PAGE " + (helpPage + 1) + "/" + pages, BOX.shopPage, false, P);
+reg(BOX.shopPage, () => { helpPage = (helpPage + 1) % pages; });
+}
+drawKey("BACK", BOX.home, false, P);
+reg(BOX.home, () => leaveHelp());
+}
+
 function paintScores(P) {
 FB.fill(P.bg);
 drawText("SCORES", W / 2, 16, P.ink, "f2", "mc");
@@ -3344,6 +3419,7 @@ reg(BOX.scorePage, () => { scorePage = (scorePage + 1) % pages; });
 }
 drawKey("BACK", BOX.home, false, P);
 reg(BOX.home, () => goMenu());
+drawHelpButton(P);
 }
 function paintMenu(P) {
 FB.fill(P.bg);
@@ -3370,6 +3446,7 @@ reg(BOX.menuTheme, () => cycleTheme());
 reg(BOX.menuHome, () => { divPage = 0; divMsg = ""; setScr("divine"); });
 reg(BOX.menuForge, () => beginForge());
 reg(BOX.menuRestart, () => setScr("confirm"));
+drawHelpButton(P);
 }
 function popCount(n) { let k = 0; n = n | 0; while (n) { k += n & 1; n >>>= 1; } return k; }
 function paintDivine(P) {
@@ -3394,6 +3471,7 @@ drawKey("PAGE", BOX.shopPage, false, P);
 drawKey("BACK", BOX.home, false, P);
 reg(BOX.shopPage, () => { divPage ^= 1; });
 reg(BOX.home, () => goMenu());
+drawHelpButton(P);
 }
 function divineToggle(idx) {
 divMsg = "";
@@ -3429,6 +3507,7 @@ startLevel();
 }
 drawKey("BACK", BOX.home, false, P);
 reg(BOX.home, () => goMenu());
+drawHelpButton(P);
 }
 function paintConfirm(P) {
 FB.fill(P.bg);
@@ -3438,9 +3517,10 @@ drawKey("YES", BOX.yes, false, P);
 drawKey("NO", BOX.no, false, P);
 reg(BOX.yes, () => restartGame());
 reg(BOX.no, () => goMenu());
+drawHelpButton(P);
 }
 function forgedListBox(row) { return { x: 16, y: 48 + row * 40, w: 288, h: 36 }; }
-function customForgeBox() { return { x: 198, y: 4, w: 114, h: 28 }; }
+function customForgeBox() { return { x: 150, y: 4, w: 84, h: 28 }; }
 function paintCustom(P) {
 FB.fill(P.bg);
 if (customPage !== 0) {
@@ -3460,6 +3540,7 @@ drawText("COMBINE TWO GUNS IN FORGE", W / 2, 188, P.muted, "f2", "mc");
 }
 drawKey("BACK", BOX.home, false, P);
 reg(BOX.home, () => { customPage = 0; });
+drawHelpButton(P);
 return;
 }
 drawText("CUSTOM", W / 2, 22, P.ink, "f2", "mc");
@@ -3476,6 +3557,7 @@ reg(b, () => equipGun(g));
 }
 drawKey("BACK", BOX.home, false, P);
 reg(BOX.home, () => (customFromPause ? beginPause() : goMenu()));
+drawHelpButton(P);
 }
 function paintPause(P) {
 fillRect(24, 128, 272, 230, P.bg);
@@ -3487,6 +3569,7 @@ drawCard("HOME", null, BOX.pauseHome, P);
 reg(BOX.resume, () => resumePlay());
 reg(BOX.pauseCustom, () => { customFromPause = true; customPage = 0; setScr("custom"); });
 reg(BOX.pauseHome, () => goMenu());
+drawHelpButton(P);
 }
 function paintAdvance(P) {
 fillRect(16, 140, W - 32, 100, P.bg);
@@ -3522,11 +3605,12 @@ if (!R.won) drawText(R.hitBy + " Killed you", W / 2, 214, P.accent, "f2", "mc");
 drawText("LV " + R.level + "   " + R.score, W / 2, 244, P.muted, "f2", "mc");
 drawKey("HOME", BOX.home, false, P);
 reg(BOX.home, () => goMenu());
+drawHelpButton(P);
 }
 function paintShop(P) {
 FB.fill(P.bg);
 drawText("SHOP", 12, 18, P.ink, "f2", "ml");
-drawText("$" + save.coins, W - 12, 18, P.accent, "f2", "mr");
+drawText("$" + save.coins, 232, 18, P.accent, "f2", "mr");
 const tabs = ["THEME", "SHIPS", "COLOR", "GUNS", "POWER", "UPGRD"];
 for (let t = 0; t < 6; t++) {
 drawKey(tabs[t], shopTabBox(t), t === shopTab, P);
@@ -3556,11 +3640,12 @@ reg(BOX.shopPage, () => { shopPage = (shopPage + 1) % pages; });
 if (shopMsg) drawText(shopMsg, 140, 410, P.accent, "f2", "ml");
 drawKey("BACK", BOX.home, false, P);
 reg(BOX.home, () => goMenu());
+drawHelpButton(P);
 }
 function paintForge(P) {
 FB.fill(P.bg);
 drawText("FORGE", 12, 18, P.ink, "f2", "ml");
-drawText("$" + save.coins, W - 12, 18, P.accent, "f2", "mr");
+drawText("$" + save.coins, 232, 18, P.accent, "f2", "mr");
 if (forgeStep === 0 || forgeStep === 1) {
 const tabs = ["GUNS", "POWER", "UPGRADE"];
 for (let t = 0; t < 3; t++) {
@@ -3606,6 +3691,7 @@ reg(BOX.forgeUp, () => forgeUpgradeGun());
 if (forgeMsg) drawText(forgeMsg, 12, 402, P.accent, "f2", "ml");
 drawKey("BACK", BOX.home, false, P);
 reg(BOX.home, () => forgeBack());
+drawHelpButton(P);
 return;
 }
 if (forgeStep === 2 || forgeStep === 3) {
@@ -3628,6 +3714,7 @@ reg(b, () => forgePick(a));
 }
 drawKey("BACK", BOX.home, false, P);
 reg(BOX.home, () => forgeBack());
+drawHelpButton(P);
 return;
 }
 if (forgeStep === 4) {
@@ -3643,6 +3730,7 @@ drawKey("YES", BOX.forgeYes, false, P);
 drawKey("NO", BOX.forgeNo, false, P);
 reg(BOX.forgeYes, () => forgeConfirm());
 reg(BOX.forgeNo, () => { forgeStep = 3; forgeMsg = ""; });
+drawHelpButton(P);
 return;
 }
 drawText("FORGED!", W / 2, 92, P.ink, "f4", "mc");
@@ -3667,6 +3755,7 @@ if (forgeTab === 0 && forgeAnyValid()) { save.gunEquip = activeForgeGun(); persi
 goMenu();
 });
 reg(BOX.home, () => forgeBack());
+drawHelpButton(P);
 }
 function render() {
 const P = palFor(save.theme);
@@ -3700,6 +3789,7 @@ drawRect(12, 64, W - 24, 300, clr([120 + g * 24, 64 + g * 16, 16]));
 }
 else if (scr === "custom") paintCustom(P);
 else if (scr === "confirm") paintConfirm(P);
+else if (scr === "help") paintHelp(P);
 if (kbActive && btns[sel]) {
 const b = btns[sel];
 drawRect(b.x + 2, b.y + 2, b.w - 4, b.h - 4, P.ink);
@@ -3731,7 +3821,8 @@ const b = btns[sel];
 if (b && b.fn) b.fn();
 }
 if (pressed.has("esc")) {
-if (scr === "pause") resumePlay();
+if (scr === "help") leaveHelp();
+else if (scr === "pause") resumePlay();
 else if (scr === "play") beginPause();
 else if (scr === "demo") goMenu();
 else if (scr === "custom" && customFromPause) beginPause();
