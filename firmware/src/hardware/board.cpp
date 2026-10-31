@@ -331,12 +331,23 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (mode_ == Mode::Check) {
       if (!rose || !on) return;
-      if (std::strcmp(where, "BACK") == 0) beginMenu();
-      else if (std::strncmp(where, "CP", 2) == 0) {
-        int index = where[2] >= '0' && where[2] <= '9' ? where[2] - '0' : 0;
-        if (where[3] >= '0' && where[3] <= '9') index = index * 10 + (where[3] - '0');
-        if (index >= 0 && index < 15 && (camp_ & (1u << index)) != 0) {
-          level_ = (index + 1) * 20;
+      if (std::strcmp(where, "BACK") == 0) {
+        if (check_god_ >= 0) {
+          check_god_ = -1;
+          paintChecks();
+        } else {
+          beginMenu();
+        }
+      } else if (std::strncmp(where, "GOD", 3) == 0) {
+        const int g = tokenInt(where + 3);
+        if (g >= 0 && g < kGods && checkLevelOpen((g + 1) * 25)) {
+          check_god_ = static_cast<int8_t>(g);
+          paintChecks();
+        }
+      } else if (std::strncmp(where, "LV", 2) == 0) {
+        const int lv = tokenInt(where + 2);
+        if (lv >= 1 && lv <= kLevels && checkLevelOpen(lv)) {
+          level_ = lv;
           beginCampaign();
         }
       }
@@ -504,6 +515,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kAchClear = 14;
   static constexpr int kBoosts = 5;
   static constexpr int kGods = 12;
+  static constexpr int kFloats = 3;
   static constexpr int kAttrCount = 5;
   static constexpr int kScraps = 6;
   static constexpr int kDroneW = 16;
@@ -1073,10 +1085,14 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Box shopRow(int r) const { return {16, 84 + r * 52, 288, 46}; }
   Box shopPageBox() const { return {8, 396, 120, 28}; }
   Box menuRestartBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
-  Box checkCell(int index) const {
-    const int col = index % 4;
-    const int row = index / 4;
-    return {12 + col * 76, 48 + row * 70, 70, 56};
+  Box checkNodeBox(int g) const {
+    const int row = g / 3;
+    const int col = g % 3;
+    const int c = row % 2 ? 2 - col : col;
+    return {16 + c * 100, 52 + row * 84, 88, 52};
+  }
+  Box checkListBox(int k) const {
+    return {16 + (k % 3) * 104, 56 + (k / 3) * 66, 88, 52};
   }
   Box yesBox() const { return {32, 190, 256, 52}; }
   Box noBox() const { return {32, 260, 256, 52}; }
@@ -1207,10 +1223,19 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (mode_ == Mode::Check) {
       if (contains(homeBox(), x, y)) return "BACK";
-      for (int i = 0; i < 15; ++i) {
-        if (contains(checkCell(i), x, y)) {
-          static char token[6];
-          snprintf(token, sizeof token, "CP%d", i);
+      static char token[8];
+      if (check_god_ < 0) {
+        for (int g = 0; g < kGods; ++g) {
+          if (!checkLevelOpen((g + 1) * 25) || !contains(checkNodeBox(g), x, y)) continue;
+          snprintf(token, sizeof token, "GOD%d", g);
+          return token;
+        }
+      } else {
+        int levels[9];
+        const int n = checkLevels(check_god_, levels);
+        for (int k = 0; k < n; ++k) {
+          if (!checkLevelOpen(levels[k]) || !contains(checkListBox(k), x, y)) continue;
+          snprintf(token, sizeof token, "LV%d", levels[k]);
           return token;
         }
       }
@@ -1645,11 +1670,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     static const char* check_lines[] = {
       "CHECKPOINTS",
       "",
-      "Every 20 levels opens a cell.",
-      "OPEN cells are reachable.",
-      "LOCKED cells stay dark until",
-      "you pass that mark in a run.",
-      "Tap an OPEN cell to jump there",
+      "The path links the Olympians in",
+      "order, ZEUS to DIONYSUS.",
+      "Tap an OPEN god to list levels",
+      "every 5, up to 20 above and",
+      "below its level.",
+      "Tap an OPEN level to jump there.",
+      "LOCKED levels stay dark until",
+      "you pass their checkpoint in a",
+      "run. BACK returns to the path.",
       "and continue the campaign.",
       "BACK returns to the menu.",
       "Jumping does not erase shop",
@@ -2057,6 +2086,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         if (bank_ < 65535) bank_ += 1;
         noteCoin();
         playTone(1046, 45);
+        floatLabel("Coin!", color565(222, 228, 236));
         collected = true;
         continue;
       }
@@ -2765,38 +2795,104 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   // ---- Checkpoints -------------------------------------------------------
 
+  bool checkLevelOpen(int lv) const {
+    const int cp = lv / 20 * 20;
+    if (cp < 20) return true;
+    return (camp_ & (1u << (cp / 20 - 1))) != 0;
+  }
+
+  int checkLevels(int g, int out[9]) const {
+    int n = 0;
+    const int lv = (g + 1) * 25;
+    for (int d = -20; d <= 20; d += 5) {
+      const int L = lv + d;
+      if (L >= 1 && L <= kLevels) out[n++] = L;
+    }
+    return n;
+  }
+
+  static int tokenInt(const char* s) {
+    int v = 0;
+    while (*s >= '0' && *s <= '9') {
+      v = v * 10 + (*s - '0');
+      ++s;
+    }
+    return v;
+  }
+
   void paintChecks() {
     const Palette ink = palette();
     fillScreen(ink.bg);
     setFont(&fonts::Font2);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
-    drawString("CHECKPOINTS", kPanelWidth / 2, 26);
-    for (int i = 0; i < 15; ++i) {
-      const Box cell = checkCell(i);
-      const bool open = (camp_ & (1u << i)) != 0;
-      const int from = (i + 1) * 20;
-      const int god_lv = ((from + 24) / 25) * 25;
-      const int god = godForLevel(god_lv);
-      char label[12];
-      snprintf(label, sizeof label, "%d", from);
-      fillRect(cell.x, cell.y, cell.w, cell.h, open ? ink.button : ink.bg);
-      drawRect(cell.x, cell.y, cell.w, cell.h, open ? ink.accent : ink.button);
-      setTextColor(open ? ink.ink : ink.muted);
-      drawString(label, cell.x + cell.w / 2, cell.y + 18);
-      const char* name = godNameOf(god);
-      char god_line[16];
-      snprintf(god_line, sizeof god_line, "%s", name);
-      if (textWidth(god_line) > cell.w - 4) god_line[4] = '\0';
-      setTextColor(open ? godInkOf(god) : ink.muted);
-      drawString(god_line, cell.x + cell.w / 2, cell.y + 38);
-    }
+    if (check_god_ < 0) paintCheckMap(ink);
+    else paintCheckList(ink);
     drawKey("BACK", homeBox(), false);
     drawHelpButton();
   }
 
+  void paintCheckMap(const Palette& ink) {
+    drawString("CHECKPOINTS", kPanelWidth / 2, 26);
+    for (int g = 0; g < kGods - 1; ++g) {
+      const Box a = checkNodeBox(g);
+      const Box b = checkNodeBox(g + 1);
+      const bool lit = checkLevelOpen((g + 1) * 25) && checkLevelOpen((g + 2) * 25);
+      const uint16_t line = lit ? ink.accent : ink.button;
+      const int ax = a.x + a.w / 2;
+      const int ay = a.y + a.h / 2;
+      const int bx = b.x + b.w / 2;
+      const int by = b.y + b.h / 2;
+      drawLine(ax, ay, bx, by, line);
+      drawLine(ax, ay + 1, bx, by + 1, line);
+    }
+    for (int g = 0; g < kGods; ++g) {
+      const Box box = checkNodeBox(g);
+      const bool open = checkLevelOpen((g + 1) * 25);
+      const uint16_t god_ink = godInkOf(g + 1);
+      fillRect(box.x, box.y, box.w, box.h, open ? ink.button : ink.bg);
+      drawRect(box.x, box.y, box.w, box.h, open ? god_ink : ink.button);
+      char name[12];
+      snprintf(name, sizeof name, "%s", godNameOf(g + 1));
+      if (textWidth(name) > box.w - 6) name[6] = '\0';
+      setTextColor(open ? god_ink : ink.muted);
+      drawString(name, box.x + box.w / 2, box.y + 18);
+      char label[12];
+      snprintf(label, sizeof label, "LV %d", (g + 1) * 25);
+      setTextColor(open ? ink.ink : ink.muted);
+      drawString(label, box.x + box.w / 2, box.y + 38);
+    }
+  }
+
+  void paintCheckList(const Palette& ink) {
+    const int g = check_god_;
+    const uint16_t god_ink = godInkOf(g + 1);
+    char title[24];
+    snprintf(title, sizeof title, "%s LEVELS", godNameOf(g + 1));
+    setTextColor(god_ink);
+    drawString(title, kPanelWidth / 2, 26);
+    int levels[9];
+    const int n = checkLevels(g, levels);
+    for (int k = 0; k < n; ++k) {
+      const int L = levels[k];
+      const Box box = checkListBox(k);
+      const bool open = checkLevelOpen(L);
+      const bool is_god = L % 25 == 0;
+      fillRect(box.x, box.y, box.w, box.h, open ? ink.button : ink.bg);
+      drawRect(box.x, box.y, box.w, box.h, is_god ? god_ink : open ? ink.accent : ink.button);
+      char num[8];
+      snprintf(num, sizeof num, "%d", L);
+      setTextColor(open ? ink.ink : ink.muted);
+      drawString(num, box.x + box.w / 2, box.y + 20);
+      const char* sub = open ? (is_god ? "GOD" : "OPEN") : "LOCKED";
+      setTextColor(open ? (is_god ? god_ink : ink.accent) : ink.muted);
+      drawString(sub, box.x + box.w / 2, box.y + 38);
+    }
+  }
+
   void beginChecks() {
     fadeOut();
+    check_god_ = -1;
     mode_ = Mode::Check;
     paintChecks();
     fadeIn();
@@ -4480,6 +4576,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     shield_hole_ = 0;
     hit_cannon_ = false;
     clearBolts();
+    for (FloatLabel& f : floats_) f.on = false;
     player_x_ = (kPanelWidth - kShipW) / 2;
     resetMachines();
     buildLevel();
@@ -5043,7 +5140,92 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       boost_ticks_[i] = boostLen(i);
       noteUnlock(boostName(i));
     }
+    floatLabel(hud_msg_, dropInkOf(drop_which_));
     drop_on_ = false;
+  }
+
+  uint16_t dropInkOf(int which) const {
+    if (which == 9) return color565(255, 64, 96);
+    if (which == 10) return color565(255, 210, 48);
+    if (which == 11) return color565(96, 200, 255);
+    if (which >= 12 && which < 12 + kBoosts) return boostColorOf(which - 12);
+    return color565(255, 220, 80);
+  }
+
+  void floatLabel(const char* text, uint16_t color) {
+    int slot = 0;
+    for (int i = 0; i < kFloats; ++i) {
+      if (!floats_[i].on) {
+        slot = i;
+        break;
+      }
+      if (floats_[i].t < floats_[slot].t) slot = i;
+    }
+    FloatLabel& f = floats_[slot];
+    snprintf(f.text, sizeof f.text, "%s", text);
+    setFont(&fonts::Font2);
+    f.w = textWidth(f.text);
+    f.cx = player_x_ + kShipW / 2;
+    f.y = kShipY - 14;
+    f.t = 40;
+    f.color = color;
+    f.on = true;
+  }
+
+  void stepFloats() {
+    for (int i = 0; i < kFloats; ++i) {
+      FloatLabel& f = floats_[i];
+      if (!f.on) continue;
+      repair(f.cx - f.w / 2 - 2, f.y - 9, f.w + 4, 18);
+      f.y -= 1;
+      f.t -= 1;
+      if (f.t <= 0) {
+        f.on = false;
+        continue;
+      }
+      setFont(&fonts::Font2);
+      setTextDatum(lgfx::middle_center);
+      setTextColor(f.color);
+      drawString(f.text, f.cx, f.y);
+    }
+  }
+
+  void drawPowerStatus() {
+    struct Row {
+      const char* name;
+      uint16_t ink;
+      int left;
+      int max;
+    };
+    Row rows[kBoosts + 5];
+    int n = 0;
+    for (int i = 0; i < kBoosts; ++i) {
+      if (boost_ticks_[i] == 0) continue;
+      rows[n++] = {boostName(i), boostColorOf(i), boost_ticks_[i], boostLen(i)};
+    }
+    const int timed[][3] = {{4, aegis_ticks_, 188}, {8, charm_ticks_, 188}, {11, revel_ticks_, 188},
+                            {10, hermes_ticks_, 94}, {5, berserk_ticks_, 500}};
+    for (const auto& t : timed) {
+      if (t[1] <= 0) continue;
+      rows[n++] = {machineName(t[0]), godInkOf(t[0] + 1), t[1], t[2]};
+    }
+    if (n == 0 && !power_drawn_) return;
+    const Palette ink = palette();
+    const int w = 96;
+    const int x = kPanelWidth - 8 - w;
+    repair(x - 4, 28, w + 12, 96);
+    power_drawn_ = n > 0;
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_right);
+    for (int r = 0; r < n && r < 6; ++r) {
+      const int y = 30 + r * 15;
+      setTextColor(rows[r].ink);
+      drawString(rows[r].name, kPanelWidth - 8, y + 5);
+      fillRect(x, y + 10, w, 3, ink.button);
+      int fill = w * rows[r].left / rows[r].max;
+      if (fill > w) fill = w;
+      if (fill > 0) fillRect(x, y + 10, fill, 3, rows[r].ink);
+    }
   }
 
   void beginRaid(bool fresh) {
@@ -7002,6 +7184,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     stepBuddy();
     stepMachines();
     drawMachineBars();
+    drawPowerStatus();
     if (baseGun() == 3) stepBeam(firing, next_beam);
     else {
       if (beam_on_) {
@@ -7014,6 +7197,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     stepBolts();
     stepDrop();
     stepCoins();
+    stepFloats();
     const bool was_open = boss_open_;
     if (boss_ && boss_style_ == 2 && bossAlive()) {
       boss_tick_ += 1;
@@ -7154,6 +7338,18 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool demo_ = false;
   Mode help_from_ = Mode::Menu;
   uint8_t help_page_ = 0;
+  struct FloatLabel {
+    bool on = false;
+    int cx = 0;
+    int y = 0;
+    int w = 0;
+    int t = 0;
+    uint16_t color = 0;
+    char text[12] = {};
+  };
+  FloatLabel floats_[kFloats] = {};
+  int check_god_ = -1;
+  bool power_drawn_ = false;
   char over_title_[16] = {};
   char over_killer_[24] = {};
   int poseidon_cool_ = 0;
