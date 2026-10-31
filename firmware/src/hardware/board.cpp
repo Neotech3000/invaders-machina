@@ -178,7 +178,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     touch_down_ = down;
 
     if (mode_ == Mode::Splash) {
-      if (static_cast<int32_t>(now - splash_at_) >= 0) startGodFight();
+      if (static_cast<int32_t>(now - splash_at_) >= 0) {
+        if (splash_raid_) finishRaid();
+        else startGodFight();
+      }
       return;
     }
     if (!demo_ && (mode_ == Mode::Play || mode_ == Mode::Advance) && rose && on &&
@@ -1366,6 +1369,44 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     for (int i = 0; i < slots; ++i) {
       drawHeart(x + i * step, 6, i < lives_ ? color565(255, 64, 96) : ink.button);
     }
+    drawMachineBars();
+  }
+
+  // One short bar per equipped machine, sitting under the hearts. A full bar
+  // is ready. A cooling machine fills back up as the wait runs out.
+  void drawMachineBars() {
+    int idx[kGods];
+    int n = 0;
+    for (int i = 0; i < kGods; ++i) {
+      if (!divineOn(i)) continue;
+      idx[n++] = i;
+    }
+    if (n == 0) return;
+    const Palette ink = palette();
+    int gap = 2;
+    int w = 10;
+    int total = n * w + (n - 1) * gap;
+    int x = kPanelWidth - 8 - total;
+    if (x < 4) {
+      w = 6;
+      gap = 1;
+      total = n * w + (n - 1) * gap;
+      x = kPanelWidth - 8 - total;
+      if (x < 2) x = 2;
+    }
+    for (int s = 0; s < n; ++s) {
+      const int i = idx[s];
+      const int cool = machineCool(i);
+      const int bx = x + s * (w + gap);
+      fillRect(bx, 20, w, 3, ink.button);
+      int fill = w;
+      if (cool > 0 && div_cool_[i] > 0) {
+        int left = div_cool_[i];
+        if (left > cool) left = cool;
+        fill = w * (cool - left) / cool;
+      }
+      if (fill > 0) fillRect(bx, 20, fill, 3, godInkOf(i + 1));
+    }
   }
 
   // ---- Attract demo ------------------------------------------------------
@@ -2274,6 +2315,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
+  // The half-second banner names the thing that took the life.
+  const char* lifeFlash() const {
+    if (std::strcmp(hit_by_, "LASER") == 0) return "GOD BEAM";
+    for (int g = 1; g <= kGods; ++g) {
+      if (std::strcmp(hit_by_, godNameOf(g)) == 0) return "ORB";
+    }
+    if (std::strcmp(hit_by_, "ALIEN") == 0 || std::strcmp(hit_by_, "DRONE") == 0) return "GOON";
+    return hit_by_;
+  }
+
   // ---- Checkpoints -------------------------------------------------------
 
   void paintChecks() {
@@ -2286,12 +2337,21 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     for (int i = 0; i < 15; ++i) {
       const Box cell = checkCell(i);
       const bool open = (camp_ & (1u << i)) != 0;
+      const int from = (i + 1) * 20;
+      const int god_lv = ((from + 24) / 25) * 25;
+      const int god = godForLevel(god_lv);
       char label[12];
-      snprintf(label, sizeof label, "%d", (i + 1) * 20);
+      snprintf(label, sizeof label, "%d", from);
       fillRect(cell.x, cell.y, cell.w, cell.h, open ? ink.button : ink.bg);
       drawRect(cell.x, cell.y, cell.w, cell.h, open ? ink.accent : ink.button);
       setTextColor(open ? ink.ink : ink.muted);
-      drawString(label, cell.x + cell.w / 2, cell.y + cell.h / 2);
+      drawString(label, cell.x + cell.w / 2, cell.y + 18);
+      const char* name = godNameOf(god);
+      char god_line[16];
+      snprintf(god_line, sizeof god_line, "%s", name);
+      if (textWidth(god_line) > cell.w - 4) god_line[4] = '\0';
+      setTextColor(open ? godInkOf(god) : ink.muted);
+      drawString(god_line, cell.x + cell.w / 2, cell.y + 38);
     }
     drawKey("BACK", homeBox(), false);
   }
@@ -2617,6 +2677,24 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   const char* godName() const { return godNameOf(god_); }
 
+  const char* raidTell() const {
+    switch (boss_style_) {
+      case 0: return "CLEAR GOONS";
+      case 1: return "CLEAR DRONES";
+      case 2: return "HIT WHEN OPEN";
+      case 3: return "DODGE THE SPRAY";
+      case 4: return "DODGE THE BEAM";
+      default: return "RAID";
+    }
+  }
+
+  // Coins paid when a boss falls. The base rises by one every 25 levels.
+  int bossBounty(int base) const {
+    int n = base + level_ / 25;
+    if (n > kCoins) n = kCoins;
+    return n;
+  }
+
   uint16_t godInkOf(int god) const {
     switch (god) {
       case 1: return color565(255, 214, 56);
@@ -2809,6 +2887,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void beginGodSplash() {
+    splash_raid_ = false;
     mode_ = Mode::Splash;
     splash_at_ = millis() + 1000;
     const Palette ink = palette();
@@ -3037,6 +3116,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawEllipse(cx, cy, 21, 14, dim);
     if (perk(PERK_SHIELD_GLOW)) drawEllipse(cx, cy, 20, 13, ring);
     drawPixel(cx - 10, cy - 12, color565(255, 255, 255));
+    if (shield_hole_ > 0) {
+      fillRect(cx - 4, cy - 16, 8, 7, palette().bg);
+      fillRect(cx - 2, cy - 15, 4, 4, color565(255, 140, 48));
+    }
   }
 
   void drawShipHull(int x, int y, int model) {
@@ -3489,6 +3572,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     sky_on_ = false;
     buddy_drawn_ = false;
     invuln_ = 0;
+    shield_hole_ = 0;
+    hit_cannon_ = false;
     clearBolts();
     player_x_ = (kPanelWidth - kShipW) / 2;
     resetMachines();
@@ -3605,7 +3690,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   void endRound(bool won) {
     clearBoosts();
     if (won) showOver("CLEARED", nullptr);
-    else showOver("YOU DIED", hit_by_);
+    else showOver("YOU DIED", lifeFlash());
   }
 
   // The ship blinks where it is; the level keeps its formation and progress.
@@ -3654,7 +3739,17 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       drawHud();
       return;
     }
-    if (shield_ > 0) {
+    if (shield_ > 0 && shield_hole_ <= 0 && hit_cannon_) {
+      shield_hole_ = 63;
+      hit_cannon_ = false;
+      invuln_ = 0;
+      liftFormation();
+      paintLevel();
+      drawHud();
+      return;
+    }
+    hit_cannon_ = false;
+    if (shield_ > 0 && shield_hole_ <= 0) {
       shield_ -= 1;
       invuln_ = inv;
       liftFormation();
@@ -3666,6 +3761,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     lives_ -= 1;
     if (demeter_bonus_ > 0) demeter_bonus_ -= 1;
+    const char* flash = lifeFlash();
     if (lives_ <= 0) {
       demeter_bonus_ = 0;
       demeter_timer_ = 0;
@@ -3673,6 +3769,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         revived_ = true;
         lives_ = 1;
         tryBerserk();
+        snprintf(hud_msg_, sizeof hud_msg_, "%s", flash);
+        hud_msg_ticks_ = 31;
         invuln_ = inv;
         liftFormation();
         paintLevel();
@@ -3684,6 +3782,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     tryBerserk();
+    snprintf(hud_msg_, sizeof hud_msg_, "%s", flash);
+    hud_msg_ticks_ = 31;
     invuln_ = inv;
     liftFormation();
     paintLevel();
@@ -4034,10 +4134,26 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       const int jump = 1 + static_cast<int>(nextRng() % 4);
       boss_style_ = static_cast<uint8_t>((boss_style_ + jump) % 5);
     }
+    splash_raid_ = true;
+    mode_ = Mode::Splash;
+    splash_at_ = millis() + 1000;
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    setTextDatum(lgfx::middle_center);
+    setFont(&fonts::Font4);
+    setTextColor(ink.accent);
+    drawString("RAID", kPanelWidth / 2, 170);
+    setFont(&fonts::Font2);
+    setTextColor(ink.ink);
+    drawString(raidTell(), kPanelWidth / 2, 230);
+  }
+
+  void finishRaid() {
+    splash_raid_ = false;
     placeBoss(true);
     mode_ = Mode::Play;
     paintLevel();
-    if (fresh) noteUnlock("RAID");
+    noteUnlock(raidTell());
   }
 
   void drawSky() {
@@ -4389,7 +4505,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         unit.alive = false;
         const int cx = origin_x_ + unit.ox + unitW(unit) / 2;
         const int cy = origin_y_ + unit.oy + unitH(unit) / 2;
-        dropCoins(cx - kCoinW / 2, cy - kCoinW / 2, 2);
+        dropCoins(cx - kCoinW / 2, cy - kCoinW / 2, bossBounty(2));
         maybeMiniDrop(cx - 7, cy);
         return true;
       }
@@ -4425,7 +4541,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         unit.hp = 0;
         unit.alive = false;
         dropCoins(origin_x_ + unit.ox + kBossW / 2 - kCoinW / 2,
-                  origin_y_ + unit.oy + kBossH / 2 - kCoinW / 2, 3);
+                  origin_y_ + unit.oy + kBossH / 2 - kCoinW / 2, bossBounty(3));
         return true;
       }
       if (god_ != 0 && god_entrance_) {
@@ -4454,7 +4570,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
             god_ward_ = 0;
             god_beam_ticks_ = 0;
             grantDivine(slain);
-            dropCoins(origin_x_ + unit.ox + kBossW / 2 - kCoinW / 2, origin_y_ + unit.oy + kBossH / 2 - kCoinW / 2, 10);
+            dropCoins(origin_x_ + unit.ox + kBossW / 2 - kCoinW / 2, origin_y_ + unit.oy + kBossH / 2 - kCoinW / 2, bossBounty(10));
             maybeDrop(true);
             return true;
           }
@@ -4486,7 +4602,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
           raid_won_ = true;
           saveCampaign();
         }
-        dropCoins(origin_x_ + unit.ox + unitW(unit) / 2 - kCoinW / 2, origin_y_ + unit.oy + unitH(unit) / 2 - kCoinW / 2, raid_ ? 4 : 3);
+        dropCoins(origin_x_ + unit.ox + unitW(unit) / 2 - kCoinW / 2, origin_y_ + unit.oy + unitH(unit) / 2 - kCoinW / 2, bossBounty(raid_ ? 4 : 3));
         maybeDrop(true);
         return true;
       }
@@ -5412,6 +5528,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         if (foe.kind == 2 && blastAt(nx, ny)) {
           lost = true;
           hit_by_ = foeKiller(foe);
+          hit_cannon_ = true;
         }
         eraseCloneDrawn();
         clone_alive_ = false;
@@ -5424,6 +5541,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
           if (blastAt(nx, ny)) {
             lost = true;
             hit_by_ = foeKiller(foe);
+            hit_cannon_ = true;
           }
         } else if (hit_ship) {
           lost = true;
@@ -5488,9 +5606,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       const int mx = origin_x_ + units_[i].ox + unitW(units_[i]) / 2;
       const int my = origin_y_ + units_[i].oy + unitH(units_[i]);
       if (units_[i].kind == 4) {
-        // Assault: a short burst of fast rounds.
-        spawnFoe(mx - 5, my, -1, 1);
-        spawnFoe(mx + 5, my, 1, 1);
+        // Assault covers the side the ship is on. The open side is the way across.
+        const bool suppress_left = (player_x_ + kShipW / 2) <= mx;
+        const int x0 = suppress_left ? 6 : mx + 8;
+        const int x1 = suppress_left ? mx - 8 : kPanelWidth - 6;
+        if (x1 < x0 + 12) {
+          spawnFoe(suppress_left ? 8 : kPanelWidth - 12, my, 0, 1);
+        } else {
+          for (int s = 0; s < 4; ++s) spawnFoe(x0 + (x1 - x0) * s / 3, my, 0, 1);
+        }
       } else if (units_[i].kind == 5) {
         // Cannon: one shell that bursts on impact.
         spawnFoe(mx - 2, my, 0, 2);
@@ -5596,6 +5720,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (player_x_ > kPanelWidth - kShipW - 4) player_x_ = kPanelWidth - kShipW - 4;
     (void)rose;
     if (invuln_ > 0) invuln_ -= 1;
+    bool hole_closed = false;
+    if (shield_hole_ > 0) {
+      shield_hole_ -= 1;
+      hole_closed = shield_hole_ == 0;
+    }
     stepBoosts();
     const bool firing = held != nullptr && std::strcmp(held, "FIRE") == 0;
     if (gun_cool_ > 0) gun_cool_ -= 1;
@@ -5606,8 +5735,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     const int next_beam = player_x_ + kShipW / 2 - 1;
     startWrite();
     stepSpace();
-    if (player_x_ != old_player) {
-      eraseShipAt(old_player);
+    if (player_x_ != old_player || hole_closed) {
+      eraseShipAt(player_x_ != old_player ? old_player : player_x_);
       drawShipAt(player_x_);
       if (clone_alive_ && clone_drawn_ &&
           overlap(shipClearX(old_player), shipClearY(), shipClearW(), shipClearH(), clone_x_,
@@ -5617,6 +5746,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     stepBuddy();
     stepMachines();
+    drawMachineBars();
     if (baseGun() == 3) stepBeam(firing, next_beam);
     else {
       if (beam_on_) {
@@ -5749,6 +5879,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int shop_page_ = 0;
   Coin coins_[kCoins] = {};
   const char* hit_by_ = "ALIEN";
+  bool hit_cannon_ = false;
+  int shield_hole_ = 0;
+  bool splash_raid_ = false;
   const char* shop_msg_ = "";
   int origin_x_ = 0;
   int origin_y_ = 0;

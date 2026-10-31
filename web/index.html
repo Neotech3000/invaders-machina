@@ -475,7 +475,8 @@ god: 0, godWave: 0, godEntrance: false, godBars: 3, godHp: 0, godHpMax: 1,
 raidMates: [],
 cool: 0, foeCool: 0, foeGap: 40, hitBy: "ALIEN", gunCool: 0,
 beamOn: false, beamX: 0, beamBurst: 0, beamCool: 0, beamTick: 0, spaceTick: 0,
-spreadSide: false, revived: false,
+spreadSide: false, revived: false, raidSplash: false, shieldHole: 0,
+raidBeamT: 0, raidBeamX: 160,
 drop_: null, msg: "", msgT: 0, timer: 0, won: false, over: false,
 boost: [0, 0, 0, 0, 0],
 divCool: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -495,12 +496,14 @@ if (u.kind === 2) return [BOSS_W, BOSS_H];
 if (u.kind === 6) return [MINI_W, MINI_H];
 if (u.kind === 5) return [ALIEN_W + 4, ALIEN_H + 2];
 if (u.kind === 7) return [ALLY_W, ALLY_H];
+if (u.kind === 3) return [16, 12];
 return [ALIEN_W, ALIEN_H];
 }
 function startLevel() {
 const L = R.level;
 R.foes = []; R.bolts = []; R.blasts = []; R.escorts = []; R.raidMates = []; R.boss = null;
 R.mini = false; R.raid = false; R.god = 0; R.godEntrance = false;
+R.raidSplash = false; R.shieldHole = 0; R.raidBeamT = 0;
 R.invuln = 0; R.cool = 0; R.foeCool = 0; R.gunCool = 0;
 R.beamOn = false; R.beamBurst = 0; R.beamCool = 0; R.beamTick = 0;
 R.drop = Math.min(20, 8 + Math.floor((L - 1) / 20));
@@ -521,7 +524,14 @@ if (perk(PERK.shieldRepair) && save.shield < shieldCap()) save.shield += 1;
 }
 if (!demo) { save.level = L; persist(); }
 resetMachines();
+if (!demo && R.raid) {
+R.raidSplash = true;
+R.timer = 60;
+setScr("splash");
+} else {
+R.raidSplash = false;
 setScr(demo ? "demo" : "play");
+}
 }
 function buildTerrain() {
 R.scraps = [];
@@ -606,11 +616,15 @@ function buildBoss() {
 const L = R.level;
 const max = Math.min(22, 6 + Math.floor(L / 20)) + enemyLife(L);
 R.raid = Math.random() * 100 < raidChance(L);
-R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: max, max, style: L % 2, cool: 0 };
+R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: max, max, style: L % 2, cool: 0, open: true, openT: 0 };
 R.units = [];
 if (R.raid) {
+R.boss.style = rnd(5);
 const life = 1 + enemyLife(L);
 for (let i = 0; i < 4; i++) R.units.push({ ox: i * 30, oy: 0, kind: 0, hp: life, max: life, alive: true });
+if (R.boss.style === 1) {
+for (let i = 0; i < 3; i++) R.units.push({ ox: 16 + i * 40, oy: 28, kind: 3, hp: life, max: life, alive: true });
+}
 R.ox = Math.floor((W - 120) / 2);
 R.oy = 84;
 R.dir = 1;
@@ -655,6 +669,26 @@ const L = level === undefined ? R.level : level;
 const n = Math.floor(L / 25);
 if (n < 1) return 4;
 return 4 + 2 * (n - 1);
+}
+function raidTell(style) {
+return ["CLEAR GOONS", "CLEAR DRONES", "HIT WHEN OPEN", "DODGE THE SPRAY", "DODGE THE BEAM"][style] || "RAID";
+}
+function bossBounty(base) {
+let n = base + Math.floor(R.level / 25);
+if (n > COIN_MAX) n = COIN_MAX;
+return n;
+}
+function nextGodLevel(from) { return Math.floor((from + 24) / 25) * 25; }
+function nextGodName(from) {
+const g = nextGodLevel(from);
+const idx = ((Math.floor(g / 25) - 1) % 12 + 12) % 12;
+return GODS[idx];
+}
+function hitFlash(who) {
+if (who === "LASER" || who === "GOD BEAM" || who === "BEAM") return "GOD BEAM";
+if (GODS.indexOf(who) >= 0) return "ORB";
+if (who === "ALIEN" || who === "DRONE" || who === "GOON") return "GOON";
+return who || "GOON";
 }
 function raidCoreHp(level) {
 const L = level === undefined ? R.level : level;
@@ -994,6 +1028,7 @@ if (u.kind === 6) return "MINI BOSS";
 if (u.kind === 4) return "ASSAULT";
 if (u.kind === 5) return "CANNON";
 if (u.kind === 2) return R.raid ? "RAID BOSS" : "BOSS";
+if (u.kind === 3) return "DRONE";
 return "ALIEN";
 }
 function foeInk(f) {
@@ -1125,7 +1160,7 @@ const [sw, sh] = unitSize(u);
 const [cx, cy] = centerOf(R.ox + u.ox, R.oy + u.oy, sw, sh);
 if (u.kind === 6) {
 addScore(20);
-dropCoins(cx, cy, 2);
+dropCoins(cx, cy, bossBounty(2));
 maybeMiniDrop(cx, cy);
 } else {
 addScore(10);
@@ -1147,7 +1182,7 @@ m.hp -= playerDamage();
 addScore(10);
 if (m.hp <= 0) {
 const [cx, cy] = centerOf(m.x, m.y, BOSS_W, BOSS_H);
-dropCoins(cx, cy, 3);
+dropCoins(cx, cy, bossBounty(3));
 R.raidMates.splice(i, 1);
 }
 }
@@ -1167,6 +1202,7 @@ killUnit(u);
 function bossHit() {
 if (!R.boss) return false;
 if (R.raid && R.units.some(u => u.alive)) return false;
+if (R.raid && R.boss.style === 2 && !R.boss.open) return false;
 if (R.godEntrance) {
 addScore(10);
 R.godHp -= playerDamage();
@@ -1179,7 +1215,7 @@ R.foes = [];
 } else {
 const slain = R.god;
 const [cx, cy] = centerOf(R.boss.x, R.boss.y, BOSS_W, BOSS_H);
-dropCoins(cx, cy, 10);
+dropCoins(cx, cy, bossBounty(10));
 maybeDrop(true);
 R.boss = null;
 R.escorts = [];
@@ -1196,7 +1232,7 @@ R.boss.hp -= playerDamage();
 addScore(10);
 if (R.boss.hp <= 0) {
 const [cx, cy] = centerOf(R.boss.x, R.boss.y, BOSS_W, BOSS_H);
-dropCoins(cx, cy, R.raid ? 4 : 3);
+dropCoins(cx, cy, bossBounty(R.raid ? 4 : 3));
 if (R.raid) { save.raidWon = true; persist(); }
 R.boss = null;
 maybeDrop(true);
@@ -1562,20 +1598,29 @@ R.aegisHits -= 1;
 R.invuln = 36;
 return;
 }
-if (save.shield > 0) {
+if (save.shield > 0 && !(R.shieldHole > 0) && who === "CANNON") {
+R.shieldHole = 60;
+R.invuln = 0;
+return;
+}
+if (save.shield > 0 && !(R.shieldHole > 0)) {
 save.shield -= 1;
 persist();
 return;
 }
 R.lives -= 1;
 if (R.demeterBonus > 0) R.demeterBonus -= 1;
-R.hitBy = who;
+R.hitBy = hitFlash(who);
+R.msg = R.hitBy;
+R.msgT = 30;
 if (R.lives <= 0) { R.demeterBonus = 0; R.demeterT = 0; }
 if (R.lives <= 0) {
 if (perk(PERK.revive) && !R.revived) {
 R.revived = true;
 R.lives = 1;
 tryBerserk();
+R.msg = R.hitBy;
+R.msgT = 30;
 R.invuln = inv;
 persist();
 return;
@@ -1584,6 +1629,8 @@ die();
 return;
 }
 tryBerserk();
+R.msg = R.hitBy;
+R.msgT = 30;
 persist();
 }
 function liftFormation() {
@@ -1689,8 +1736,11 @@ const mx = R.ox + u.ox + sw / 2;
 const my = R.oy + u.oy + sh;
 const who = unitLabel(u);
 if (u.kind === 4) {
-fireFoe(mx - 5, my, 1, who, -1);
-fireFoe(mx + 5, my, 1, who, 1);
+const suppressLeft = R.px + SHIP_W / 2 <= mx;
+const x0 = suppressLeft ? 6 : mx + 8;
+const x1 = suppressLeft ? mx - 8 : W - 6;
+if (x1 < x0 + 12) fireFoe(suppressLeft ? 8 : W - 12, my, 1, who, 0);
+else for (let s = 0; s < 4; s++) fireFoe(x0 + Math.floor((x1 - x0) * s / 3), my, 1, who, 0);
 } else if (u.kind === 5) {
 fireFoe(mx, my, 2, who, 0);
 } else if (u.kind === 6) {
@@ -1716,7 +1766,8 @@ spawnGodOrb(escortX(e) + ALLY_W / 2 - 5, ESCORT_Y + ALLY_H, 0, 2);
 return;
 }
 if (R.boss.stun > 0) return;
-if (b.style === 1) {
+if (R.raid && b.style === 4) return;
+if (b.style === 1 || (R.raid && b.style === 3)) {
 fireFoe(x - 8, y, 0, who, -2); fireFoe(x, y, 0, who, 0); fireFoe(x + 8, y, 0, who, 2);
 } else {
 const dx = R.px + SHIP_W / 2 - x;
@@ -1767,10 +1818,22 @@ R.timer = 54;
 R.foes = []; R.bolts = []; R.coins = [];
 setScr("advance");
 }
+function raidBeamStrike() {
+if (!R.boss || !R.raid || R.boss.style !== 4) return false;
+R.raidBeamT += 1;
+const phase = R.raidBeamT % 100;
+if (phase === 1) R.raidBeamX = clamp(R.px + Math.floor(SHIP_W / 2) - 1, 6, W - 8);
+return phase === 36 && overlapRect(R.raidBeamX - 1, SHIP_Y, 4, SHIP_H, R.px, SHIP_Y, SHIP_W, SHIP_H);
+}
 function stepPlay(input) {
 const entry = scr;
 if (R.zapT > 0) R.zapT -= 1;
 if (R.invuln > 0) R.invuln -= 1;
+if (R.shieldHole > 0) R.shieldHole -= 1;
+if (R.boss && R.raid && R.boss.style === 2) {
+R.boss.openT += 1;
+R.boss.open = (R.boss.openT % 80) >= 40;
+}
 stepBoosts();
 if (R.gunCool > 0) R.gunCool -= 1;
 R.spaceTick += 1;
@@ -1822,6 +1885,10 @@ R.foeCool = 0;
 if (R.charm <= 0) enemyShoot();
 }
 stepFoes();
+if (scr === entry && raidBeamStrike()) {
+shipHit("GOD BEAM");
+if (scr !== entry) return;
+}
 R.godBeamT = 0;
 if (scr !== entry) return;
 for (let i = R.blasts.length - 1; i >= 0; i--) {
@@ -1844,7 +1911,7 @@ if (!anyLeft && !R.godEntrance) {
 if (R.god && R.godWave < godWaveTotal()) {
 R.godWave += 1;
 if (R.godWave < godWaveTotal()) spawnGodWave();
-else { setScr("splash"); R.timer = 60; }
+else { R.raidSplash = false; setScr("splash"); R.timer = 60; }
 return;
 }
 levelClear();
@@ -2290,6 +2357,12 @@ fillRect(s.x, s.y, s.w, 2, P.top);
 function drawAlienAt(x, y, kind, P, opts) {
 const body = kind === 0 ? P.low : P.top;
 const eye = P.bg;
+if (kind === 3) {
+fillRect(x + 2, y + 2, 12, 8, P.accent);
+fillRect(x, y + 4, 4, 3, P.top);
+fillRect(x + 12, y + 4, 4, 3, P.top);
+return;
+}
 if (kind === 4) {
 const plate = clr([255, 120, 96]);
 fillRect(x + 4, y + 2, 10, 7, plate);
@@ -2451,17 +2524,45 @@ drawEllipse(cx, cy, 22, 15, ring);
 drawEllipse(cx, cy, 21, 14, dim);
 if (perk(PERK.shieldGlow)) drawEllipse(cx, cy, 20, 13, ring);
 px(cx - 10, cy - 12, clr([255, 255, 255]));
+if (R.shieldHole > 0) {
+fillRect(cx - 4, cy - 16, 8, 7, palFor(save.theme).bg);
+fillRect(cx - 2, cy - 15, 4, 4, clr([255, 140, 48]));
+}
 }
 function drawHeart(x, y, c) {
 fillCircle(x + 3, y + 3, 3, c);
 fillCircle(x + 8, y + 3, 3, c);
 fillTriangle(x, y + 4, x + 11, y + 4, x + 5, y + 10, c);
 }
+function drawMachineBars(P) {
+const idx = [];
+for (let i = 0; i < 12; i++) if (divineOn(i)) idx.push(i);
+if (!idx.length) return;
+let w = 10, gap = 2;
+let total = idx.length * w + (idx.length - 1) * gap;
+let x = W - 8 - total;
+if (x < 4) {
+w = 6; gap = 1;
+total = idx.length * w + (idx.length - 1) * gap;
+x = Math.max(2, W - 8 - total);
+}
+for (let s = 0; s < idx.length; s++) {
+const i = idx[s];
+const cool = MACHINES[i].cool;
+const left = R.divCool[i] || 0;
+const bx = x + s * (w + gap);
+fillRect(bx, 20, w, 3, P.button);
+let fill = w;
+if (cool > 0 && left > 0) fill = Math.floor(w * (cool - Math.min(left, cool)) / cool);
+if (fill > 0) fillRect(bx, 20, fill, 3, clr(GOD_INK[i]));
+}
+}
 function drawHearts(P) {
 const slots = heartSlots();
 let x = W - 8 - slots * 14;
 if (x < 84) x = 84;
 for (let i = 0; i < slots; i++) drawHeart(x + i * 14, 6, i < R.lives ? clr([255, 64, 96]) : P.button);
+drawMachineBars(P);
 return { x, slots };
 }
 function drawCoin(x, y) {
@@ -2552,6 +2653,12 @@ for (const e of R.escorts) drawAlienAt(escortX(e), ESCORT_Y, 7, P, {});
 drawAlienAt(Math.round(b.x), b.y, 2, P, { max: 1, hp: 1 });
 } else {
 drawAlienAt(Math.round(b.x), b.y, 2, P, { max: b.max, hp: b.hp });
+if (R.raid && b.style === 2 && !b.open) fillRect(Math.round(b.x), b.y, BOSS_W, 8, P.muted);
+}
+if (R.boss && R.raid && R.boss.style === 4 && R.raidBeamT) {
+const phase = R.raidBeamT % 100;
+if (phase >= 2 && phase <= 35) fillRect(R.raidBeamX, 36, 2, SHIP_Y - 36, clr([90, 36, 36]));
+else if (phase >= 36 && phase < 48) fillRect(R.raidBeamX - 1, 36, 4, SHIP_Y - 36, clr([255, 48, 40]));
 }
 }
 if (R.zapT > 0) fillRect(R.zapX, 30, 4, SHIP_Y - 30, clr([255, 240, 120]));
@@ -2781,8 +2888,13 @@ const cell = checkCell(i);
 const open = (save.camp & (1 << i)) !== 0;
 fillRect(cell.x, cell.y, cell.w, cell.h, open ? P.button : P.bg);
 drawRect(cell.x, cell.y, cell.w, cell.h, open ? P.accent : P.button);
-drawText(String((i + 1) * 20), cell.x + Math.floor(cell.w / 2), cell.y + Math.floor(cell.h / 2),
-open ? P.ink : P.muted, "f2", "mc");
+const from = (i + 1) * 20;
+const godName = nextGodName(from);
+const godLine = textWidth(godName) > cell.w - 4 ? godName.slice(0, 4) : godName;
+const godLv = nextGodLevel(from);
+const godIdx = ((Math.floor(godLv / 25) - 1) % 12 + 12) % 12;
+drawText(String(from), cell.x + Math.floor(cell.w / 2), cell.y + 18, open ? P.ink : P.muted, "f2", "mc");
+drawText(godLine, cell.x + Math.floor(cell.w / 2), cell.y + 38, open ? clr(GOD_INK[godIdx]) : P.muted, "f2", "mc");
 reg(cell, () => {
 if (!open) return;
 demo = false;
@@ -2867,6 +2979,11 @@ drawText("LEVEL " + next, W / 2, 198, P.ink, "f2", "mc");
 }
 function paintSplash(P) {
 FB.fill(P.bg);
+if (R.raidSplash) {
+drawText("RAID", W / 2, 170, P.accent, "f4", "mc");
+drawText(raidTell(R.boss ? R.boss.style : 0), W / 2, 230, P.ink, "f2", "mc");
+return;
+}
 const name = godName();
 let font = "f6";
 if (textWidth(name, "f6") > W - 24) font = "f4";
@@ -3105,7 +3222,14 @@ else if (scr === "play") stepPlay(playerInput());
 else if (scr === "advance") {
 if (--R.timer <= 0) startLevel();
 } else if (scr === "splash") {
-if (--R.timer <= 0) godFight();
+if (--R.timer <= 0) {
+if (R.raidSplash) {
+R.raidSplash = false;
+R.msg = raidTell(R.boss ? R.boss.style : 0);
+R.msgT = 45;
+setScr("play");
+} else godFight();
+}
 }
 }
 let acc = 0;
