@@ -500,7 +500,8 @@ demeterUses: 0, demeterBonus: 0, demeterT: 0, athenaUses: 0, aegisT: 0, aegisHit
 stun: 0, charm: 0, revel: 0, hermes: 0, berserk: 0,
 waveY: -1, sunT: 0, sunX: 0, godBeamT: 0, godBeamX: 0, godWard: 0,
 cloneAlive: false, cloneX: 16, cloneCool: 0,
-playerStun: 0, apolloT: 0, apolloX: 160, apolloX2: 200, nextStyle: -1
+playerStun: 0, apolloT: 0, apolloX: 160, apolloX2: 200, nextStyle: -1,
+hephT: 0, heph: [{ on: false }, { on: false }, { on: false }]
 };
 }
 function rnd(n) { return Math.floor(Math.random() * n); }
@@ -538,7 +539,8 @@ function startLevel() {
 const L = R.level;
 R.foes = []; R.bolts = []; R.blasts = []; R.escorts = []; R.raidMates = []; R.boss = null;
 R.mini = false; R.raid = false; R.god = 0; R.godEntrance = false;
-R.raidSplash = false; R.shieldHole = 0; R.raidBeamT = 0; R.playerStun = 0; R.apolloT = 0;
+R.raidSplash = false; R.shieldHole = 0; R.raidBeamT = 0; R.playerStun = 0; R.apolloT = 0; R.hephT = 0;
+if (R.heph) for (const h of R.heph) h.on = false;
 R.invuln = 0; R.cool = 0; R.foeCool = 0; R.gunCool = 0;
 R.beamOn = false; R.beamBurst = 0; R.beamCool = 0; R.beamTick = 0;
 R.drop = Math.min(20, 8 + Math.floor((L - 1) / 20));
@@ -627,7 +629,7 @@ if (rnd(5) === 0) kind ^= 1;
 const roll = rnd(100);
 if (L >= 3 && roll < 6 + Math.floor(L / 25)) kind = 4;
 else if (L >= 8 && roll >= 90 - Math.floor(L / 30)) kind = 5;
-else if (L >= 6 && stunners < 3 && roll >= 72 && roll < 84) { kind = 8; stunners += 1; }
+else if (L >= 75 && stunners < 3 && roll >= 72 && roll < 84) { kind = 8; stunners += 1; }
 const life = 1 + enemyLife(L);
 R.units.push({ ox, oy, kind, hp: life, max: life, alive: true });
 }
@@ -653,22 +655,35 @@ function buildBoss() {
 const L = R.level;
 const max = Math.min(22, 6 + Math.floor(L / 20)) + enemyLife(L);
 R.raid = Math.random() * 100 < raidChance(L);
-let style = ((Math.floor(L / 5) - 1) % 4 + 4) % 4;
-if (R.nextStyle >= 0) { style = R.nextStyle; R.nextStyle = -1; }
-else if (Math.random() * 100 < 30) style = 4;
+let style = R.nextStyle >= 0 ? R.nextStyle : rolledBossStyle(L);
+R.nextStyle = -1;
 R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: max, max, style, cool: 0, open: true, openT: 0 };
 R.units = [];
 if (R.raid) {
-R.boss.style = rnd(5);
+const weapons = [0, 1, 2, 3, 4, 6];
+let cur = weapons.indexOf(style);
+if (cur < 0) cur = 0;
+style = weapons[(cur + 1 + rnd(5)) % 6];
+R.boss.style = style;
 const life = 1 + enemyLife(L);
 for (let i = 0; i < 4; i++) R.units.push({ ox: i * 30, oy: 0, kind: 0, hp: life, max: life, alive: true });
-if (R.boss.style === 1) {
+if (style === 1) {
 for (let i = 0; i < 3; i++) R.units.push({ ox: 16 + i * 40, oy: 28, kind: 3, hp: life, max: life, alive: true });
 }
 R.ox = Math.floor((W - 120) / 2);
 R.oy = 84;
 R.dir = 1;
 R.step = 2;
+}
+if (style === 6) {
+const life = 1 + enemyLife(L);
+const n = L >= 40 ? 3 : 2;
+const bx = Math.floor((W - BOSS_W) / 2);
+const slots = [bx - 52, bx + BOSS_W + 8, bx - 76];
+if (!R.raid) { R.ox = 0; R.oy = 0; R.dir = 1; R.step = 2; }
+for (let i = 0; i < n; i++) {
+R.units.push({ ox: R.raid ? slots[i] - R.ox : slots[i], oy: R.raid ? 46 - R.oy : 46, kind: 8, hp: life, max: life, alive: true, stun: 0 });
+}
 }
 buildBarriers(L);
 }
@@ -681,7 +696,7 @@ let stunners = 0;
 for (let col = 0; col < cols; col++) {
 const life = 1 + enemyLife(L);
 let kind = col & 1 ? 1 : 0;
-if (L >= 6 && stunners < 3 && rnd(100) < 30) { kind = 8; stunners += 1; }
+if (L >= 75 && stunners < 3 && rnd(100) < 30) { kind = 8; stunners += 1; }
 R.units.push({ ox: col * 30, oy: 24 + (col & 1) * 20, kind, hp: life, max: life, alive: true });
 }
 const mhp = Math.min(22, 6 + Math.floor(L / 20)) + enemyLife(L);
@@ -714,7 +729,21 @@ if (n < 1) return 4;
 return 4 + 2 * (n - 1);
 }
 function raidTell(style) {
+if (style === 6) return "NETS AND BEAM";
 return ["CLEAR GOONS", "CLEAR DRONES", "HIT WHEN OPEN", "DODGE THE SPRAY", "DODGE THE BEAM"][style] || "RAID";
+}
+function bossGimmick(style) {
+if (style === 1) return "DROP DRONES";
+if (style === 2) return "HIT WHEN OPEN";
+if (style === 3) return "DODGE SPRAY";
+if (style === 4) return "DODGE LASER";
+if (style === 6) return "NETS + LASER";
+return "BREAK SHIELD";
+}
+function rolledBossStyle(lv) {
+if (Math.random() * 100 < 30) return 4;
+const slot = ((Math.floor(lv / 5) - 1) % 5 + 5) % 5;
+return [0, 1, 2, 3, 6][slot];
 }
 // COIN_RULES_START
 // Same amounts as firmware/src/hardware/coin_drop.h.
@@ -809,7 +838,7 @@ let kind = row === 0 ? 1 : 0;
 const roll = rnd(100);
 if (roll < 12) kind = 4;
 else if (roll < 20) kind = 5;
-else if (stunners < 3 && roll < 32) { kind = 8; stunners += 1; }
+else if (R.level >= 75 && stunners < 3 && roll < 32) { kind = 8; stunners += 1; }
 const life = 1 + enemyLife();
 R.units.push({ ox: col * 30, oy: row * 22, kind, hp: life, max: life, alive: true });
 }
@@ -834,6 +863,8 @@ R.godHpMax = godBarHp();
 R.godHp = R.godHpMax;
 R.boss = { x: Math.floor((W - GOD_W) / 2), y: 40, dir: 1, hp: 1, max: 1, style: 5, cool: 0, w: GOD_W, h: GOD_H };
 R.apolloT = 0;
+R.hephT = 0;
+if (R.heph) for (const h of R.heph) h.on = false;
 const mateHp = raidCoreHp();
 R.raidMates = [{ x: 8, y: 44, hp: mateHp, max: mateHp, stun: 0, cool: 20 }];
 R.escorts = [{ side: -1, hp: 2 + enemyLife() }, { side: 1, hp: 2 + enemyLife() }];
@@ -877,7 +908,7 @@ const MACHINES = [
 { name: "TSUNAMI", hint: "wave blocks 8s", cool: 500 },
 { name: "HEAL RAY", hint: "+2 then +1", cool: 313 },
 { name: "AEGIS", hint: "3s shield x2", cool: 437 },
-{ name: "BERSERKER", hint: "1-life proc", cool: 0 },
+{ name: "BERSERKER", hint: "at 1 life", cool: 0 },
 { name: "SOLARIS", hint: "burn beam 5s", cool: 312 },
 { name: "SILVER", hint: "homing 6s", cool: 375 },
 { name: "CHARM", hint: "stop fire 9s", cool: 562 },
@@ -907,7 +938,7 @@ R.msg = MACHINES[god - 1].name;
 R.msgT = 45;
 }
 function tryBerserk() {
-if (R.lives !== 1 || !divineOn(5) || rnd(10) !== 0) return;
+if (R.lives !== 1 || !divineOn(5)) return;
 R.berserk = 500;
 for (let i = 0; i < 12; i++) R.divCool[i] = R.divCool[i] > 125 ? R.divCool[i] - 125 : 0;
 R.gunCool = R.gunCool > 125 ? R.gunCool - 125 : 0;
@@ -963,7 +994,6 @@ spawnGodOrb(x - 5, y, vx, 2);
 break;
 }
 case 10:
-spawnGodOrb(16 + rnd(W - 42), 36, 0, 2);
 break;
 case 11:
 spawnGodOrb(x - 5, y, (rnd(2) ? 1 : -1), 2);
@@ -983,8 +1013,10 @@ if (R.berserk > 0) R.berserk -= 1;
 if (R.demeterT > 0) {
 R.demeterT -= 1;
 if (R.demeterT === 0 && R.demeterBonus > 0) {
+const before = R.lives;
 R.lives = Math.max(1, R.lives - R.demeterBonus);
 R.demeterBonus = 0;
+if (before > 1 && R.lives === 1) tryBerserk();
 }
 }
 if (R.aegisT > 0) {
@@ -1302,6 +1334,7 @@ killUnit(u);
 function bossHit() {
 if (!R.boss) return false;
 if (R.raid && R.units.some(u => u.alive)) return false;
+if (R.boss.style === 6 && R.units.some(u => u.alive && u.kind === 8)) return false;
 if (R.raid && R.boss.style === 2 && !R.boss.open) return false;
 beep(523, 35);
 if (R.godEntrance) {
@@ -1884,7 +1917,7 @@ spawnGodOrb(escortX(e) + ALLY_W / 2 - 5, ESCORT_Y + ALLY_H, 0, 2);
 return;
 }
 if (R.boss.stun > 0) return;
-if (R.raid && b.style === 4) return;
+if (b.style === 6 || (R.raid && b.style === 4)) return;
 if (b.style === 1 || (R.raid && b.style === 3)) {
 fireFoe(x - 8, y, 0, who, -2); fireFoe(x, y, 0, who, 0); fireFoe(x + 8, y, 0, who, 2);
 } else {
@@ -1935,7 +1968,7 @@ R.level += 1;
 save.level = R.level;
 persist();
 if (R.level % 5 === 0 && R.level % 25 !== 0) {
-R.nextStyle = Math.random() * 100 < 30 ? 4 : ((Math.floor(R.level / 5) - 1) % 4 + 4) % 4;
+R.nextStyle = rolledBossStyle(R.level);
 } else R.nextStyle = -1;
 R.timer = 54;
 R.foes = []; R.bolts = []; R.coins = [];
@@ -1954,8 +1987,44 @@ if (Math.abs(R.apolloX2 - R.apolloX) < 16) R.apolloX2 = clamp(R.apolloX + (R.apo
 const hit = (x, p) => p === 36 && overlapRect(x - 1, SHIP_Y, 4, SHIP_H, R.px, SHIP_Y, SHIP_W, SHIP_H);
 return hit(R.apolloX, phase) || hit(R.apolloX2, phase2);
 }
+function stepHephaestus() {
+if (R.god !== 10 || scr !== "play") { R.hephT = 0; return false; }
+R.hephT += 1;
+let hit = false;
+for (let i = 0; i < 3; i++) {
+const phase = (R.hephT + i * 30) % 90;
+const beam = R.heph[i];
+if (phase === 1) {
+const x0 = i === 0 ? 18 : (i === 1 ? Math.floor(W / 2) : W - 18);
+const y0 = i === 1 ? 40 : 56;
+const tx = R.px + Math.floor(SHIP_W / 2);
+let dx = tx - x0;
+let dy = (SHIP_Y + Math.floor(SHIP_H / 2)) - y0;
+if (dy < 8) dy = 8;
+if (dx > -36 && dx < 36) dx = (i === 2 || (i === 1 && tx < W / 2)) ? -56 : 56;
+const endY = SHIP_Y + SHIP_H;
+let x1 = x0 + Math.floor(dx * (endY - y0) / dy);
+x1 = clamp(x1, 0, W - 1);
+beam.x0 = x0; beam.y0 = y0; beam.x1 = x1; beam.y1 = endY; beam.on = true;
+}
+if (phase === 41) beam.on = false;
+if (beam.on && phase === 29 && hephHitsShip(beam)) hit = true;
+}
+return hit;
+}
+function hephHitsShip(beam) {
+const x0 = beam.x0, y0 = beam.y0, x1 = beam.x1, y1 = beam.y1;
+const adx = Math.abs(x1 - x0), ady = Math.abs(y1 - y0);
+const steps = Math.floor(Math.max(adx, ady) / 4) + 1;
+for (let s = 0; s <= steps; s++) {
+const x = x0 + Math.floor((x1 - x0) * s / steps);
+const y = y0 + Math.floor((y1 - y0) * s / steps);
+if (overlapRect(x - 2, y - 2, 5, 5, R.px, SHIP_Y, SHIP_W, SHIP_H)) return true;
+}
+return false;
+}
 function raidBeamStrike() {
-if (!R.boss || !R.raid || R.boss.style !== 4) return false;
+if (!R.boss || R.godEntrance || (R.boss.style !== 4 && R.boss.style !== 6)) return false;
 R.raidBeamT += 1;
 const phase = R.raidBeamT % 100;
 if (phase === 1) R.raidBeamX = clamp(R.px + Math.floor(SHIP_W / 2) - 1, 6, W - 8);
@@ -2025,6 +2094,10 @@ if (R.charm <= 0) enemyShoot();
 fireStunners();
 stepFoes();
 if (scr === entry && stepApollo()) {
+shipHit("GOD BEAM");
+if (scr !== entry) return;
+}
+if (scr === entry && stepHephaestus()) {
 shipHit("GOD BEAM");
 if (scr !== entry) return;
 }
@@ -2834,11 +2907,35 @@ drawGodRobot(Math.round(b.x), b.y, P);
 } else {
 drawAlienAt(Math.round(b.x), b.y, 2, P, { max: b.max, hp: b.hp });
 if (R.raid && b.style === 2 && !b.open) fillRect(Math.round(b.x), b.y, BOSS_W, 8, P.muted);
+if (b.style === 4 || b.style === 6) {
+const bx = Math.round(b.x);
+fillRect(bx + 20, b.y + 4, 4, 16, clr([255, 48, 40]));
+if (b.style === 6) {
+drawLine(bx + 8, b.y + 8, bx + 16, b.y + 14, clr([80, 220, 255]));
+drawLine(bx + 16, b.y + 8, bx + 8, b.y + 14, clr([80, 220, 255]));
 }
-if (R.boss && R.raid && R.boss.style === 4 && R.raidBeamT) {
+}
+}
+if (R.boss && !R.godEntrance && (R.boss.style === 4 || R.boss.style === 6) && R.raidBeamT) {
 const phase = R.raidBeamT % 100;
 if (phase >= 2 && phase <= 35) fillRect(R.raidBeamX, 36, 2, SHIP_Y - 36, clr([90, 36, 36]));
 else if (phase >= 36 && phase < 48) fillRect(R.raidBeamX - 1, 36, 4, SHIP_Y - 36, clr([255, 48, 40]));
+}
+}
+if (R.god === 10 && R.hephT) {
+for (let i = 0; i < 3; i++) {
+const beam = R.heph[i];
+if (!beam.on) continue;
+const phase = (R.hephT + i * 30) % 90;
+const hot = phase >= 29 && phase <= 40;
+const warn = phase >= 2 && phase <= 28;
+if (!hot && !warn) continue;
+const ink = hot ? clr([255, 176, 48]) : clr([180, 72, 24]);
+drawLine(beam.x0, beam.y0, beam.x1, beam.y1, ink);
+if (hot) {
+drawLine(beam.x0 - 1, beam.y0, beam.x1 - 1, beam.y1, ink);
+drawLine(beam.x0 + 1, beam.y0, beam.x1 + 1, beam.y1, ink);
+}
 }
 }
 if (R.god === 7 && R.godEntrance && R.apolloT) {
@@ -3170,9 +3267,8 @@ drawText("INVADERS MACHINA", W / 2, 164, P.ink, "f2", "mc");
 const next = R.level;
 if (next % 5 === 0 && next % 25 !== 0) {
 const style = R.nextStyle >= 0 ? R.nextStyle : 0;
-const gimmicks = ["BREAK SHIELD", "DROP DRONES", "HIT WHEN OPEN", "DODGE SPRAY", "DODGE LASER"];
 drawText("BOSS " + next, W / 2, 188, P.ink, "f2", "mc");
-drawText(gimmicks[style], W / 2, 212, P.accent, "f2", "mc");
+drawText(bossGimmick(style), W / 2, 212, P.accent, "f2", "mc");
 } else {
 drawText("LEVEL " + next, W / 2, 198, P.ink, "f2", "mc");
 }
