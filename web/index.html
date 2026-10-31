@@ -34,6 +34,7 @@ const W = 320, H = 480;
 const SHIP_Y = 368, SHIP_W = 32, SHIP_H = 16;
 const ALIEN_W = 18, ALIEN_H = 14;
 const BOSS_W = 44, BOSS_H = 30;
+const GOD_W = 52, GOD_H = 58, NET_W = 27;
 const MINI_W = 30, MINI_H = 20;
 const ALLY_W = 18, ALLY_H = 16;
 const BLAST_R = 20;
@@ -483,10 +484,29 @@ divCool: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 demeterUses: 0, demeterBonus: 0, demeterT: 0, athenaUses: 0, aegisT: 0, aegisHits: 0,
 stun: 0, charm: 0, revel: 0, hermes: 0, berserk: 0,
 waveY: -1, sunT: 0, sunX: 0, godBeamT: 0, godBeamX: 0, godWard: 0,
-cloneAlive: false, cloneX: 16, cloneCool: 0
+cloneAlive: false, cloneX: 16, cloneCool: 0,
+playerStun: 0, apolloT: 0, apolloX: 160, apolloX2: 200, nextStyle: -1
 };
 }
 function rnd(n) { return Math.floor(Math.random() * n); }
+let audioCtx = null;
+function beep(hz, ms) {
+const AC = window.AudioContext || window.webkitAudioContext;
+if (!AC) return;
+if (!audioCtx) audioCtx = new AC();
+if (audioCtx.state === "suspended") audioCtx.resume();
+const o = audioCtx.createOscillator();
+const g = audioCtx.createGain();
+o.type = "square";
+o.frequency.value = hz;
+g.gain.setValueAtTime(0.05, audioCtx.currentTime);
+o.connect(g);
+g.connect(audioCtx.destination);
+o.start();
+o.stop(audioCtx.currentTime + ms / 1000);
+}
+function bossW() { return R.boss && R.boss.w ? R.boss.w : BOSS_W; }
+function bossH() { return R.boss && R.boss.h ? R.boss.h : BOSS_H; }
 function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 function overlapRect(ax, ay, aw, ah, bx, by, bw, bh) {
 return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
@@ -503,7 +523,7 @@ function startLevel() {
 const L = R.level;
 R.foes = []; R.bolts = []; R.blasts = []; R.escorts = []; R.raidMates = []; R.boss = null;
 R.mini = false; R.raid = false; R.god = 0; R.godEntrance = false;
-R.raidSplash = false; R.shieldHole = 0; R.raidBeamT = 0;
+R.raidSplash = false; R.shieldHole = 0; R.raidBeamT = 0; R.playerStun = 0; R.apolloT = 0;
 R.invuln = 0; R.cool = 0; R.foeCool = 0; R.gunCool = 0;
 R.beamOn = false; R.beamBurst = 0; R.beamCool = 0; R.beamTick = 0;
 R.drop = Math.min(20, 8 + Math.floor((L - 1) / 20));
@@ -576,6 +596,7 @@ if (L > 220) rows += 1;
 if (rows > 5) rows = 5;
 const yellow = 1 + rnd(rows);
 R.step = Math.min(7, 2 + Math.floor(L / 50) + rnd(3));
+let stunners = 0;
 for (let row = 0; row < rows; row++) {
 for (let col = 0; col < cols; col++) {
 let ox = col * 30;
@@ -591,6 +612,7 @@ if (rnd(5) === 0) kind ^= 1;
 const roll = rnd(100);
 if (L >= 3 && roll < 6 + Math.floor(L / 25)) kind = 4;
 else if (L >= 8 && roll >= 90 - Math.floor(L / 30)) kind = 5;
+else if (L >= 6 && stunners < 3 && roll >= 72 && roll < 84) { kind = 8; stunners += 1; }
 const life = 1 + enemyLife(L);
 R.units.push({ ox, oy, kind, hp: life, max: life, alive: true });
 }
@@ -616,7 +638,10 @@ function buildBoss() {
 const L = R.level;
 const max = Math.min(22, 6 + Math.floor(L / 20)) + enemyLife(L);
 R.raid = Math.random() * 100 < raidChance(L);
-R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: max, max, style: L % 2, cool: 0, open: true, openT: 0 };
+let style = ((Math.floor(L / 5) - 1) % 4 + 4) % 4;
+if (R.nextStyle >= 0) { style = R.nextStyle; R.nextStyle = -1; }
+else if (Math.random() * 100 < 30) style = 4;
+R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: max, max, style, cool: 0, open: true, openT: 0 };
 R.units = [];
 if (R.raid) {
 R.boss.style = rnd(5);
@@ -637,9 +662,12 @@ R.mini = true;
 const L = R.level;
 const cols = 4;
 R.units = [];
+let stunners = 0;
 for (let col = 0; col < cols; col++) {
 const life = 1 + enemyLife(L);
-R.units.push({ ox: col * 30, oy: 24 + (col & 1) * 20, kind: col & 1 ? 1 : 0, hp: life, max: life, alive: true });
+let kind = col & 1 ? 1 : 0;
+if (L >= 6 && stunners < 3 && rnd(100) < 30) { kind = 8; stunners += 1; }
+R.units.push({ ox: col * 30, oy: 24 + (col & 1) * 20, kind, hp: life, max: life, alive: true });
 }
 const mhp = Math.min(22, 6 + Math.floor(L / 20)) + enemyLife(L);
 R.units.push({ ox: Math.floor((cols * 30 - MINI_W) / 2), oy: 0, kind: 6, hp: mhp, max: mhp, alive: true });
@@ -709,12 +737,14 @@ let cols = 4 + wave;
 if (cols > 8) cols = 8;
 const rows = 2 + (wave >= 2 ? 1 : 0);
 R.units = [];
+let stunners = 0;
 for (let row = 0; row < rows; row++) {
 for (let col = 0; col < cols; col++) {
 let kind = row === 0 ? 1 : 0;
 const roll = rnd(100);
 if (roll < 12) kind = 4;
 else if (roll < 20) kind = 5;
+else if (stunners < 3 && roll < 32) { kind = 8; stunners += 1; }
 const life = 1 + enemyLife();
 R.units.push({ ox: col * 30, oy: row * 22, kind, hp: life, max: life, alive: true });
 }
@@ -737,7 +767,8 @@ R.godEntrance = true;
 R.godBars = 3;
 R.godHpMax = godBarHp();
 R.godHp = R.godHpMax;
-R.boss = { x: (W - BOSS_W) / 2, y: 40, dir: 1, hp: 1, max: 1, style: 5, cool: 0 };
+R.boss = { x: Math.floor((W - GOD_W) / 2), y: 40, dir: 1, hp: 1, max: 1, style: 5, cool: 0, w: GOD_W, h: GOD_H };
+R.apolloT = 0;
 const mateHp = raidCoreHp();
 R.raidMates = [{ x: 8, y: 44, hp: mateHp, max: mateHp, stun: 0, cool: 20 }];
 R.escorts = [{ side: -1, hp: 2 + enemyLife() }, { side: 1, hp: 2 + enemyLife() }];
@@ -758,6 +789,7 @@ let w = 3, h = 8, speed = 6, ox = x;
 if (kind === 3) { w = 10; h = 10; speed = 4 + phase; ox = clamp(x, 0, W - 10); }
 else if (kind === 4) { w = 14; h = 10; speed = 2; }
 else if (kind === 5) { w = 4; h = 8; speed = 3; }
+else if (kind === 6) { w = NET_W; h = 8; speed = 3; ox = x - Math.floor(NET_W / 2); }
 else if (kind === 2) { w = 5; h = 6; speed = 4; ox = x - 2; }
 else if (kind === 1) { w = 2; h = 6; speed = 8; ox = x - 1; }
 R.foes.push({ x: ox, y, vx, vy: vy == null ? speed : vy, w, h, kind, who });
@@ -852,7 +884,6 @@ case 6:
 spawnGodHazard(x - 5, y);
 break;
 case 7:
-spawnGodOrb(x - 5, y, (R.spaceTick & 32) ? 1 : -1, 2);
 break;
 case 8: {
 const dx = px - x;
@@ -907,7 +938,7 @@ if (!u.alive) continue;
 const [sw, sh] = unitSize(u);
 if (overlapRect(R.sunX, 36, 6, SHIP_Y - 36, R.ox + u.ox, R.oy + u.oy, sw, sh)) hitUnit(u);
 }
-if (R.boss && overlapRect(R.sunX, 36, 6, SHIP_Y - 36, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) bossHit();
+if (R.boss && overlapRect(R.sunX, 36, 6, SHIP_Y - 36, R.boss.x, R.boss.y, bossW(), bossH())) bossHit();
 for (let mi = R.raidMates.length - 1; mi >= 0; mi--) {
 const m = R.raidMates[mi];
 if (overlapRect(R.sunX, 36, 6, SHIP_Y - 36, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidMate(mi);
@@ -941,7 +972,7 @@ if (!u.alive) continue;
 const [sw, sh] = unitSize(u);
 if (overlapRect(rx, 30, rw, rh, R.ox + u.ox, R.oy + u.oy, sw, sh)) u.stun = 94;
 }
-if (R.boss && overlapRect(rx, 30, rw, rh, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) R.boss.stun = 94;
+if (R.boss && overlapRect(rx, 30, rw, rh, R.boss.x, R.boss.y, bossW(), bossH())) R.boss.stun = 94;
 for (const e of R.escorts) {
 if (overlapRect(rx, 30, rw, rh, escortX(e), ESCORT_Y, ALLY_W, ALLY_H)) e.stun = 94;
 }
@@ -1007,7 +1038,7 @@ if (!u.alive) continue;
 const [sw, sh] = unitSize(u);
 if (overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, R.ox + u.ox, R.oy + u.oy, sw, sh)) hitUnit(u);
 }
-if (R.boss && overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) bossHit();
+if (R.boss && overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, R.boss.x, R.boss.y, bossW(), bossH())) bossHit();
 for (let mi = R.raidMates.length - 1; mi >= 0; mi--) {
 const m = R.raidMates[mi];
 if (overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidMate(mi);
@@ -1028,6 +1059,7 @@ if (u.kind === 6) return "MINI BOSS";
 if (u.kind === 4) return "ASSAULT";
 if (u.kind === 5) return "CANNON";
 if (u.kind === 2) return R.raid ? "RAID BOSS" : "BOSS";
+if (u.kind === 8) return "STUNNER";
 if (u.kind === 3) return "DRONE";
 return "ALIEN";
 }
@@ -1178,6 +1210,7 @@ return dmg;
 function hurtRaidMate(i) {
 const m = R.raidMates[i];
 if (!m) return;
+beep(523, 35);
 m.hp -= playerDamage();
 addScore(10);
 if (m.hp <= 0) {
@@ -1187,6 +1220,7 @@ R.raidMates.splice(i, 1);
 }
 }
 function hitUnit(u) {
+if (u.kind === 6) beep(523, 35);
 u.hp -= playerDamage();
 if (u.kind === 6) {
 if (u.hp > 0) {
@@ -1203,6 +1237,7 @@ function bossHit() {
 if (!R.boss) return false;
 if (R.raid && R.units.some(u => u.alive)) return false;
 if (R.raid && R.boss.style === 2 && !R.boss.open) return false;
+beep(523, 35);
 if (R.godEntrance) {
 addScore(10);
 R.godHp -= playerDamage();
@@ -1214,7 +1249,7 @@ R.godHp = R.godHpMax;
 R.foes = [];
 } else {
 const slain = R.god;
-const [cx, cy] = centerOf(R.boss.x, R.boss.y, BOSS_W, BOSS_H);
+const [cx, cy] = centerOf(R.boss.x, R.boss.y, bossW(), bossH());
 dropCoins(cx, cy, bossBounty(10));
 maybeDrop(true);
 R.boss = null;
@@ -1231,7 +1266,7 @@ return true;
 R.boss.hp -= playerDamage();
 addScore(10);
 if (R.boss.hp <= 0) {
-const [cx, cy] = centerOf(R.boss.x, R.boss.y, BOSS_W, BOSS_H);
+const [cx, cy] = centerOf(R.boss.x, R.boss.y, bossW(), bossH());
 dropCoins(cx, cy, bossBounty(R.raid ? 4 : 3));
 if (R.raid) { save.raidWon = true; persist(); }
 R.boss = null;
@@ -1396,7 +1431,7 @@ e.hp -= playerDamage();
 addScore(10);
 if (e.hp <= 0) R.escorts.splice(i, 1);
 }
-if (R.boss && overlapRect(bx, by, bw, bh, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) bossHit();
+if (R.boss && overlapRect(bx, by, bw, bh, R.boss.x, R.boss.y, bossW(), bossH())) bossHit();
 for (let mi = R.raidMates.length - 1; mi >= 0; mi--) {
 const m = R.raidMates[mi];
 if (overlapRect(bx, by, bw, bh, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidMate(mi);
@@ -1518,7 +1553,7 @@ e.hp -= playerDamage();
 addScore(10);
 return true;
 }
-if (R.boss && !b.hit.has(R.boss) && overlapRect(x, y, b.w, b.h, R.boss.x, R.boss.y, BOSS_W, BOSS_H)) {
+if (R.boss && !b.hit.has(R.boss) && overlapRect(x, y, b.w, b.h, R.boss.x, R.boss.y, bossW(), bossH())) {
 b.hit.add(R.boss);
 bossHit();
 return true;
@@ -1704,6 +1739,11 @@ const nx = f.x + f.vx, ny = f.y + f.vy;
 const hitShip = overlapRect(nx, ny, f.w, f.h, R.px, SHIP_Y, SHIP_W, SHIP_H);
 const hitClone = R.cloneAlive && overlapRect(nx, ny, f.w, f.h, R.cloneX, SHIP_Y, SHIP_W, SHIP_H);
 const blocked = nx < 0 || nx > W - f.w || ny >= BUTTON_Y || barrierHitRect(nx, ny, f.w, f.h);
+if (f.kind === 6 && (hitShip || hitClone || blocked)) {
+foes.splice(i, 1);
+if (hitShip) { R.playerStun = 78; beep(146, 150); }
+continue;
+}
 if (hitClone && !hitShip) {
 foes.splice(i, 1);
 if (f.kind === 2 && blastAt(nx + 2, ny + 3)) shipHit(f.who);
@@ -1728,7 +1768,7 @@ function enemyShoot() {
 if (R.god && !R.godEntrance && (R.spaceTick & 1) === 0) {
 fireGodGimmick(W / 2, 40);
 }
-const live = R.units.filter(u => u.alive && u.kind !== 2 && !(u.stun > 0));
+const live = R.units.filter(u => u.alive && u.kind !== 2 && u.kind !== 8 && !(u.stun > 0));
 if (live.length === 0) return;
 const u = live[rnd(live.length)];
 const [sw, sh] = unitSize(u);
@@ -1751,10 +1791,22 @@ fireFoe(mx + 12, my, 0, who, 1);
 fireFoe(mx, my, 0, who, 0);
 }
 }
+function fireStunners() {
+if (R.charm > 0) return;
+let seen = 0;
+for (const u of R.units) {
+if (!u.alive || u.kind !== 8 || u.stun > 0) continue;
+const phase = (R.spaceTick + seen * 21) % 48;
+seen += 1;
+if (phase !== 0) continue;
+const [sw, sh] = unitSize(u);
+fireFoe(R.ox + u.ox + sw / 2, R.oy + u.oy + sh, 6, "STUNNER", 0);
+}
+}
 function fireBoss() {
 const b = R.boss;
-const x = b.x + BOSS_W / 2;
-const y = b.y + BOSS_H;
+const x = b.x + bossW() / 2;
+const y = b.y + bossH();
 const who = R.godEntrance ? godName() : (R.raid ? "RAID BOSS" : "BOSS");
 if (R.godEntrance) {
 if (R.boss && !(R.boss.stun > 0)) fireGodGimmick(x, y);
@@ -1781,6 +1833,7 @@ const ny = c.y + 2;
 if (overlapRect(c.x, ny, COIN_SIZE, COIN_SIZE, R.px, SHIP_Y, SHIP_W, SHIP_H)) {
 R.coins.splice(i, 1);
 if (!demo && save.coins < 65535) save.coins += 1;
+beep(1046, 45);
 continue;
 }
 if (ny >= BUTTON_Y) { R.coins.splice(i, 1); continue; }
@@ -1814,9 +1867,25 @@ return;
 R.level += 1;
 save.level = R.level;
 persist();
+if (R.level % 5 === 0 && R.level % 25 !== 0) {
+R.nextStyle = Math.random() * 100 < 30 ? 4 : ((Math.floor(R.level / 5) - 1) % 4 + 4) % 4;
+} else R.nextStyle = -1;
 R.timer = 54;
 R.foes = []; R.bolts = []; R.coins = [];
 setScr("advance");
+}
+function stepApollo() {
+if (!(R.god === 7 && R.godEntrance && R.boss)) { R.apolloT = 0; return false; }
+R.apolloT += 1;
+const phase = R.apolloT % 100;
+const phase2 = (R.apolloT + 50) % 100;
+if (phase === 1) R.apolloX = clamp(R.px + Math.floor(SHIP_W / 2) - 1, 8, W - 10);
+if (phase2 === 1) {
+R.apolloX2 = clamp(R.px + Math.floor(SHIP_W / 2) - 1, 8, W - 10);
+if (Math.abs(R.apolloX2 - R.apolloX) < 16) R.apolloX2 = clamp(R.apolloX + (R.apolloX < W / 2 ? 28 : -28), 8, W - 10);
+}
+const hit = (x, p) => p === 36 && overlapRect(x - 1, SHIP_Y, 4, SHIP_H, R.px, SHIP_Y, SHIP_W, SHIP_H);
+return hit(R.apolloX, phase) || hit(R.apolloX2, phase2);
 }
 function raidBeamStrike() {
 if (!R.boss || !R.raid || R.boss.style !== 4) return false;
@@ -1829,6 +1898,7 @@ function stepPlay(input) {
 const entry = scr;
 if (R.zapT > 0) R.zapT -= 1;
 if (R.invuln > 0) R.invuln -= 1;
+if (R.playerStun > 0) R.playerStun -= 1;
 if (R.shieldHole > 0) R.shieldHole -= 1;
 if (R.boss && R.raid && R.boss.style === 2) {
 R.boss.openT += 1;
@@ -1838,16 +1908,17 @@ stepBoosts();
 if (R.gunCool > 0) R.gunCool -= 1;
 R.spaceTick += 1;
 const step = SHIP_STEP + save.thrust + (perk(PERK.speed) ? 1 : 0) + (R.hermes > 0 ? 4 : 0);
-if (input.left) R.px -= step;
-if (input.right) R.px += step;
-if (input.aim !== null) R.px = input.aim;
+const stunned = R.playerStun > 0;
+if (!stunned && input.left) R.px -= step;
+if (!stunned && input.right) R.px += step;
+if (!stunned && input.aim !== null) R.px = input.aim;
 R.px = clamp(R.px, 4, W - SHIP_W - 4);
 placeClone();
-if (baseGun() === 3) stepBeam(input.fire);
+if (baseGun() === 3) stepBeam(input.fire && R.playerStun <= 0);
 else {
 R.beamOn = false;
 R.beamBurst = 0;
-if (input.fire) fireGun();
+if (input.fire && !stunned) fireGun();
 }
 stepBolts();
 stepDrop();
@@ -1869,7 +1940,7 @@ const b = R.boss;
 if (!(b.stun > 0)) {
 b.x += b.dir * (b.style === 1 ? 2 : 1);
 const minX = R.escorts.length > 0 ? 60 : 8;
-const maxX = R.escorts.length > 0 ? W - BOSS_W - 60 : W - BOSS_W - 8;
+const maxX = R.escorts.length > 0 ? W - bossW() - 60 : W - bossW() - 8;
 if (b.x < minX) { b.x = minX; b.dir = 1; }
 if (b.x > maxX) { b.x = maxX; b.dir = -1; }
 }
@@ -1884,7 +1955,12 @@ if (R.foeCool >= R.foeGap) {
 R.foeCool = 0;
 if (R.charm <= 0) enemyShoot();
 }
+fireStunners();
 stepFoes();
+if (scr === entry && stepApollo()) {
+shipHit("GOD BEAM");
+if (scr !== entry) return;
+}
 if (scr === entry && raidBeamStrike()) {
 shipHit("GOD BEAM");
 if (scr !== entry) return;
@@ -1907,6 +1983,7 @@ break;
 }
 }
 const anyLeft = R.units.some(u => u.alive) || !!R.boss || R.escorts.length > 0 || R.raidMates.length > 0;
+if (R.coins.length && !anyLeft) return;
 if (!anyLeft && !R.godEntrance) {
 if (R.god && R.godWave < godWaveTotal()) {
 R.godWave += 1;
@@ -2354,9 +2431,42 @@ if (R.terrain === 1) { fillRect(s.x, s.y, s.w, 2, P.planet); return; }
 if (R.terrain === 2) { fillRect(0, s.y, W, 2, P.planet); return; }
 fillRect(s.x, s.y, s.w, 2, P.top);
 }
+function drawGodRobot(x, y, P) {
+const metal = clr([176, 184, 196]);
+const dark = clr([40, 44, 56]);
+const ink = godInk();
+const cx = x + Math.floor(GOD_W / 2);
+drawCircle(cx, y + 8, 7, ink);
+drawCircle(cx, y + 8, 4, clr([255, 244, 210]));
+fillRect(cx - 6, y + 14, 12, 10, metal);
+fillRect(cx - 3, y + 17, 2, 2, ink);
+fillRect(cx + 1, y + 17, 2, 2, ink);
+fillRect(cx - 10, y + 26, 20, 16, metal);
+fillRect(cx - 8, y + 28, 16, 8, dark);
+fillRect(cx - 2, y + 30, 4, 4, ink);
+fillRect(x + 2, y + 28, 5, 14, metal);
+fillRect(x + GOD_W - 7, y + 28, 5, 14, metal);
+fillRect(cx - 8, y + 43, 6, 10, metal);
+fillRect(cx + 2, y + 43, 6, 10, metal);
+fillRect(cx - 9, y + 52, 8, 3, dark);
+fillRect(cx + 1, y + 52, 8, 3, dark);
+const pool = Math.max(1, R.godHpMax);
+const left = clamp(R.godHp, 0, pool);
+if (left > 0) fillRect(x + 4, y + GOD_H - 4, Math.floor((GOD_W - 8) * left / pool), 3, ink);
+}
 function drawAlienAt(x, y, kind, P, opts) {
 const body = kind === 0 ? P.low : P.top;
 const eye = P.bg;
+if (kind === 8) {
+const net = clr([80, 210, 255]);
+fillRect(x + 3, y + 3, 12, 8, P.top);
+fillRect(x + 6, y, 6, 3, net);
+drawLine(x + 4, y + 5, x + 14, y + 9, net);
+drawLine(x + 14, y + 5, x + 4, y + 9, net);
+fillRect(x + 2, y + 11, 4, 3, net);
+fillRect(x + 12, y + 11, 4, 3, net);
+return;
+}
 if (kind === 3) {
 fillRect(x + 2, y + 2, 12, 8, P.accent);
 fillRect(x, y + 4, 4, 3, P.top);
@@ -2650,7 +2760,7 @@ if (R.boss) {
 const b = R.boss;
 if (R.godEntrance) {
 for (const e of R.escorts) drawAlienAt(escortX(e), ESCORT_Y, 7, P, {});
-drawAlienAt(Math.round(b.x), b.y, 2, P, { max: 1, hp: 1 });
+drawGodRobot(Math.round(b.x), b.y, P);
 } else {
 drawAlienAt(Math.round(b.x), b.y, 2, P, { max: b.max, hp: b.hp });
 if (R.raid && b.style === 2 && !b.open) fillRect(Math.round(b.x), b.y, BOSS_W, 8, P.muted);
@@ -2660,6 +2770,14 @@ const phase = R.raidBeamT % 100;
 if (phase >= 2 && phase <= 35) fillRect(R.raidBeamX, 36, 2, SHIP_Y - 36, clr([90, 36, 36]));
 else if (phase >= 36 && phase < 48) fillRect(R.raidBeamX - 1, 36, 4, SHIP_Y - 36, clr([255, 48, 40]));
 }
+}
+if (R.god === 7 && R.godEntrance && R.apolloT) {
+const phase = R.apolloT % 100;
+const phase2 = (R.apolloT + 50) % 100;
+if (phase >= 2 && phase <= 35) fillRect(R.apolloX, 36, 2, SHIP_Y - 36, clr([255, 210, 120]));
+else if (phase >= 36 && phase < 48) fillRect(R.apolloX - 1, 36, 4, SHIP_Y - 36, clr([255, 244, 180]));
+if (phase2 >= 2 && phase2 <= 35) fillRect(R.apolloX2, 36, 2, SHIP_Y - 36, clr([255, 210, 120]));
+else if (phase2 >= 36 && phase2 < 48) fillRect(R.apolloX2 - 1, 36, 4, SHIP_Y - 36, clr([255, 244, 180]));
 }
 if (R.zapT > 0) fillRect(R.zapX, 30, 4, SHIP_Y - 30, clr([255, 240, 120]));
 for (const f of R.foes) {
@@ -2676,6 +2794,12 @@ fillRect(fx, fy, f.w, f.h, ink);
 if (f.w > 6 && f.h > 6) fillRect(fx + 3, fy + 3, f.w - 6, f.h - 6, clr([255, 255, 255]));
 } else if (f.kind === 5) {
 fillRect(fx, fy, f.w, f.h, clr([255, 140, 200]));
+} else if (f.kind === 6) {
+const ink = clr([80, 220, 255]);
+drawRect(fx, fy, f.w, f.h, ink);
+drawLine(fx, fy, fx + f.w - 1, fy + f.h - 1, ink);
+drawLine(fx + f.w - 1, fy, fx, fy + f.h - 1, ink);
+drawLine(fx, fy + Math.floor(f.h / 2), fx + f.w - 1, fy + Math.floor(f.h / 2), ink);
 } else {
 fillRect(fx, fy, f.w, f.h, foeInk(f));
 }
@@ -2708,6 +2832,12 @@ for (let rr = 5; rr <= r; rr += 5) drawCircle(bl.x, bl.y, rr, clr([255, 176, 60]
 }
 const blinkOff = R.invuln > 50 && Math.floor((80 - R.invuln) / 5) % 2 === 1;
 if (!blinkOff) drawShipAt(R.px, P);
+if (R.playerStun > 0) {
+const net = clr([80, 220, 255]);
+const nx = R.px - 2, ny = SHIP_Y - 2;
+for (let i = 0; i < 4; i++) drawLine(nx, ny + i * 5, nx + SHIP_W + 4, ny + i * 5, net);
+for (let i = 0; i < 5; i++) drawLine(nx + i * 8, ny, nx + i * 8, ny + 16, net);
+}
 if (R.cloneAlive) drawShipAt(R.cloneX, P);
 if (!demo) {
 let dn = 0;
@@ -2967,9 +3097,9 @@ function paintAdvance(P) {
 fillRect(16, 140, W - 32, 100, P.bg);
 drawRect(16, 140, W - 32, 100, P.accent);
 drawText("INVADERS MACHINA", W / 2, 164, P.ink, "f2", "mc");
-const next = R.level + 1;
-if (next % 5 === 0) {
-const style = ((next / 5) - 1) % 5;
+const next = R.level;
+if (next % 5 === 0 && next % 25 !== 0) {
+const style = R.nextStyle >= 0 ? R.nextStyle : 0;
 const gimmicks = ["BREAK SHIELD", "DROP DRONES", "HIT WHEN OPEN", "DODGE SPRAY", "DODGE LASER"];
 drawText("BOSS " + next, W / 2, 188, P.ink, "f2", "mc");
 drawText(gimmicks[style], W / 2, 212, P.accent, "f2", "mc");

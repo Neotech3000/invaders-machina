@@ -151,6 +151,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     loadShop();
     loadCampaign();
     makeStars();
+    ledcSetup(kSoundCh, 2000, 8);
+    ledcAttachPin(kPinSpeaker, kSoundCh);
+    ledcWriteTone(kSoundCh, 0);
     rng_ = esp_random();
     if (rng_ == 0) rng_ = 1;
     fillScreen(palette().bg);
@@ -167,6 +170,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     step_at_ = now;
+    if (sound_until_ != 0 && static_cast<int32_t>(now - sound_until_) >= 0) {
+      ledcWriteTone(kSoundCh, 0);
+      sound_until_ = 0;
+    }
     int tx = 0;
     int ty = 0;
     TouchRaw raw;
@@ -469,6 +476,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kAlienH = 14;
   static constexpr int kBossW = 44;
   static constexpr int kBossH = 30;
+  static constexpr int kGodW = 52;
+  static constexpr int kGodH = 58;
+  // 3 mm is about 20 px on this panel, so a 4 mm net is 27 px.
+  static constexpr int kNetW = 27;
+  static constexpr int kPinSpeaker = 26;
+  static constexpr int kSoundCh = 5;
   static constexpr int kMiniW = 30;
   static constexpr int kMiniH = 20;
   static constexpr int kAllyW = 18;
@@ -1617,6 +1630,18 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
+  bool anyCoin() const {
+    for (int i = 0; i < kCoins; ++i) {
+      if (coins_[i].on) return true;
+    }
+    return false;
+  }
+
+  void playTone(int hz, int ms) {
+    ledcWriteTone(kSoundCh, hz);
+    sound_until_ = millis() + static_cast<uint32_t>(ms);
+  }
+
   void stepCoins() {
     bool collected = false;
     for (int i = 0; i < kCoins; ++i) {
@@ -1630,6 +1655,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         drawShipAt(player_x_);
         coin.on = false;
         if (bank_ < 65535) bank_ += 1;
+        playTone(1046, 45);
         collected = true;
         continue;
       }
@@ -2310,6 +2336,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         return "CANNON";
       case 6:
         return "MINI BOSS";
+      case 8:
+        return "STUNNER";
       default:
         return "ALIEN";
     }
@@ -2863,12 +2891,17 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     const int rows = 2 + (wave >= 2 ? 1 : 0);
     const int pitch_x = 30;
     const int pitch_y = 22;
+    int stunners = 0;
     for (int row = 0; row < rows; ++row) {
       for (int col = 0; col < cols; ++col) {
         int kind = (row == 0) ? 1 : 0;
         const uint32_t roll = nextRng() % 100;
         if (roll < 12) kind = 4;
         else if (roll < 20) kind = 5;
+        else if (stunners < 3 && roll < 32) {
+          kind = 8;
+          stunners += 1;
+        }
         addUnit(col * pitch_x, row * pitch_y, kind);
       }
     }
@@ -2920,12 +2953,14 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     laser_live_ = false;
     clearFoe();
     clearBolts();
-    const int boss_ox = (kPanelWidth - kBossW) / 2;
+    const int god_ox = (kPanelWidth - kGodW) / 2;
     god_unit_ = unit_n_;
-    addUnit(boss_ox, 4, 2);
+    addUnit(god_ox, 6, 2);
     // Two themed escorts flank the god and keep firing while it fights.
-    addUnit(boss_ox - 52, 14, 7);
-    addUnit(boss_ox + kBossW + 34, 14, 7);
+    addUnit(god_ox - 40, 18, 7);
+    addUnit(god_ox + kGodW + 8, 18, 7);
+    apollo_tick_ = 0;
+    apollo_live_ = false;
     // A raid boss stays in the fight after the god descends.
     const int mate = unit_n_;
     addUnit(4, 4, 2);
@@ -2947,7 +2982,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
 
+  bool isGodUnit(const Unit& unit) const {
+    return god_entrance_ && god_unit_ >= 0 && god_unit_ < unit_n_ && &units_[god_unit_] == &unit;
+  }
+
   int unitW(const Unit& unit) const {
+    if (unit.kind == 2 && isGodUnit(unit)) return kGodW;
     if (unit.kind == 2) return kBossW;
     if (unit.kind == 3) return kDroneW;
     if (unit.kind == 5) return kAlienW + 4;
@@ -2956,6 +2996,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     return kAlienW;
   }
   int unitH(const Unit& unit) const {
+    if (unit.kind == 2 && isGodUnit(unit)) return kGodH;
     if (unit.kind == 2) return kBossH;
     if (unit.kind == 3) return kDroneH;
     if (unit.kind == 5) return kAlienH + 2;
@@ -2976,6 +3017,31 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (units_[i].alive && units_[i].kind == 2) return true;
     }
     return false;
+  }
+
+  void drawGodRobot(int x, int y) {
+    const uint16_t metal = color565(176, 184, 196);
+    const uint16_t dark = color565(40, 44, 56);
+    const uint16_t ink = godInk();
+    const int cx = x + kGodW / 2;
+    drawCircle(cx, y + 8, 7, ink);
+    drawCircle(cx, y + 8, 4, color565(255, 244, 210));
+    fillRect(cx - 6, y + 14, 12, 10, metal);
+    fillRect(cx - 3, y + 17, 2, 2, ink);
+    fillRect(cx + 1, y + 17, 2, 2, ink);
+    fillRect(cx - 10, y + 26, 20, 16, metal);
+    fillRect(cx - 8, y + 28, 16, 8, dark);
+    fillRect(cx - 2, y + 30, 4, 4, ink);
+    fillRect(x + 2, y + 28, 5, 14, metal);
+    fillRect(x + kGodW - 7, y + 28, 5, 14, metal);
+    fillRect(cx - 8, y + 43, 6, 10, metal);
+    fillRect(cx + 2, y + 43, 6, 10, metal);
+    fillRect(cx - 9, y + 52, 8, 3, dark);
+    fillRect(cx + 1, y + 52, 8, 3, dark);
+    int pool = god_hp_max_ > 0 ? god_hp_max_ : 1;
+    int left = god_hp_ < 0 ? 0 : god_hp_;
+    if (left > pool) left = pool;
+    if (left > 0) fillRect(x + 4, y + kGodH - 4, (kGodW - 8) * left / pool, 3, ink);
   }
 
   void drawAlienAt(int x, int y, uint8_t kind) {
@@ -3028,6 +3094,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       fillRect(x + 7, y + 6, 4, 3, eye);
       return;
     }
+    if (kind == 8) {
+      const uint16_t net = color565(80, 210, 255);
+      fillRect(x + 3, y + 3, 12, 8, ink.top);
+      fillRect(x + 6, y, 6, 3, net);
+      drawLine(x + 4, y + 5, x + 14, y + 9, net);
+      drawLine(x + 14, y + 5, x + 4, y + 9, net);
+      fillRect(x + 2, y + 11, 4, 3, net);
+      fillRect(x + 12, y + 11, 4, 3, net);
+      return;
+    }
     if (kind == 3) {
       fillRect(x + 2, y + 3, 12, 6, ink.top);
       fillRect(x, y + 5, 4, 3, ink.accent);
@@ -3036,6 +3112,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     if (kind == 2) {
+      if (god_entrance_ && god_unit_ >= 0 && god_unit_ < unit_n_ &&
+          x == origin_x_ + units_[god_unit_].ox && y == origin_y_ + units_[god_unit_].oy) {
+        drawGodRobot(x, y);
+        return;
+      }
       fillRect(x + 8, y + 4, 28, 16, body);
       fillRect(x + 4, y, 6, 8, body);
       fillRect(x + 34, y, 6, 8, body);
@@ -3321,7 +3402,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     boss_shield_max_ = 0;
     boss_layers_ = 0;
     boss_layer_max_ = 0;
-    if (!raid) boss_style_ = static_cast<uint8_t>(((level_ / 5) - 1) % 5);
+    if (!raid) {
+      if (pending_style_ >= 0 && pending_style_ <= 4) {
+        boss_style_ = static_cast<uint8_t>(pending_style_);
+        pending_style_ = -1;
+      } else if (static_cast<int>(nextRng() % 100) < 30) {
+        boss_style_ = 4;
+      } else {
+        boss_style_ = static_cast<uint8_t>(((level_ / 5) - 1) % 4);
+      }
+    }
     int core = raid ? 36 + level_ / 3 : 20 + level_ / 4;
     if (core > 99) core = 99;
     core += enemyLife();
@@ -3392,8 +3482,14 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     boss_hp_ = boss_max_;
     const int cols = 4 + level_ / 60;
     const int pitch = 30;
+    int stunners = 0;
     for (int col = 0; col < cols; ++col) {
-      addUnit(col * pitch, 44 + (col & 1) * 20, (col & 1) != 0 ? 1 : 0);
+      int kind = (col & 1) != 0 ? 1 : 0;
+      if (level_ >= 6 && stunners < 3 && (nextRng() % 100) < 30) {
+        kind = 8;
+        stunners += 1;
+      }
+      addUnit(col * pitch, 44 + (col & 1) * 20, kind);
     }
     addUnit((cols * pitch - kMiniW) / 2, 0, 6);
     origin_x_ = (kPanelWidth - cols * pitch) / 2;
@@ -3455,6 +3551,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     const int pitch_x = 30;
     const int pitch_y = 22;
     const int yellow_rows = 1 + static_cast<int>(nextRng() % rows);
+    int stunners = 0;
     step_px_ = 2 + level_ / 50 + static_cast<int>(nextRng() % 3);
     if (step_px_ > 7) step_px_ = 7;
     for (int row = 0; row < rows; ++row) {
@@ -3477,6 +3574,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         const uint32_t roll = nextRng() % 100;
         if (level_ >= 3 && roll < 6 + level_ / 25) kind = 4;
         else if (level_ >= 8 && roll >= 90 - level_ / 30) kind = 5;
+        else if (level_ >= 6 && stunners < 3 && roll >= 72 && roll < 84) {
+          kind = 8;
+          stunners += 1;
+        }
         addUnit(ox, oy, kind);
       }
     }
@@ -3572,6 +3673,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     sky_on_ = false;
     buddy_drawn_ = false;
     invuln_ = 0;
+    player_stun_ = 0;
     shield_hole_ = 0;
     hit_cannon_ = false;
     clearBolts();
@@ -3639,8 +3741,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawString("INVADERS MACHINA", kPanelWidth / 2, 164);
     char line[28];
     const int next = level_ + 1;
-    if (next % 5 == 0) {
-      const int style = ((next / 5) - 1) % 5;
+    if (next % 5 == 0 && !isGodLevel(next)) {
+      if ((nextRng() % 100) < 30) pending_style_ = 4;
+      else pending_style_ = ((next / 5) - 1) % 4;
+      const int style = pending_style_;
       const char* gimmick = "BREAK SHIELD";
       if (style == 1) gimmick = "DROP DRONES";
       if (style == 2) gimmick = "HIT WHEN OPEN";
@@ -3651,6 +3755,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       setTextColor(ink.accent);
       drawString(gimmick, kPanelWidth / 2, 212);
     } else {
+      pending_style_ = -1;
       snprintf(line, sizeof line, "LEVEL %d", next);
       drawString(line, kPanelWidth / 2, 198);
     }
@@ -4499,7 +4604,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool applyHit(int index) {
     Unit& unit = units_[index];
     if (unit.kind == 6) {
-      if (boss_hp_ > 0) boss_hp_ -= playerDamage();
+      if (boss_hp_ > 0) {
+        playTone(523, 35);
+        boss_hp_ -= playerDamage();
+      }
       addScore(20);
       if (boss_hp_ <= 0) {
         unit.alive = false;
@@ -4532,6 +4640,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (unit.kind == 2) {
       if (god_ != 0 && god_entrance_ && index != god_unit_) {
         addScore(10);
+        playTone(523, 35);
         const int dmg = playerDamage();
         if (unit.hp > dmg) {
           unit.hp = static_cast<uint8_t>(unit.hp - dmg);
@@ -4547,7 +4656,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (god_ != 0 && god_entrance_) {
         // Three bars, three styles. Emptying a bar advances the phase.
         addScore(10);
-        if (god_hp_ > 0) god_hp_ -= playerDamage();
+        if (god_hp_ > 0) {
+          playTone(523, 35);
+          god_hp_ -= playerDamage();
+        }
         if (god_hp_ <= 0) {
           if (god_bar_ > 1) {
             god_bar_ = static_cast<uint8_t>(god_bar_ - 1);
@@ -4581,6 +4693,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       if (anyMinion()) return false;
       if (boss_style_ == 2 && !boss_open_) return false;
+      playTone(523, 35);
       if (boss_layers_ > 0) {
         if (boss_shield_ > 0) boss_shield_ = static_cast<uint8_t>(boss_shield_ - 1);
         addScore(10);
@@ -4966,13 +5079,26 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       fillRect(foe.x, foe.y, foe.w, foe.h, color565(255, 140, 200));
       return;
     }
+    if (foe.kind == 6) {
+      const uint16_t ink = color565(80, 220, 255);
+      drawRect(foe.x, foe.y, foe.w, foe.h, ink);
+      drawLine(foe.x, foe.y, foe.x + foe.w - 1, foe.y + foe.h - 1, ink);
+      drawLine(foe.x + foe.w - 1, foe.y, foe.x, foe.y + foe.h - 1, ink);
+      drawLine(foe.x, foe.y + foe.h / 2, foe.x + foe.w - 1, foe.y + foe.h / 2, ink);
+      return;
+    }
     fillRect(foe.x, foe.y, foe.w, foe.h, foeInk(foe.kind));
   }
 
   bool spawnFoe(int x, int y, int vx, uint8_t kind = 0, int vy_override = -1) {
-    const int w = kind == 3 ? 10 : (kind == 4 ? 14 : (kind == 5 ? 4 : (kind == 2 ? 5 : (kind == 1 ? 2 : kShotW))));
-    const int h = kind == 3 ? 10 : (kind == 4 ? 10 : (kind == 5 ? 8 : (kind == 2 ? 6 : (kind == 1 ? 6 : kShotH))));
+    const int w = kind == 6 ? kNetW
+                            : kind == 3 ? 10
+                            : (kind == 4 ? 14 : (kind == 5 ? 4 : (kind == 2 ? 5 : (kind == 1 ? 2 : kShotW))));
+    const int h = kind == 6 ? 8
+                            : kind == 3 ? 10
+                            : (kind == 4 ? 10 : (kind == 5 ? 8 : (kind == 2 ? 6 : (kind == 1 ? 6 : kShotH))));
     const int vy = vy_override >= 0 ? vy_override
+                             : kind == 6 ? 3
                              : kind == 3 ? (4 + (god_entrance_ ? god_phase_ : 0))
                              : kind == 4 ? 2
                              : kind == 5 ? 3
@@ -5050,7 +5176,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         spawnGodHazard(x - 5, y);
         break;
       case 7:
-        spawnGodOrb(x - 5, y, (space_tick_ & 32) ? 1 : -1, 2);
         break;
       case 8: {
         const int dx = px - x;
@@ -5145,6 +5270,76 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool stepGodBeam() {
     god_beam_ticks_ = 0;
     return false;
+  }
+
+  void repairBeamColumn(int aim) {
+    const int x = aim - 1;
+    const int y = 36;
+    const int w = 4;
+    const int h = kShipY - 36;
+    repair(x, y, w, h);
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive) continue;
+      const int ax = origin_x_ + units_[i].ox;
+      const int ay = origin_y_ + units_[i].oy;
+      if (overlap(x, y, w, h, ax, ay, unitW(units_[i]), unitH(units_[i]))) {
+        drawAlienAt(ax, ay, units_[i].kind);
+      }
+    }
+    for (int i = 0; i < barrier_n_; ++i) {
+      if (!barriers_[i].on) continue;
+      if (overlap(x, y, w, h, barriers_[i].x, barriers_[i].y, kBarCols * 3, 21)) drawBarrier(i);
+    }
+    for (int i = 0; i < kCoins; ++i) {
+      if (!coins_[i].on) continue;
+      if (overlap(x, y, w, h, coins_[i].x, coins_[i].y, kCoinW, kCoinW)) drawCoin(coins_[i].x, coins_[i].y);
+    }
+    drawShipAt(player_x_);
+  }
+
+  // Apollo's weapon is a pair of aimed beams, a half-cycle apart.
+  bool stepApolloLaser() {
+    const bool up = god_ == 7 && god_entrance_ && god_unit_ >= 0 && god_unit_ < unit_n_ &&
+                    units_[god_unit_].alive && mode_ == Mode::Play;
+    if (!up) {
+      if (apollo_live_) {
+        repairBeamColumn(apollo_aim_);
+        repairBeamColumn(apollo_aim2_);
+        apollo_live_ = false;
+      }
+      return false;
+    }
+    apollo_tick_ += 1;
+    const int phase = apollo_tick_ % 100;
+    const int phase2 = (apollo_tick_ + 50) % 100;
+    bool hit = false;
+    if (phase == 1) {
+      apollo_aim_ = player_x_ + kShipW / 2 - 1;
+      if (apollo_aim_ < 8) apollo_aim_ = 8;
+      if (apollo_aim_ > kPanelWidth - 10) apollo_aim_ = kPanelWidth - 10;
+    }
+    if (phase2 == 1) {
+      apollo_aim2_ = player_x_ + kShipW / 2 - 1;
+      if (apollo_aim2_ < 8) apollo_aim2_ = 8;
+      if (apollo_aim2_ > kPanelWidth - 10) apollo_aim2_ = kPanelWidth - 10;
+      if (apollo_aim2_ > apollo_aim_ - 16 && apollo_aim2_ < apollo_aim_ + 16) {
+        apollo_aim2_ = apollo_aim_ + (apollo_aim2_ < kPanelWidth / 2 ? 28 : -28);
+      }
+    }
+    if (phase >= 2 && phase <= 35) fillRect(apollo_aim_, 36, 2, kShipY - 36, color565(255, 210, 120));
+    if (phase2 >= 2 && phase2 <= 35) fillRect(apollo_aim2_, 36, 2, kShipY - 36, color565(255, 210, 120));
+    if (phase >= 36 && phase < 48) {
+      fillRect(apollo_aim_ - 1, 36, 4, kShipY - 36, color565(255, 244, 180));
+      if (phase == 36 && overlap(apollo_aim_ - 1, kShipY, 4, kShipH, player_x_, kShipY, kShipW, kShipH)) hit = true;
+    }
+    if (phase2 >= 36 && phase2 < 48) {
+      fillRect(apollo_aim2_ - 1, 36, 4, kShipY - 36, color565(255, 244, 180));
+      if (phase2 == 36 && overlap(apollo_aim2_ - 1, kShipY, 4, kShipH, player_x_, kShipY, kShipW, kShipH)) hit = true;
+    }
+    apollo_live_ = (phase >= 2 && phase < 48) || (phase2 >= 2 && phase2 < 48);
+    if (phase == 48) repairBeamColumn(apollo_aim_);
+    if (phase2 == 48) repairBeamColumn(apollo_aim2_);
+    return hit;
   }
 
   void eraseDrones() {
@@ -5473,6 +5668,20 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
+  void fireStunners() {
+    if (charm_ticks_ > 0 || mode_ != Mode::Play) return;
+    int seen = 0;
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive || units_[i].kind != 8 || units_[i].stun > 0) continue;
+      const int phase = (space_tick_ + seen * 21) % 48;
+      seen += 1;
+      if (phase != 0) continue;
+      const int mx = origin_x_ + units_[i].ox + unitW(units_[i]) / 2;
+      const int my = origin_y_ + units_[i].oy + unitH(units_[i]);
+      spawnFoe(mx - kNetW / 2, my, 0, 6);
+    }
+  }
+
   bool stepFoe() {
     bool lost = false;
     for (int i = 0; i < kFoeBolts; ++i) {
@@ -5522,6 +5731,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       const bool hit_ship = overlap(nx, ny, w, h, player_x_, kShipY, kShipW, kShipH);
       const bool hit_clone = clone_alive_ && overlap(nx, ny, w, h, clone_x_, kShipY, kShipW, kShipH);
       const bool blocked = nx < 0 || nx > kPanelWidth - w || ny >= kButtonY || hitBarrier(nx, ny, w, h);
+      if (foe.kind == 6 && (hit_ship || hit_clone)) {
+        repair(ox, oy, w, h);
+        foe.on = false;
+        if (hit_ship) {
+          player_stun_ = 81;
+          playTone(146, 150);
+        }
+        continue;
+      }
       if (hit_clone && !hit_ship) {
         repair(ox, oy, w, h);
         foe.on = false;
@@ -5561,6 +5779,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (mode_ != Mode::Play) return lost;
     foe_cool_ += 1;
+    fireStunners();
     if (foe_cool_ < foe_gap_) return lost;
     foe_cool_ = 0;
     if (charm_ticks_ > 0) return lost;
@@ -5583,7 +5802,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     int alive = 0;
     for (int i = 0; i < unit_n_; ++i) {
-      if (units_[i].alive && units_[i].kind != 2 && units_[i].stun == 0) alive += 1;
+      if (units_[i].alive && units_[i].kind != 2 && units_[i].kind != 8 && units_[i].stun == 0) alive += 1;
     }
     if (alive == 0) {
       if (bossAlive() && boss_style_ != 3) {
@@ -5598,7 +5817,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     int pick = static_cast<int>(nextRng() % static_cast<uint32_t>(alive));
     for (int i = 0; i < unit_n_; ++i) {
-      if (!units_[i].alive || units_[i].kind == 2 || units_[i].stun > 0) continue;
+      if (!units_[i].alive || units_[i].kind == 2 || units_[i].kind == 8 || units_[i].stun > 0) continue;
       if (pick > 0) {
         pick -= 1;
         continue;
@@ -5711,9 +5930,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     const int old_player = player_x_;
     const int pace = ship_step_ + (hermes_ticks_ > 0 ? 4 : 0);
-    if (held != nullptr && std::strcmp(held, "LEFT") == 0) {
+    const bool stunned = player_stun_ > 0;
+    if (stunned) player_stun_ -= 1;
+    const bool stun_ended = stunned && player_stun_ == 0;
+    if (!stunned && held != nullptr && std::strcmp(held, "LEFT") == 0) {
       player_x_ -= pace;
-    } else if (held != nullptr && std::strcmp(held, "RIGHT") == 0) {
+    } else if (!stunned && held != nullptr && std::strcmp(held, "RIGHT") == 0) {
       player_x_ += pace;
     }
     if (player_x_ < 4) player_x_ = 4;
@@ -5726,7 +5948,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       hole_closed = shield_hole_ == 0;
     }
     stepBoosts();
-    const bool firing = held != nullptr && std::strcmp(held, "FIRE") == 0;
+    const bool firing = !stunned && held != nullptr && std::strcmp(held, "FIRE") == 0;
     if (gun_cool_ > 0) gun_cool_ -= 1;
     if (hud_msg_ticks_ > 0) {
       hud_msg_ticks_ -= 1;
@@ -5735,9 +5957,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     const int next_beam = player_x_ + kShipW / 2 - 1;
     startWrite();
     stepSpace();
-    if (player_x_ != old_player || hole_closed) {
+    if (player_x_ != old_player || hole_closed || player_stun_ > 0 || stun_ended) {
       eraseShipAt(player_x_ != old_player ? old_player : player_x_);
       drawShipAt(player_x_);
+      if (player_stun_ > 0) {
+        const uint16_t net = color565(80, 220, 255);
+        const int nx = player_x_ - 2;
+        const int ny = kShipY - 2;
+        for (int i = 0; i < 4; ++i) drawLine(nx, ny + i * 5, nx + kShipW + 4, ny + i * 5, net);
+        for (int i = 0; i < 5; ++i) drawLine(nx + i * 8, ny, nx + i * 8, ny + 16, net);
+      }
       if (clone_alive_ && clone_drawn_ &&
           overlap(shipClearX(old_player), shipClearY(), shipClearW(), shipClearH(), clone_x_,
                   kShipY, kShipW, kShipH)) {
@@ -5774,6 +6003,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       lost = true;
       hit_by_ = godName();
     }
+    if (!lost && stepApolloLaser()) {
+      lost = true;
+      hit_by_ = "LASER";
+    }
     if (!lost && stepBossLaser()) {
       lost = true;
       hit_by_ = "LASER";
@@ -5786,7 +6019,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     if (!anyAlive()) {
-      if (drop_on_) return;
+      if (drop_on_ || anyCoin()) return;
       if (demo_) {
         level_ += 1;
         if (level_ > kLevels) level_ = 1;
@@ -5943,6 +6176,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool spread_side_ = false;
   uint8_t laser_color_ = 0;
   uint8_t boss_style_ = 0;
+  int pending_style_ = -1;
+  int player_stun_ = 0;
+  int apollo_tick_ = 0;
+  int apollo_aim_ = 160;
+  int apollo_aim2_ = 200;
+  bool apollo_live_ = false;
+  uint32_t sound_until_ = 0;
   uint8_t boss_shield_ = 0;
   uint8_t boss_shield_max_ = 0;
   uint8_t boss_layers_ = 0;
