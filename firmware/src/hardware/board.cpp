@@ -5632,6 +5632,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         break;
       }
       case 4:
+        if (have > 0) break;
         spawnGodOrb(20 + static_cast<int>(nextRng() % (kPanelWidth - 50)), 40, 0, 1);
         break;
       case 5:
