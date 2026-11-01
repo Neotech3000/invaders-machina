@@ -3390,10 +3390,10 @@ drawText(godName() + " DOMAIN", W / 2, 150, ink, "f2", "mc");
 
 const HELP_TEXT = {
 menu: [
-"CAMPAIGN MENU","","PLAY - continue from your","current level.","CHECKPOINTS - jump to any","unlocked checkpoint (every","20 levels).","CUSTOM - pick ship, laser,","and guns, including forged.","SHOP - spend coins on gear,","themes, and timed boosts.","SCORES - best runs and marks.","THEME - cycle owned themes.","DIVINE MACHINES - equip","Olympian powers you unlocked.","FORGE - combine two guns or","perk items into a new one.","RESTART GAME - wipe this run.","BACK - return to the attract","demo. Progress stays saved."
+"CAMPAIGN MENU","","PLAY - continue from your","current level.","CHECKPOINTS - jump to any","unlocked checkpoint (every","20 levels).","CUSTOM - pick ship, laser,","and guns, including forged.","SHOP - spend coins on gear,","themes, and boosts.","SCORES - best runs and marks.","THEME - cycle owned themes.","DIVINE MACHINES - equip","Olympian powers you unlocked.","FORGE - combine two guns or","perk items into a new one.","RESTART GAME - wipe this run.","BACK - return to the attract","demo. Progress stays saved."
 ],
 shop: [
-"SHOP","","Tabs across the top change","what is for sale. PAGE flips","long lists. BACK leaves.","","THEME - color packs. First is","free; others cost coins.","SHIPS - STRIKER, INTERCEPT,","VALKYRIE, PHANTOM, TITAN,","SERAPH hulls.","COLOR - laser tint. First free,","others $15.","GUNS - unlock and equip.","CANNON free; others $90.","","POWER tab:","SHIELD $10 - one shield charge.","SPARE HEART $15 - extra life","for the next run.","RUSH $20 - timed faster fire.","FURY $25 - timed harder hits.","WIDE $15 - timed wider bolts.","VEIL $40 - timed invulnerability.","SALVO $20 - timed side bolts.","Armed boosts start on PLAY.","","UPGRD tab:","level each owned gun ($50 x","next level), THRUSTERS (speed),","and MULTI $300 (equip one more","Divine Machine)."
+"SHOP","","Tabs across the top change","what is for sale. PAGE flips","long lists. BACK leaves.","","THEME - color packs. First is","free; others cost coins.","SHIPS - STRIKER, INTERCEPT,","VALKYRIE, PHANTOM, TITAN,","SERAPH hulls.","COLOR - laser tint. First free,","others $15.","GUNS - unlock and equip.","CANNON free; others $90.","","POWER tab:","SHIELD $10 - one shield charge.","SPARE HEART $15 - extra life","for the next run.","RUSH $20 - faster fire.","FURY $25 - harder hits.","WIDE $15 - wider bolts.","VEIL $40 - invulnerability.","SALVO $20 - side bolts.","Armed boosts start on PLAY.","","UPGRD tab:","level each owned gun ($50 x","next level), THRUSTERS (speed),","and MULTI $300 (equip one more","Divine Machine)."
 ],
 custom: [
 "CUSTOM / WEAPONS","","LASER - cycle owned beam tint.","SHIP - cycle owned hull.","Tap a gun row to equip it.","Guns: CANNON, SHOTGUN,","ASSAULT, BEAM, TWIN, WAVE,","RAIL, NOVA, HOMING.","FORGED opens your combined","guns. Equip one from that list.","BACK returns without changing","the fight you left."
@@ -3440,7 +3440,7 @@ const lines = HELP_TEXT[helpFrom] || HELP_TEXT.menu;
 const rows = 16;
 const pages = Math.max(1, Math.ceil(lines.length / rows));
 if (helpPage >= pages) helpPage = 0;
-drawText("HELP", 12, 18, P.ink, "f2", "ml");
+drawText("HELP", W / 2, 18, P.ink, "f2", "mc");
 drawText((helpPage + 1) + "/" + pages, W - 12, 18, P.muted, "f2", "mr");
 const start = helpPage * rows;
 for (let i = 0; i < rows; i++) {
@@ -3449,7 +3449,7 @@ if (idx >= lines.length) break;
 const line = lines[idx];
 if (!line) continue;
 const y = 48 + i * 20;
-drawText(line, 12, y, (i === 0 && helpPage === 0) ? P.accent : P.ink, "f2", "ml");
+drawText(line, W / 2, y, (i === 0 && helpPage === 0) ? P.accent : P.ink, "f2", "mc");
 }
 if (pages > 1) {
 drawKey("PAGE " + (helpPage + 1) + "/" + pages, BOX.shopPage, false, P);

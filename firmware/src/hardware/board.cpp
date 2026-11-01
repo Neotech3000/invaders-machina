@@ -1555,7 +1555,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       "CUSTOM - pick ship, laser,",
       "and guns, including forged.",
       "SHOP - spend coins on gear,",
-      "themes, and timed boosts.",
+      "themes, and boosts.",
       "SCORES - best runs and marks.",
       "THEME - cycle owned themes.",
       "DIVINE MACHINES - equip",
@@ -1587,11 +1587,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       "SHIELD $10 - one shield charge.",
       "SPARE HEART $15 - extra life",
       "for the next run.",
-      "RUSH $20 - timed faster fire.",
-      "FURY $25 - timed harder hits.",
-      "WIDE $15 - timed wider bolts.",
-      "VEIL $40 - timed invulnerability.",
-      "SALVO $20 - timed side bolts.",
+      "RUSH $20 - faster fire.",
+      "FURY $25 - harder hits.",
+      "WIDE $15 - wider bolts.",
+      "VEIL $40 - invulnerability.",
+      "SALVO $20 - side bolts.",
       "Armed boosts start on PLAY.",
       "",
       "UPGRD tab:",
@@ -1776,9 +1776,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (help_page_ >= pages) help_page_ = 0;
     const int start = help_page_ * kHelpRows;
     setFont(&fonts::Font2);
-    setTextDatum(lgfx::middle_left);
+    setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
-    drawString("HELP", 12, 18);
+    drawString("HELP", kPanelWidth / 2, 18);
     setTextDatum(lgfx::middle_right);
     setTextColor(ink.muted);
     char page[20];
@@ -1789,10 +1789,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (idx >= count) break;
       const char* line = lines[idx];
       const int y = 48 + i * 20;
-      setTextDatum(lgfx::middle_left);
+      setTextDatum(lgfx::middle_center);
       setTextColor(i == 0 && help_page_ == 0 ? ink.accent : ink.ink);
       if (line[0] == '\0') continue;
-      drawString(line, 12, y);
+      drawString(line, kPanelWidth / 2, y);
     }
     if (pages > 1) {
       char label[24];
