@@ -632,12 +632,22 @@ startLevel();
 }
 function paintTutorial(P) {
 FB.fill(P.bg);
+drawTechChrome(P);
 const card = TUTORIAL_CARDS[R.level];
-drawText("TUTORIAL " + R.level, W / 2, 18, P.muted, "f2", "mc");
-drawText(card.title, W / 2, 50, P.accent, "f4", "mc");
-drawPicRow(TUT_PICS[R.level] || [], 100, P, 126);
+drawText("[ TUTORIAL " + R.level + " ]", W / 2, 16, P.muted, "f2", "mc");
+drawText(card.title, W / 2, 48, P.accent, "f4", "mc");
+drawTechFrame(10, 72, W - 20, 62, P.button);
+drawPicRow(TUT_PICS[R.level] || [], 96, P, 126);
+drawTechFrame(10, 142, W - 20, 268, P.button);
 card.lines.forEach((line, i) => {
-if (line) drawText(line, W / 2, 150 + i * 20, P.ink, "f2", "mc");
+if (!line) return;
+const y = 158 + i * 20;
+if (i === 0) {
+fillRect(16, y - 7, 3, 14, P.accent);
+drawText(line, W / 2, y, P.accent, "f2", "mc");
+} else {
+drawText(line, W / 2, y, P.ink, "f2", "mc");
+}
 });
 drawKey("EXIT", BOX.tutSkip, false, P);
 reg(BOX.tutSkip, () => goMenu());
@@ -3673,33 +3683,152 @@ const TUTORIAL_CARDS = {
 };
 let tutorialOn = false;
 const HELP_SCREENS = new Set(["menu","shop","custom","forge","divine","checks","confirm","scores","pause","over"]);
+function drawGodIcon(cx, cy, god) {
+const metal = clr([176, 184, 196]);
+const dark = clr([40, 44, 56]);
+const ink = clr(GOD_INK[(Math.max(1, god) - 1) % GOD_INK.length]);
+drawCircle(cx, cy - 10, 4, ink);
+drawCircle(cx, cy - 10, 2, clr([255, 244, 210]));
+fillRect(cx - 4, cy - 6, 8, 5, metal);
+fillRect(cx - 2, cy - 4, 1, 1, ink);
+fillRect(cx + 1, cy - 4, 1, 1, ink);
+fillRect(cx - 6, cy, 12, 8, metal);
+fillRect(cx - 5, cy + 1, 10, 4, dark);
+fillRect(cx - 1, cy + 2, 2, 2, ink);
+fillRect(cx - 9, cy + 1, 3, 7, metal);
+fillRect(cx + 6, cy + 1, 3, 7, metal);
+fillRect(cx - 5, cy + 8, 4, 5, metal);
+fillRect(cx + 1, cy + 8, 4, 5, metal);
+}
+function drawBossIcon(cx, cy, P) {
+const body = P.top;
+const x = cx - 14, y = cy - 9;
+fillRect(x + 5, y + 2, 18, 10, body);
+fillRect(x + 2, y, 4, 5, body);
+fillRect(x + 22, y, 4, 5, body);
+fillRect(x + 9, y + 5, 2, 2, P.bg);
+fillRect(x + 17, y + 5, 2, 2, P.bg);
+fillRect(x + 4, y + 12, 5, 4, body);
+fillRect(x + 19, y + 12, 5, 4, body);
+fillRect(x + 3, y + 15, 22, 2, P.shot);
+}
+function drawDropIcon(cx, cy, color, P) {
+fillRect(cx - 7, cy - 7, 14, 14, color);
+fillRect(cx - 3, cy - 3, 6, 6, P.bg);
+}
+function drawTechFrame(x, y, w, h, ink) {
+drawRect(x, y, w, h, ink);
+const tick = 5;
+drawLine(x, y, x + tick, y, ink);
+drawLine(x, y, x, y + tick, ink);
+drawLine(x + w - 1, y, x + w - 1 - tick, y, ink);
+drawLine(x + w - 1, y, x + w - 1, y + tick, ink);
+drawLine(x, y + h - 1, x + tick, y + h - 1, ink);
+drawLine(x, y + h - 1, x, y + h - 1 - tick, ink);
+drawLine(x + w - 1, y + h - 1, x + w - 1 - tick, y + h - 1, ink);
+drawLine(x + w - 1, y + h - 1, x + w - 1, y + h - 1 - tick, ink);
+}
+function drawTechChrome(P) {
+const rail = P.button;
+for (let y = 28; y < BUTTON_Y - 4; y += 8) {
+px(3, y, rail);
+px(W - 4, y, rail);
+}
+for (let x = 12; x < W - 12; x += 16) {
+px(x, 28, rail);
+px(x, BUTTON_Y - 6, rail);
+}
+drawLine(10, 30, W - 10, 30, P.muted);
+drawLine(10, 31, W - 10, 31, rail);
+}
+function helpHeading(line) {
+if (!line) return false;
+if (/[a-z]/.test(line)) return false;
+return line.length > 0 && line.length < 28;
+}
+function laserTint() {
+return clr(LASERS[save.laser % LASERS.length][1]);
+}
 function drawPic(k, cx, cy, arg, P) {
 const ink = P.ink;
 if (k === "left") fillTriangle(cx + 7, cy - 9, cx + 7, cy + 9, cx - 9, cy, ink);
 else if (k === "right") fillTriangle(cx - 7, cy - 9, cx - 7, cy + 9, cx + 9, cy, ink);
 else if (k === "fire") { fillCircle(cx, cy, 9, P.accent); fillCircle(cx, cy, 4, P.bg); }
 else if (k === "pause") { fillRect(cx - 6, cy - 8, 4, 16, ink); fillRect(cx + 2, cy - 8, 4, 16, ink); }
-else if (k === "ship") { fillTriangle(cx - 10, cy + 9, cx + 10, cy + 9, cx, cy - 10, P.accent); fillRect(cx - 2, cy + 1, 4, 4, P.bg); }
-else if (k === "alien") drawAlienAt(cx - 10, cy - 9, arg, P);
-else if (k === "shot") fillRect(cx - 1, cy - 10, 3, 14, ink);
-else if (k === "shell") { fillCircle(cx, cy + 3, 5, P.accent); fillRect(cx - 1, cy - 8, 3, 7, ink); }
-else if (k === "coin") drawCoin(cx - 5, cy - 5);
+else if (k === "ship") drawShipHull(cx - Math.floor(SHIP_W / 2), cy - Math.floor(SHIP_H / 2), save.ship, P);
+else if (k === "alien") {
+if (arg === 2) drawBossIcon(cx, cy, P);
+else {
+let aw = ALIEN_W;
+if (arg === 5) aw = 22;
+drawAlienAt(cx - Math.floor(aw / 2), cy - Math.floor(ALIEN_H / 2), arg || 0, P);
+}
+}
+else if (k === "shot") fillRect(cx - 1, cy - 8, 3, 12, laserTint());
+else if (k === "shell") {
+fillRect(cx - 2, cy - 8, 5, 10, clr([255, 150, 60]));
+fillRect(cx - 1, cy - 10, 3, 4, ink);
+fillCircle(cx, cy + 5, 4, clr([255, 220, 120]));
+}
+else if (k === "coin") drawCoin(cx - Math.floor(COIN_SIZE / 2), cy - Math.floor(COIN_SIZE / 2));
 else if (k === "heart") drawHeart(cx - 6, cy - 5, clr([255, 64, 96]));
-else if (k === "shield") { drawCircle(cx, cy, 11, clr([96, 200, 255])); drawCircle(cx, cy, 10, clr([96, 200, 255])); }
-else if (k === "box") { fillRect(cx - 9, cy - 9, 18, 18, clr(arg)); fillRect(cx - 4, cy - 4, 8, 8, P.bg); }
-else if (k === "gun") { fillRect(cx - 2, cy - 11, 4, 16, ink); fillRect(cx - 6, cy + 5, 12, 4, ink); }
-else if (k === "laser") { drawLine(cx - 11, cy, cx + 11, cy, clr(arg)); fillCircle(cx, cy, 3, clr(arg)); }
-else if (k === "machine") { fillCircle(cx, cy, 10, clr(GOD_INK[arg])); fillCircle(cx, cy, 5, P.bg); }
-else if (k === "path") { drawLine(cx - 11, cy, cx + 11, cy, P.accent); fillCircle(cx - 11, cy, 4, P.accent); fillCircle(cx + 11, cy, 4, P.accent); }
-else if (k === "lock") { drawRect(cx - 7, cy - 2, 14, 12, P.muted); drawRect(cx - 4, cy - 9, 8, 9, P.muted); }
-else if (k === "medal") { fillCircle(cx, cy - 3, 8, P.accent); fillTriangle(cx - 6, cy + 4, cx + 6, cy + 4, cx, cy + 11, P.accent); }
-else if (k === "anvil") { fillRect(cx - 10, cy - 6, 20, 6, ink); fillRect(cx - 5, cy, 10, 7, ink); }
-else if (k === "barrier") { fillRect(cx - 12, cy - 5, 24, 10, P.muted); fillRect(cx - 4, cy - 5, 8, 5, P.bg); }
-else if (k === "checkpoint") { drawLine(cx - 6, cy - 11, cx - 6, cy + 11, ink); fillTriangle(cx - 6, cy - 11, cx + 8, cy - 6, cx - 6, cy - 1, P.accent); }
-else if (k === "warn") { fillTriangle(cx, cy - 10, cx - 11, cy + 9, cx + 11, cy + 9, P.accent); fillRect(cx - 1, cy - 4, 3, 8, P.bg); }
+else if (k === "shield") {
+drawEllipse(cx, cy, 14, 10, clr([96, 200, 255]));
+drawEllipse(cx, cy, 13, 9, clr([38, 92, 150]));
+px(cx - 6, cy - 7, clr([255, 255, 255]));
+}
+else if (k === "box") {
+const c = arg === -2 ? clr([96, 200, 255]) : arg === -1 ? clr([255, 214, 56]) : clr(BOOST_RGB[arg] || BOOST_RGB[0]);
+drawDropIcon(cx, cy, c, P);
+}
+else if (k === "gun") {
+fillRect(cx - 1, cy - 10, 3, 14, laserTint());
+fillRect(cx - 4, cy + 4, 9, 3, ink);
+}
+else if (k === "laser") {
+fillRect(cx - 1, cy - 12, 2, 24, clr([255, 214, 56]));
+fillRect(cx - 2, cy - 2, 4, 4, clr([255, 244, 180]));
+}
+else if (k === "machine") drawGodIcon(cx, cy, (arg || 0) + 1);
+else if (k === "path") {
+drawRect(cx - 14, cy - 8, 12, 16, P.accent);
+drawRect(cx + 2, cy - 8, 12, 16, P.accent);
+drawLine(cx - 2, cy, cx + 2, cy, P.accent);
+drawLine(cx - 2, cy + 1, cx + 2, cy + 1, P.accent);
+}
+else if (k === "lock") {
+drawRect(cx - 8, cy - 2, 16, 12, P.muted);
+drawRect(cx - 5, cy - 9, 10, 9, P.muted);
+fillRect(cx - 1, cy + 2, 2, 4, P.muted);
+}
+else if (k === "medal") {
+fillCircle(cx, cy - 3, 8, P.accent);
+fillTriangle(cx - 6, cy + 4, cx + 6, cy + 4, cx, cy + 11, P.accent);
+fillCircle(cx, cy - 3, 3, P.bg);
+}
+else if (k === "anvil") {
+fillRect(cx - 10, cy - 6, 20, 6, ink);
+fillRect(cx - 5, cy, 10, 7, ink);
+fillRect(cx - 12, cy - 8, 6, 3, P.muted);
+}
+else if (k === "barrier") {
+for (let col = 0; col < 8; col++) {
+for (let row = 0; row < 3; row++) fillRect(cx - 12 + col * 3, cy - 5 + row * 3, 3, 2, P.barrier);
+}
+}
+else if (k === "checkpoint") {
+drawRect(cx - 14, cy - 10, 28, 20, P.accent);
+drawText("20", cx, cy, P.ink, "f2", "mc");
+}
+else if (k === "warn") {
+fillTriangle(cx, cy - 10, cx - 11, cy + 9, cx + 11, cy + 9, P.accent);
+fillRect(cx - 1, cy - 4, 3, 8, P.bg);
+fillRect(cx - 1, cy + 5, 3, 2, P.bg);
+}
 }
 function drawPicRow(pics, y, P, labelY) {
 const n = pics.length;
+if (!n) return;
 const step = Math.min(64, Math.floor(300 / n));
 const x0 = Math.floor(W / 2 - (n - 1) * step / 2);
 pics.forEach((pc, i) => {
@@ -3714,8 +3843,8 @@ const TUT_PICS = {
 3: [["coin", "COIN"], ["gun", "GUN"]],
 4: [["heart", "HEART"], ["shield", "SHIELD"]],
 5: [["alien", "BOSS", 2], ["coin", "BOUNTY"]],
-6: [["box", "RUSH", BOOST_RGB[0]], ["box", "FURY", BOOST_RGB[1]], ["box", "WIDE", BOOST_RGB[2]], ["box", "VEIL", BOOST_RGB[3]], ["box", "SALVO", BOOST_RGB[4]]],
-8: [["shell", "CANNON"], ["gun", "SHOTGUN"], ["laser", "BEAM", [255, 214, 56]]],
+6: [["box", "RUSH", 0], ["box", "FURY", 1], ["box", "WIDE", 2], ["box", "VEIL", 3], ["box", "SALVO", 4]],
+8: [["shell", "CANNON"], ["gun", "SHOTGUN"], ["laser", "BEAM"]],
 10: [["path", "PATH"], ["checkpoint", "20"]],
 12: [["barrier", "BARRIER"], ["shell", "SHELL"]],
 15: [["anvil", "FORGE"], ["gun", "GUNS"]],
@@ -3726,9 +3855,9 @@ const TUT_PICS = {
 };
 const HELP_PICS = {
 menu: [["path", "CHECKS"], ["coin", "COINS"], ["machine", "DIVINE", 0], ["gun", "FORGE"]],
-shop: [["box", "SHIELD", [96, 200, 255]], ["heart", "SPARE"], ["box", "RUSH", BOOST_RGB[0]], ["box", "FURY", BOOST_RGB[1]], ["box", "WIDE", BOOST_RGB[2]], ["box", "VEIL", BOOST_RGB[3]], ["box", "SALVO", BOOST_RGB[4]]],
-custom: [["gun", "GUNS"], ["ship", "SHIP"], ["laser", "LASER", [255, 214, 56]]],
-forge: [["gun", "GUNS"], ["box", "POWER", [255, 214, 56]], ["anvil", "UPGRADE"]],
+shop: [["box", "SHIELD", -2], ["heart", "SPARE"], ["box", "RUSH", 0], ["box", "FURY", 1], ["box", "WIDE", 2], ["box", "VEIL", 3], ["box", "SALVO", 4]],
+custom: [["gun", "GUNS"], ["ship", "SHIP"], ["laser", "LASER"]],
+forge: [["gun", "GUNS"], ["box", "POWER", -1], ["anvil", "UPGRADE"]],
 divine: [["machine", "ZEUS", 0], ["machine", "DEMETER", 3], ["machine", "APOLLO", 6], ["machine", "HERMES", 10]],
 checks: [["path", "PATH"], ["lock", "LOCKED"], ["medal", "OPEN"]],
 confirm: [["warn", "RESTART"]],
@@ -3751,21 +3880,26 @@ setScr(helpFrom);
 }
 function paintHelp(P) {
 FB.fill(P.bg);
+drawTechChrome(P);
 const lines = HELP_TEXT[helpFrom] || HELP_TEXT.menu;
 const rows = 15;
 const pages = Math.max(1, Math.ceil(lines.length / rows));
 if (helpPage >= pages) helpPage = 0;
-drawText("HELP", W / 2, 18, P.ink, "f2", "mc");
-drawText((helpPage + 1) + "/" + pages, W - 12, 18, P.muted, "f2", "mr");
-drawPicRow(HELP_PICS[helpFrom] || [], 50, P, 76);
+drawText("[ HELP ]", W / 2, 16, P.accent, "f2", "mc");
+drawText((helpPage + 1) + "/" + pages, W - 12, 16, P.muted, "f2", "mr");
+drawTechFrame(10, 36, W - 20, 48, P.button);
+drawPicRow(HELP_PICS[helpFrom] || [], 52, P, 76);
+drawTechFrame(10, 92, W - 20, 318, P.button);
 const start = helpPage * rows;
 for (let i = 0; i < rows; i++) {
 const idx = start + i;
 if (idx >= lines.length) break;
 const line = lines[idx];
 if (!line) continue;
-const y = 102 + i * 19;
-drawText(line, W / 2, y, (i === 0 && helpPage === 0) ? P.accent : P.ink, "f2", "mc");
+const y = 104 + i * 19;
+const head = helpHeading(line);
+if (head) fillRect(16, y - 7, 3, 14, P.accent);
+drawText(line, W / 2, y, head ? P.accent : P.ink, "f2", "mc");
 }
 if (pages > 1) {
 drawKey("PAGE " + (helpPage + 1) + "/" + pages, BOX.shopPage, false, P);

@@ -1973,6 +1973,85 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 #undef TUT_LIST
   }
 
+  // Compact god silhouette for help/tutorial rows (same parts as drawGodRobot).
+  void drawGodIcon(int cx, int cy, int god) {
+    const uint16_t metal = color565(176, 184, 196);
+    const uint16_t dark = color565(40, 44, 56);
+    const uint16_t ink = godInkOf(god < 1 ? 1 : god);
+    drawCircle(cx, cy - 10, 4, ink);
+    drawCircle(cx, cy - 10, 2, color565(255, 244, 210));
+    fillRect(cx - 4, cy - 6, 8, 5, metal);
+    fillRect(cx - 2, cy - 4, 1, 1, ink);
+    fillRect(cx + 1, cy - 4, 1, 1, ink);
+    fillRect(cx - 6, cy, 12, 8, metal);
+    fillRect(cx - 5, cy + 1, 10, 4, dark);
+    fillRect(cx - 1, cy + 2, 2, 2, ink);
+    fillRect(cx - 9, cy + 1, 3, 7, metal);
+    fillRect(cx + 6, cy + 1, 3, 7, metal);
+    fillRect(cx - 5, cy + 8, 4, 5, metal);
+    fillRect(cx + 1, cy + 8, 4, 5, metal);
+  }
+
+  // Compact boss hull matching kind==2 proportions for icon rows.
+  void drawBossIcon(int cx, int cy) {
+    const Palette ink = palette();
+    const uint16_t body = ink.top;
+    const int x = cx - 14;
+    const int y = cy - 9;
+    fillRect(x + 5, y + 2, 18, 10, body);
+    fillRect(x + 2, y, 4, 5, body);
+    fillRect(x + 22, y, 4, 5, body);
+    fillRect(x + 9, y + 5, 2, 2, ink.bg);
+    fillRect(x + 17, y + 5, 2, 2, ink.bg);
+    fillRect(x + 4, y + 12, 5, 4, body);
+    fillRect(x + 19, y + 12, 5, 4, body);
+    fillRect(x + 3, y + 15, 22, 2, ink.shot);
+  }
+
+  void drawDropIcon(int cx, int cy, uint16_t color) {
+    fillRect(cx - 7, cy - 7, 14, 14, color);
+    fillRect(cx - 3, cy - 3, 6, 6, palette().bg);
+  }
+
+  void drawTechFrame(int x, int y, int w, int h, uint16_t ink) {
+    drawRect(x, y, w, h, ink);
+    const int tick = 5;
+    drawLine(x, y, x + tick, y, ink);
+    drawLine(x, y, x, y + tick, ink);
+    drawLine(x + w - 1, y, x + w - 1 - tick, y, ink);
+    drawLine(x + w - 1, y, x + w - 1, y + tick, ink);
+    drawLine(x, y + h - 1, x + tick, y + h - 1, ink);
+    drawLine(x, y + h - 1, x, y + h - 1 - tick, ink);
+    drawLine(x + w - 1, y + h - 1, x + w - 1 - tick, y + h - 1, ink);
+    drawLine(x + w - 1, y + h - 1, x + w - 1, y + h - 1 - tick, ink);
+  }
+
+  // Static grid ticks + soft scan accents only (no animation / strobe).
+  void drawTechChrome() {
+    const Palette ink = palette();
+    const uint16_t rail = ink.button;
+    for (int y = 28; y < kButtonY - 4; y += 8) {
+      drawPixel(3, y, rail);
+      drawPixel(kPanelWidth - 4, y, rail);
+    }
+    for (int x = 12; x < kPanelWidth - 12; x += 16) {
+      drawPixel(x, 28, rail);
+      drawPixel(x, kButtonY - 6, rail);
+    }
+    drawLine(10, 30, kPanelWidth - 10, 30, ink.muted);
+    drawLine(10, 31, kPanelWidth - 10, 31, rail);
+  }
+
+  bool helpHeading(const char* line) const {
+    if (line == nullptr || line[0] == '\0') return false;
+    int n = 0;
+    for (const char* p = line; *p; ++p) {
+      if (*p >= 'a' && *p <= 'z') return false;
+      n += 1;
+    }
+    return n > 0 && n < 28;
+  }
+
   void drawPic(const char* kind, int cx, int cy, int arg) {
     const Palette ink = palette();
     if (std::strcmp(kind, "left") == 0) fillTriangle(cx + 7, cy - 9, cx + 7, cy + 9, cx - 9, cy, ink.ink);
@@ -1984,57 +2063,81 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       fillRect(cx - 6, cy - 8, 4, 16, ink.ink);
       fillRect(cx + 2, cy - 8, 4, 16, ink.ink);
     } else if (std::strcmp(kind, "ship") == 0) {
-      fillTriangle(cx - 10, cy + 9, cx + 10, cy + 9, cx, cy - 10, ink.accent);
-      fillRect(cx - 2, cy + 1, 4, 4, ink.bg);
+      drawShipHull(cx - kShipW / 2, cy - kShipH / 2, ship_model_);
     } else if (std::strcmp(kind, "alien") == 0) {
-      drawAlienAt(cx - 10, cy - 9, static_cast<uint8_t>(arg));
+      if (arg == 2) {
+        drawBossIcon(cx, cy);
+      } else {
+        int aw = kAlienW;
+        if (arg == 5) aw = 22;
+        else if (arg == 4) aw = 18;
+        drawAlienAt(cx - aw / 2, cy - kAlienH / 2, static_cast<uint8_t>(arg));
+      }
     } else if (std::strcmp(kind, "shot") == 0) {
-      fillRect(cx - 1, cy - 10, 3, 14, ink.ink);
+      fillRect(cx - 1, cy - 8, 3, 12, laserColor());
     } else if (std::strcmp(kind, "shell") == 0) {
-      fillCircle(cx, cy + 3, 5, ink.accent);
-      fillRect(cx - 1, cy - 8, 3, 7, ink.ink);
+      // Cannon contact shell: fat bolt head matching in-game burst shell read.
+      fillRect(cx - 2, cy - 8, 5, 10, color565(255, 150, 60));
+      fillRect(cx - 1, cy - 10, 3, 4, ink.ink);
+      fillCircle(cx, cy + 5, 4, color565(255, 220, 120));
     } else if (std::strcmp(kind, "coin") == 0) {
-      drawCoin(cx - 5, cy - 5);
+      drawCoin(cx - kCoinW / 2, cy - kCoinW / 2);
     } else if (std::strcmp(kind, "heart") == 0) {
       drawHeart(cx - 6, cy - 5, color565(255, 64, 96));
     } else if (std::strcmp(kind, "shield") == 0) {
-      drawCircle(cx, cy, 11, color565(96, 200, 255));
-      drawCircle(cx, cy, 10, color565(96, 200, 255));
+      const uint16_t ring = color565(96, 200, 255);
+      const uint16_t dim = color565(38, 92, 150);
+      drawEllipse(cx, cy, 14, 10, ring);
+      drawEllipse(cx, cy, 13, 9, dim);
+      drawPixel(cx - 6, cy - 7, color565(255, 255, 255));
     } else if (std::strcmp(kind, "box") == 0) {
       uint16_t c = arg == -2 ? color565(96, 200, 255) : arg == -1 ? color565(255, 214, 56) : boostColorOf(arg);
-      fillRect(cx - 9, cy - 9, 18, 18, c);
-      fillRect(cx - 4, cy - 4, 8, 8, ink.bg);
+      drawDropIcon(cx, cy, c);
     } else if (std::strcmp(kind, "gun") == 0) {
-      fillRect(cx - 2, cy - 11, 4, 16, ink.ink);
-      fillRect(cx - 6, cy + 5, 12, 4, ink.ink);
+      fillRect(cx - 1, cy - 10, 3, 14, laserColor());
+      fillRect(cx - 4, cy + 4, 9, 3, ink.ink);
     } else if (std::strcmp(kind, "laser") == 0) {
-      drawLine(cx - 11, cy, cx + 11, cy, color565(255, 214, 56));
-      fillCircle(cx, cy, 3, color565(255, 214, 56));
+      fillRect(cx - 1, cy - 12, 2, 24, color565(255, 214, 56));
+      fillRect(cx - 2, cy - 2, 4, 4, color565(255, 244, 180));
     } else if (std::strcmp(kind, "machine") == 0) {
-      fillCircle(cx, cy, 10, godInkOf(arg + 1));
-      fillCircle(cx, cy, 5, ink.bg);
+      drawGodIcon(cx, cy, arg + 1);
     } else if (std::strcmp(kind, "path") == 0) {
-      drawLine(cx - 11, cy, cx + 11, cy, ink.accent);
-      fillCircle(cx - 11, cy, 4, ink.accent);
-      fillCircle(cx + 11, cy, 4, ink.accent);
+      // Checkpoint path nodes (same framed tiles as the map).
+      drawRect(cx - 14, cy - 8, 12, 16, ink.accent);
+      drawRect(cx + 2, cy - 8, 12, 16, ink.accent);
+      drawLine(cx - 2, cy, cx + 2, cy, ink.accent);
+      drawLine(cx - 2, cy + 1, cx + 2, cy + 1, ink.accent);
     } else if (std::strcmp(kind, "lock") == 0) {
-      drawRect(cx - 7, cy - 2, 14, 12, ink.muted);
-      drawRect(cx - 4, cy - 9, 8, 9, ink.muted);
+      drawRect(cx - 8, cy - 2, 16, 12, ink.muted);
+      drawRect(cx - 5, cy - 9, 10, 9, ink.muted);
+      fillRect(cx - 1, cy + 2, 2, 4, ink.muted);
     } else if (std::strcmp(kind, "medal") == 0) {
       fillCircle(cx, cy - 3, 8, ink.accent);
       fillTriangle(cx - 6, cy + 4, cx + 6, cy + 4, cx, cy + 11, ink.accent);
+      fillCircle(cx, cy - 3, 3, ink.bg);
     } else if (std::strcmp(kind, "anvil") == 0) {
       fillRect(cx - 10, cy - 6, 20, 6, ink.ink);
       fillRect(cx - 5, cy, 10, 7, ink.ink);
+      fillRect(cx - 12, cy - 8, 6, 3, ink.muted);
     } else if (std::strcmp(kind, "barrier") == 0) {
-      fillRect(cx - 12, cy - 5, 24, 10, ink.muted);
-      fillRect(cx - 4, cy - 5, 8, 5, ink.bg);
+      const uint16_t brick = ink.barrier;
+      for (int col = 0; col < 8; ++col) {
+        for (int row = 0; row < 3; ++row) {
+          fillRect(cx - 12 + col * 3, cy - 5 + row * 3, 3, 2, brick);
+        }
+      }
     } else if (std::strcmp(kind, "checkpoint") == 0) {
-      drawLine(cx - 6, cy - 11, cx - 6, cy + 11, ink.ink);
-      fillTriangle(cx - 6, cy - 11, cx + 8, cy - 6, cx - 6, cy - 1, ink.accent);
+      drawRect(cx - 14, cy - 10, 28, 20, ink.accent);
+      setFont(&fonts::Font0);
+      setTextDatum(lgfx::middle_center);
+      setTextColor(ink.ink);
+      drawString("20", cx, cy);
+      setFont(&fonts::Font2);
+      (void)arg;
     } else if (std::strcmp(kind, "warn") == 0) {
       fillTriangle(cx, cy - 10, cx - 11, cy + 9, cx + 11, cy + 9, ink.accent);
       fillRect(cx - 1, cy - 4, 3, 8, ink.bg);
+      fillRect(cx - 1, cy + 5, 3, 2, ink.bg);
     }
   }
 
@@ -2043,7 +2146,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (n <= 0) return;
     const int step = 300 / n < 64 ? 300 / n : 64;
     const int x0 = kPanelWidth / 2 - (n - 1) * step / 2;
-    setFont(&fonts::Font2);
+    setFont(&fonts::Font0);
     setTextDatum(lgfx::middle_center);
     for (int i = 0; i < n; ++i) {
       const int cx = x0 + i * step;
@@ -2051,11 +2154,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       setTextColor(ink.muted);
       drawString(pics[i].label, cx, label_y);
     }
+    setFont(&fonts::Font2);
   }
 
   void paintHelp() {
     const Palette ink = palette();
     fillScreen(ink.bg);
+    drawTechChrome();
     int count = 0;
     const char* const* lines = helpLines(help_from_, &count);
     static constexpr int kHelpRows = 15;
@@ -2063,26 +2168,33 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (pages < 1) pages = 1;
     if (help_page_ >= pages) help_page_ = 0;
     const int start = help_page_ * kHelpRows;
-    setFont(&fonts::Font2);
+    setFont(&fonts::Font0);
     setTextDatum(lgfx::middle_center);
-    setTextColor(ink.ink);
-    drawString("HELP", kPanelWidth / 2, 18);
+    setTextColor(ink.accent);
+    drawString("[ HELP ]", kPanelWidth / 2, 16);
     setTextDatum(lgfx::middle_right);
     setTextColor(ink.muted);
     char page[20];
     snprintf(page, sizeof page, "%d/%d", help_page_ + 1, pages);
-    drawString(page, kPanelWidth - 12, 18);
+    drawString(page, kPanelWidth - 12, 16);
+    drawTechFrame(10, 36, kPanelWidth - 20, 48, ink.button);
     int pic_n = 0;
     const PicSpec* pics = helpPics(help_from_, &pic_n);
-    drawPicRow(pics, pic_n, 50, 76);
+    drawPicRow(pics, pic_n, 52, 76);
+    drawTechFrame(10, 92, kPanelWidth - 20, 318, ink.button);
+    setFont(&fonts::Font2);
     for (int i = 0; i < kHelpRows; ++i) {
       const int idx = start + i;
       if (idx >= count) break;
       const char* line = lines[idx];
-      const int y = 102 + i * 19;
+      const int y = 104 + i * 19;
       setTextDatum(lgfx::middle_center);
-      setTextColor(i == 0 && help_page_ == 0 ? ink.accent : ink.ink);
+      const bool head = helpHeading(line);
+      setTextColor(head ? ink.accent : ink.ink);
       if (line[0] == '\0') continue;
+      if (head) {
+        fillRect(16, y - 7, 3, 14, ink.accent);
+      }
       drawString(line, kPanelWidth / 2, y);
     }
     if (pages > 1) {
@@ -2267,28 +2379,38 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   void paintTutorial() {
     const Palette ink = palette();
     fillScreen(ink.bg);
+    drawTechChrome();
     const int idx = tutorialCard(level_);
     if (idx < 0) return;
     const TutCard& card = tutCards()[idx];
-    setFont(&fonts::Font2);
+    setFont(&fonts::Font0);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.muted);
-    char head[24];
-    snprintf(head, sizeof head, "TUTORIAL %d", level_);
-    drawString(head, kPanelWidth / 2, 18);
+    char head[28];
+    snprintf(head, sizeof head, "[ TUTORIAL %d ]", level_);
+    drawString(head, kPanelWidth / 2, 16);
     setFont(&fonts::Font4);
     setTextColor(ink.accent);
-    drawString(card.title, kPanelWidth / 2, 50);
+    drawString(card.title, kPanelWidth / 2, 48);
+    drawTechFrame(10, 72, kPanelWidth - 20, 62, ink.button);
     int pic_n = 0;
     const PicSpec* pics = tutPics(level_, &pic_n);
-    drawPicRow(pics, pic_n, 100, 126);
+    drawPicRow(pics, pic_n, 96, 126);
+    drawTechFrame(10, 142, kPanelWidth - 20, 268, ink.button);
     setFont(&fonts::Font2);
     setTextColor(ink.ink);
     const char* const* lines = tutLines();
     for (int i = 0; i < card.count; ++i) {
       const char* line = lines[card.first + i];
       if (line[0] == '\0') continue;
-      drawString(line, kPanelWidth / 2, 150 + i * 20);
+      const int y = 158 + i * 20;
+      if (i == 0) {
+        setTextColor(ink.accent);
+        fillRect(16, y - 7, 3, 14, ink.accent);
+      } else {
+        setTextColor(ink.ink);
+      }
+      drawString(line, kPanelWidth / 2, y);
     }
     drawKey("EXIT", tutExitBox(), false);
     drawKey("NEXT", tutNextBox(), false);
