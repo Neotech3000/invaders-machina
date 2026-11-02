@@ -152,6 +152,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     loadShop();
     loadCampaign();
     loadMeta();
+    loadTips();
     if (!prefs_.isKey("lv")) resetRun();
     makeStars();
     ledcSetup(kSoundCh, 2000, 8);
@@ -192,6 +193,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         if (splash_raid_) finishRaid();
         else startGodFight();
       }
+      return;
+    }
+    if (!demo_ && mode_ == Mode::Play && rose && on && std::strcmp(where, "TIPOK") == 0) {
+      dismissCoach(true);
       return;
     }
     if (!demo_ && (mode_ == Mode::Play || mode_ == Mode::Advance) && rose && on &&
@@ -414,6 +419,14 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom, Splash, Shop, Forge, Divine, Scores, Help,
     Tutorial
   };
+
+  // First-run coach bits. Set means the tip was already shown/dismissed.
+  static constexpr uint8_t kTipMove = 1 << 0;
+  static constexpr uint8_t kTipShoot = 1 << 1;
+  static constexpr uint8_t kTipLives = 1 << 2;
+  static constexpr uint8_t kTipCoins = 1 << 3;
+  static constexpr uint8_t kTipShop = 1 << 4;
+  static constexpr uint8_t kTipPause = 1 << 5;
 
   struct TutCard {
     int level;
@@ -1170,29 +1183,30 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   Box playBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
-  Box menuPlayBox() const { return {16, 54, 288, 38}; }
-  Box menuCheckBox() const { return {16, 96, 288, 38}; }
-  Box menuCustomBox() const { return {16, 138, 288, 38}; }
-  Box menuShopBox() const { return {16, 180, 288, 38}; }
-  Box menuScoresBox() const { return {16, 222, 288, 38}; }
-  Box menuThemeBox() const { return {16, 264, 288, 38}; }
-  Box menuDivineBox() const { return {16, 306, 288, 38}; }
-  Box menuForgeBox() const { return {16, 348, 288, 38}; }
-  Box scorePageBox() const { return {16, 388, 120, 32}; }
-  Box forgeTab(int t) const { return {8 + t * 102, 40, 96, 32}; }
+  Box menuPlayBox() const { return {16, 52, 288, 44}; }
+  Box menuCheckBox() const { return {16, 100, 288, 36}; }
+  Box menuCustomBox() const { return {16, 140, 288, 36}; }
+  Box menuShopBox() const { return {16, 180, 288, 36}; }
+  Box menuScoresBox() const { return {16, 220, 288, 36}; }
+  Box menuThemeBox() const { return {16, 260, 288, 36}; }
+  Box menuDivineBox() const { return {16, 300, 288, 36}; }
+  Box menuForgeBox() const { return {16, 340, 288, 36}; }
+  Box scorePageBox() const { return {16, 388, 120, 34}; }
+  Box forgeTab(int t) const { return {8 + t * 102, 40, 96, 34}; }
   Box forgeRow(int r) const { return {16, 88 + r * 50, 288, 44}; }
   Box forgeAttrRow(int r) const { return {16, 100 + r * 50, 288, 44}; }
-  Box forgePageBox() const { return {8, 388, 120, 28}; }
-  Box forgeUpBox() const { return {136, 388, 176, 28}; }
+  Box forgePageBox() const { return {8, 386, 120, 34}; }
+  Box forgeUpBox() const { return {136, 386, 176, 34}; }
   Box forgeYesBox() const { return {32, 280, 256, 46}; }
   Box forgeNoBox() const { return {32, 336, 256, 46}; }
   Box forgeRevealUpBox() const { return {32, 238, 256, 48}; }
   Box forgeEquipBox() const { return {32, 300, 256, 48}; }
-  Box shopTab(int t) const { return {4 + t * 52, 40, 50, 34}; }
+  Box shopTab(int t) const { return {4 + t * 52, 38, 50, 36}; }
   Box shopRow(int r) const { return {16, 84 + r * 52, 288, 46}; }
-  Box shopPageBox() const { return {8, 396, 120, 28}; }
+  Box shopPageBox() const { return {8, 392, 120, 34}; }
   Box menuRestartBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
-  Box menuTutorialBox() const { return {16, 390, kPanelWidth - 32, 32}; }
+  Box menuTutorialBox() const { return {16, 384, kPanelWidth - 32, 36}; }
+  Box tipBox() const { return {8, 398, kPanelWidth - 16, 28}; }
   Box tutExitBox() const { return {8, kButtonY, 144, 44}; }
   Box tutNextBox() const { return {168, kButtonY, 144, 44}; }
   Box checkNodeBox(int g) const {
@@ -1220,7 +1234,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Box leftBox() const { return {8, kButtonY, 96, 44}; }
   Box fireBox() const { return {112, kButtonY, 96, 44}; }
   Box rightBox() const { return {216, kButtonY, 96, 44}; }
-  Box backBox() const { return {4, 2, 70, 26}; }
+  // Larger BACK for resistive touch (mirrorx/mirrory already applied).
+  Box backBox() const { return {4, 2, 88, 34}; }
   // Large top-right hit target for resistive touch (mirrorx/mirrory already applied).
   Box helpBox() const { return {240, 2, 76, 34}; }
 
@@ -1231,6 +1246,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   const char* controlAt(int x, int y) const {
     if (demo_) return contains(playBox(), x, y) ? "PLAY" : "none";
+    if (mode_ == Mode::Play && tip_bit_ != 0 && contains(tipBox(), x, y)) return "TIPOK";
     if (mode_ == Mode::Help) {
       if (contains(homeBox(), x, y)) return "HBACK";
       if (contains(shopPageBox(), x, y)) return "HPAGE";
@@ -1584,16 +1600,17 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawString(text, box.x + box.w / 2, box.y + box.h / 2);
   }
 
-  void drawCard(const char* title, const char* sub, const Box& box) {
+  void drawCard(const char* title, const char* sub, const Box& box, bool primary = false) {
     const Palette ink = palette();
-    fillRect(box.x, box.y, box.w, box.h, ink.button);
+    fillRect(box.x, box.y, box.w, box.h, primary ? ink.buttonOn : ink.button);
     drawRect(box.x, box.y, box.w, box.h, ink.accent);
+    if (primary) drawRect(box.x + 2, box.y + 2, box.w - 4, box.h - 4, ink.accent);
     setFont(&fonts::Font2);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
     drawString(title, box.x + box.w / 2, box.y + box.h / 2 - (sub != nullptr ? 8 : 0));
     if (sub != nullptr) {
-      setTextColor(ink.muted);
+      setTextColor(primary ? ink.ink : ink.muted);
       drawString(sub, box.x + box.w / 2, box.y + box.h / 2 + 12);
     }
   }
@@ -2183,29 +2200,33 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setFont(&fonts::Font4);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
-    drawString("INVADERS", kPanelWidth / 2, 24);
+    drawString("INVADERS", kPanelWidth / 2, 22);
     drawKey("BACK", backBox(), false);
     setFont(&fonts::Font2);
     setTextColor(ink.accent);
-    drawString("MACHINA", kPanelWidth / 2, 48);
+    drawString("MACHINA", kPanelWidth / 2, 46);
     setTextDatum(lgfx::middle_right);
     setTextColor(ink.accent);
     char coins[16];
-    snprintf(coins, sizeof coins, "$%u", static_cast<unsigned>(bank_));
-    drawString(coins, kPanelWidth - 12, 48);
+    snprintf(coins, sizeof coins, "$%u COIN", static_cast<unsigned>(bank_));
+    drawString(coins, kPanelWidth - 12, 46);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
-    drawCard("PLAY", continueLine(), menuPlayBox());
+    drawCard("PLAY", continueLine(), menuPlayBox(), true);
     drawCard("CHECKPOINTS", checkpointLine(), menuCheckBox());
     drawCard("CUSTOM", "ship, guns, laser", menuCustomBox());
-    drawCard("SHOP", "themes, guns, power-ups", menuShopBox());
+    drawCard("SHOP", "spend coins here", menuShopBox());
     drawCard("SCORES", "best and marks", menuScoresBox());
-    drawCard(themeName(), "tap to switch", menuThemeBox());
-    drawCard("DIVINE MACHINES", divineMenuLine(), menuDivineBox());
+    drawCard(themeName(), "theme · tap", menuThemeBox());
+    drawCard("DIVINE", divineMenuLine(), menuDivineBox());
     drawCard("FORGE", "combine attributes", menuForgeBox());
     drawKey("TUTORIAL", menuTutorialBox(), false);
     drawKey("RESTART GAME", menuRestartBox(), false);
     drawHelpButton();
+    if (!tipSeen(kTipShop)) {
+      setTextColor(ink.muted);
+      drawString("SHOP spends $ coins", kPanelWidth / 2, 378);
+    }
   }
 
   int tutorialCard(int lv) const {
@@ -2435,6 +2456,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         noteCoin();
         playTone(1046, 45);
         floatLabel("Coin!", color565(222, 228, 236));
+        if (!tipSeen(kTipCoins)) {
+          tips_ = static_cast<uint8_t>(tips_ | kTipCoins);
+          saveTips();
+          noteUnlock("COINS → SHOP");
+        }
         collected = true;
         continue;
       }
@@ -2692,7 +2718,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setTextDatum(lgfx::middle_right);
     setTextColor(ink.accent);
     char coins[16];
-    snprintf(coins, sizeof coins, "$%u", static_cast<unsigned>(bank_));
+    snprintf(coins, sizeof coins, "$%u COIN", static_cast<unsigned>(bank_));
     drawString(coins, 232, 18);
     static const char* const kTabs[kShopTabs] = {"THEME", "SHIPS", "COLOR", "GUNS", "POWER", "UPGRD"};
     for (int t = 0; t < kShopTabs; ++t) {
@@ -2734,6 +2760,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     fadeOut();
     mode_ = Mode::Shop;
     shop_msg_ = "";
+    if (!tipSeen(kTipShop)) {
+      tips_ = static_cast<uint8_t>(tips_ | kTipShop);
+      saveTips();
+      shop_msg_ = "SPEND COINS HERE";
+    }
     paintShop();
     fadeIn();
   }
@@ -2907,8 +2938,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         setTextColor(ink.accent);
         drawString(forge_msg_, kPanelWidth / 2, 252);
       }
-      drawKey("YES", forgeYesBox(), false);
-      drawKey("NO", forgeNoBox(), false);
+      drawCard("YES · COMBINE", total, forgeYesBox(), true);
+      drawCard("NO", "pick again", forgeNoBox());
       drawHelpButton();
       return;
     }
@@ -3181,7 +3212,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void paintCheckMap(const Palette& ink) {
-    drawString("CHECKPOINTS", kPanelWidth / 2, 26);
+    drawString("CHECKPOINTS", kPanelWidth / 2, 18);
+    setTextColor(ink.muted);
+    drawString("tap a god path", kPanelWidth / 2, 36);
+    setTextColor(ink.ink);
     for (int g = 0; g < kGods - 1; ++g) {
       const Box a = checkNodeBox(g);
       const Box b = checkNodeBox(g + 1);
@@ -3257,9 +3291,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawString("RESTART GAME?", kPanelWidth / 2, 120);
     setFont(&fonts::Font2);
     setTextColor(ink.muted);
-    drawString("Are you sure?", kPanelWidth / 2, 156);
-    drawKey("YES", yesBox(), false);
-    drawKey("NO", noBox(), false);
+    drawString("Wipes this run. Scores stay.", kPanelWidth / 2, 156);
+    drawCard("YES · WIPE RUN", "level, coins, gear", yesBox(), true);
+    drawCard("NO · KEEP RUN", "back to menu", noBox());
     drawHelpButton();
   }
 
@@ -3608,14 +3642,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setFont(&fonts::Font2);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
-    drawString("DIVINE MACHINES", kPanelWidth / 2, 18);
+    drawString("DIVINE MACHINES", kPanelWidth / 2, 16);
+    setTextColor(ink.muted);
+    drawString("tap to equip unlocked powers", kPanelWidth / 2, 34);
     char head[28];
     snprintf(head, sizeof head, "%d/%d EQUIPPED", divineEquipped(), divineSlots());
     setTextColor(ink.accent);
-    drawString(head, kPanelWidth / 2, 40);
+    drawString(head, kPanelWidth / 2, 52);
     if (div_msg_[0] != '\0') {
       setTextColor(ink.muted);
-      drawString(div_msg_, kPanelWidth / 2, 62);
+      drawString(div_msg_, kPanelWidth / 2, 68);
     }
     for (int row = 0; row < kShopRows; ++row) {
       const int idx = div_page_ * kShopRows + row;
@@ -4364,14 +4400,14 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       else if (raid_) tag = "RAID";
       snprintf(line, sizeof line, "%s %d %d", tag, level_, score_);
     } else {
-      snprintf(line, sizeof line, "MACHINA %d %d", level_, score_);
+      snprintf(line, sizeof line, "LV %d  %d", level_, score_);
     }
     const int slots = heartSlots();
     if (textWidth(line) > kPanelWidth - 70 - slots * 14) {
       if (boosts[0] != '\0' && hud_msg_ticks_ == 0) {
         snprintf(line, sizeof line, "%s", boosts);
       } else {
-        snprintf(line, sizeof line, "M %d %d", level_, score_);
+        snprintf(line, sizeof line, "LV%d %d", level_, score_);
       }
     }
     drawString(line, 8, 12);
@@ -4896,11 +4932,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (demo_) {
       // The attract loop shows one big PLAY key where the ship controls sit.
       fillRect(0, kButtonY, kPanelWidth, kPanelHeight - kButtonY, ink.bg);
-      drawKey("PLAY", playBox(), false);
+      drawKey("TAP PLAY", playBox(), false);
       return;
     }
     drawBack(false);
     drawGameKeys(nullptr);
+    drawCoachTip();
   }
 
   void startLevel() {
@@ -4941,13 +4978,19 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     // A checkpoint opens every 20 levels and is kept in flash.
     if (!demo_ && !tutorial_on_ && level_ > 0 && level_ % 20 == 0) {
       const int bit = level_ / 20 - 1;
-      if (bit >= 0 && bit < 15) camp_ = static_cast<uint16_t>(camp_ | (1u << bit));
+      bool fresh = false;
+      if (bit >= 0 && bit < 15) {
+        fresh = (camp_ & (1u << bit)) == 0;
+        camp_ = static_cast<uint16_t>(camp_ | (1u << bit));
+      }
       if (perk(PERK_SHIELD_REPAIR) && shield_ < shieldCap()) {
         shield_ = static_cast<uint8_t>(shield_ + 1);
         saveShop();
       }
+      if (fresh) noteUnlock("CHECKPOINT");
     }
     saveCampaign();
+    maybeStartCoach();
   }
 
   void beginGame() {
@@ -5031,7 +5074,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     snprintf(line, sizeof line, "LV %d   %d", level_, score_);
     setTextColor(ink.muted);
     drawString(line, kPanelWidth / 2, 244);
-    drawKey("HOME", homeBox(), false);
+    drawCard("HOME", "campaign menu", homeBox(), true);
     drawHelpButton();
   }
 
@@ -5463,6 +5506,81 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     snprintf(hud_msg_, sizeof hud_msg_, "%s", name);
     hud_msg_ticks_ = 45;
     drawHud();
+  }
+
+  void loadTips() { tips_ = prefs_.getUChar("tips", 0); }
+  void saveTips() { prefs_.putUChar("tips", tips_); }
+  bool tipSeen(uint8_t bit) const { return (tips_ & bit) != 0; }
+
+  const char* tipText(uint8_t bit) const {
+    if (bit == kTipMove) return "TAP LEFT / RIGHT TO MOVE";
+    if (bit == kTipShoot) return "TAP FIRE TO SHOOT";
+    if (bit == kTipLives) return "HEARTS = LIVES";
+    if (bit == kTipCoins) return "COINS BUY GEAR IN SHOP";
+    if (bit == kTipShop) return "SPEND COINS HERE";
+    if (bit == kTipPause) return "BACK OPENS PAUSE";
+    return "";
+  }
+
+  void drawCoachTip() {
+    if (tip_bit_ == 0 || demo_) return;
+    const Palette ink = palette();
+    const Box b = tipBox();
+    fillRect(b.x, b.y, b.w, b.h, ink.button);
+    drawRect(b.x, b.y, b.w, b.h, ink.accent);
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.ink);
+    drawString(tipText(tip_bit_), b.x + b.w / 2, b.y + b.h / 2);
+  }
+
+  void showCoach(uint8_t bit) {
+    if (demo_ || tutorial_on_ || tipSeen(bit) || bit == 0) return;
+    tip_bit_ = bit;
+    tip_ticks_ = 140;
+    if (mode_ == Mode::Play) drawCoachTip();
+  }
+
+  void dismissCoach(bool advance) {
+    if (tip_bit_ == 0) return;
+    const uint8_t bit = tip_bit_;
+    tips_ = static_cast<uint8_t>(tips_ | bit);
+    tip_bit_ = 0;
+    tip_ticks_ = 0;
+    saveTips();
+    if (mode_ == Mode::Play) {
+      const Box b = tipBox();
+      fillRect(b.x, b.y, b.w, b.h, palette().bg);
+      paintStars();
+      drawGameKeys(held_);
+      drawBack(false);
+    }
+    if (!advance) return;
+    if (bit == kTipMove) showCoach(kTipShoot);
+    else if (bit == kTipShoot) showCoach(kTipLives);
+  }
+
+  void stepCoach() {
+    if (tip_bit_ == 0 || tip_ticks_ <= 0) return;
+    tip_ticks_ -= 1;
+    if (tip_ticks_ == 0) dismissCoach(true);
+  }
+
+  void maybeStartCoach() {
+    if (demo_ || tutorial_on_ || mode_ != Mode::Play) return;
+    if (!tipSeen(kTipMove)) showCoach(kTipMove);
+    else if (!tipSeen(kTipShoot)) showCoach(kTipShoot);
+    else if (!tipSeen(kTipLives)) showCoach(kTipLives);
+  }
+
+  void noteCoachAction(const char* where) {
+    if (tip_bit_ == 0 || where == nullptr) return;
+    if (tip_bit_ == kTipMove &&
+        (std::strcmp(where, "LEFT") == 0 || std::strcmp(where, "RIGHT") == 0)) {
+      dismissCoach(true);
+    } else if (tip_bit_ == kTipShoot && std::strcmp(where, "FIRE") == 0) {
+      dismissCoach(true);
+    }
   }
 
   void collectDrop() {
@@ -6226,7 +6344,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setFont(&fonts::Font2);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
-    drawString("CUSTOM", kPanelWidth / 2, 22);
+    drawString("CUSTOM", kPanelWidth / 2, 18);
+    setTextColor(ink.muted);
+    drawString("tap a gun to equip", kPanelWidth / 2, 36);
+    setTextColor(ink.ink);
     drawKey("FORGED", customForgeBox(), false);
     char color_line[24];
     snprintf(color_line, sizeof color_line, "LASER %s", laserName());
@@ -6261,9 +6382,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
     drawString("INVADERS MACHINA", kPanelWidth / 2, 152);
-    drawCard("RESUME", nullptr, pauseResumeBox());
+    drawCard("RESUME", "keep fighting", pauseResumeBox(), true);
     drawCard("CUSTOM", "ship and guns", pauseCustomBox());
-    drawCard("HOME", nullptr, pauseHomeBox());
+    drawCard("HOME", "campaign menu", pauseHomeBox());
     if (tutorial_on_) {
       char lv[12];
       snprintf(lv, sizeof lv, "LV %d", level_);
@@ -6298,6 +6419,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (mode_ == Mode::Advance) pause_advance_ = true;
     else if (!keep_advance) pause_advance_ = false;
+    if (tip_bit_ != 0) dismissCoach(false);
+    if (!tipSeen(kTipPause)) {
+      tips_ = static_cast<uint8_t>(tips_ | kTipPause);
+      saveTips();
+    }
     mode_ = Mode::Pause;
     paintPausePanel();
   }
@@ -7542,6 +7668,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (down && contains(leftBox(), tx, ty)) held = "LEFT";
     else if (down && contains(fireBox(), tx, ty)) held = "FIRE";
     else if (down && contains(rightBox(), tx, ty)) held = "RIGHT";
+    if (held != nullptr) noteCoachAction(held);
+    stepCoach();
     if (held != held_) {
       if (!demo_) drawGameKeys(held);
       held_ = held;
@@ -7769,6 +7897,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool tutorial_on_ = false;
   bool auto_fire_ = false;
   int tutorial_saved_level_ = 1;
+  uint8_t tips_ = 0;
+  uint8_t tip_bit_ = 0;
+  int tip_ticks_ = 0;
   char over_title_[16] = {};
   char over_killer_[24] = {};
   int poseidon_cool_ = 0;
