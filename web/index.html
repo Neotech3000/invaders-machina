@@ -446,6 +446,7 @@ Escape: "esc", Tab: "tab", KeyQ: "tab"
 const held = new Set();
 const pressed = new Set();
 const mouse = { x: 0, y: 0, inside: false, down: false, moved: -1e9 };
+const pointers = new Map();
 let kbActive = false;
 window.addEventListener("keydown", (e) => {
 const name = KEY_NAMES[e.code];
@@ -459,13 +460,14 @@ window.addEventListener("keyup", (e) => {
 const name = KEY_NAMES[e.code];
 if (name) held.delete(name);
 });
-window.addEventListener("blur", () => { held.clear(); mouse.down = false; });
+window.addEventListener("blur", () => { held.clear(); pointers.clear(); mouse.down = false; });
 function toLogical(e) {
 const r = cv.getBoundingClientRect();
 return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
 }
 cv.addEventListener("pointermove", (e) => {
 const p = toLogical(e);
+if (pointers.has(e.pointerId)) pointers.set(e.pointerId, p);
 mouse.x = p.x; mouse.y = p.y; mouse.inside = true;
 mouse.moved = performance.now();
 kbActive = false;
@@ -475,6 +477,7 @@ if (i >= 0) sel = i;
 cv.addEventListener("pointerleave", () => { mouse.inside = false; });
 cv.addEventListener("pointerdown", (e) => {
 const p = toLogical(e);
+pointers.set(e.pointerId, p);
 mouse.x = p.x; mouse.y = p.y; mouse.inside = true;
 mouse.down = true;
 mouse.moved = performance.now();
@@ -486,8 +489,8 @@ sel = i;
 if (btns[i].fn) btns[i].fn();
 }
 });
-cv.addEventListener("pointerup", () => { mouse.down = false; });
-cv.addEventListener("pointercancel", () => { mouse.down = false; });
+cv.addEventListener("pointerup", (e) => { pointers.delete(e.pointerId); mouse.down = pointers.size > 0; });
+cv.addEventListener("pointercancel", (e) => { pointers.delete(e.pointerId); mouse.down = pointers.size > 0; });
 let scr = "demo";
 let sel = 0;
 let btns = [];
@@ -623,8 +626,9 @@ FB.fill(P.bg);
 const card = TUTORIAL_CARDS[R.level];
 drawText("TUTORIAL " + R.level, W / 2, 18, P.muted, "f2", "mc");
 drawText(card.title, W / 2, 50, P.accent, "f4", "mc");
+drawPicRow(TUT_PICS[R.level] || [], 100, P, 126);
 card.lines.forEach((line, i) => {
-if (line) drawText(line, W / 2, 92 + i * 22, P.ink, "f2", "mc");
+if (line) drawText(line, W / 2, 150 + i * 20, P.ink, "f2", "mc");
 });
 drawKey("EXIT", BOX.tutSkip, false, P);
 reg(BOX.tutSkip, () => goMenu());
@@ -2341,6 +2345,8 @@ no: { x: 32, y: 260, w: 256, h: 52 },
 resume: { x: 32, y: 176, w: 256, h: 46 },
 pauseCustom: { x: 32, y: 232, w: 256, h: 46 },
 pauseHome: { x: 32, y: 288, w: 256, h: 46 },
+pausePrev: { x: 32, y: 344, w: 96, h: 40 },
+pauseNext: { x: 192, y: 344, w: 96, h: 40 },
 color: { x: 16, y: 46, w: 140, h: 36 },
 ship: { x: 164, y: 46, w: 140, h: 36 },
 menuPlay: { x: 16, y: 54, w: 288, h: 38 },
@@ -2372,15 +2378,19 @@ function forgeRowBox(r) { return { x: 16, y: 88 + r * 50, w: 288, h: 44 }; }
 function forgeAttrRowBox(r) { return { x: 16, y: 100 + r * 50, w: 288, h: 44 }; }
 function inBox(b, x, y) { return x >= b.x && y >= b.y && x < b.x + b.w && y < b.y + b.h; }
 function playerInput() {
-const pointerDown = mouse.down && mouse.inside;
-const onKey = (name) => pointerDown && inBox(BOX[name], mouse.x, mouse.y);
+const points = [...pointers.values()];
+const onKey = (name) => points.some(p => inBox(BOX[name], p.x, p.y));
 const input = {
 left: held.has("left") || onKey("left"),
 right: held.has("right") || onKey("right"),
 fire: held.has("space") || held.has("up") || onKey("fire"),
 aim: null
 };
-if (mouse.inside && mouse.y < BUTTON_Y && performance.now() - mouse.moved < 1500) {
+const moving = input.left || input.right;
+const board = points.filter(p => p.y < BUTTON_Y);
+if (board.length && !moving) {
+input.aim = board[board.length - 1].x - SHIP_W / 2;
+} else if (!moving && mouse.inside && mouse.y < BUTTON_Y && performance.now() - mouse.moved < 1500) {
 input.aim = mouse.x - SHIP_W / 2;
 }
 return input;
@@ -3586,6 +3596,69 @@ const TUTORIAL_CARDS = {
 };
 let tutorialOn = false;
 const HELP_SCREENS = new Set(["menu","shop","custom","forge","divine","checks","confirm","scores","pause","over"]);
+function drawPic(k, cx, cy, arg, P) {
+const ink = P.ink;
+if (k === "left") fillTriangle(cx + 7, cy - 9, cx + 7, cy + 9, cx - 9, cy, ink);
+else if (k === "right") fillTriangle(cx - 7, cy - 9, cx - 7, cy + 9, cx + 9, cy, ink);
+else if (k === "fire") { fillCircle(cx, cy, 9, P.accent); fillCircle(cx, cy, 4, P.bg); }
+else if (k === "pause") { fillRect(cx - 6, cy - 8, 4, 16, ink); fillRect(cx + 2, cy - 8, 4, 16, ink); }
+else if (k === "ship") { fillTriangle(cx - 10, cy + 9, cx + 10, cy + 9, cx, cy - 10, P.accent); fillRect(cx - 2, cy + 1, 4, 4, P.bg); }
+else if (k === "alien") drawAlienAt(cx - 10, cy - 9, arg, P);
+else if (k === "shot") fillRect(cx - 1, cy - 10, 3, 14, ink);
+else if (k === "shell") { fillCircle(cx, cy + 3, 5, P.accent); fillRect(cx - 1, cy - 8, 3, 7, ink); }
+else if (k === "coin") drawCoin(cx - 5, cy - 5);
+else if (k === "heart") drawHeart(cx - 6, cy - 5, clr([255, 64, 96]));
+else if (k === "shield") { drawCircle(cx, cy, 11, clr([96, 200, 255])); drawCircle(cx, cy, 10, clr([96, 200, 255])); }
+else if (k === "box") { fillRect(cx - 9, cy - 9, 18, 18, clr(arg)); fillRect(cx - 4, cy - 4, 8, 8, P.bg); }
+else if (k === "gun") { fillRect(cx - 2, cy - 11, 4, 16, ink); fillRect(cx - 6, cy + 5, 12, 4, ink); }
+else if (k === "laser") { drawLine(cx - 11, cy, cx + 11, cy, clr(arg)); fillCircle(cx, cy, 3, clr(arg)); }
+else if (k === "machine") { fillCircle(cx, cy, 10, clr(GOD_INK[arg])); fillCircle(cx, cy, 5, P.bg); }
+else if (k === "path") { drawLine(cx - 11, cy, cx + 11, cy, P.accent); fillCircle(cx - 11, cy, 4, P.accent); fillCircle(cx + 11, cy, 4, P.accent); }
+else if (k === "lock") { drawRect(cx - 7, cy - 2, 14, 12, P.muted); drawRect(cx - 4, cy - 9, 8, 9, P.muted); }
+else if (k === "medal") { fillCircle(cx, cy - 3, 8, P.accent); fillTriangle(cx - 6, cy + 4, cx + 6, cy + 4, cx, cy + 11, P.accent); }
+else if (k === "anvil") { fillRect(cx - 10, cy - 6, 20, 6, ink); fillRect(cx - 5, cy, 10, 7, ink); }
+else if (k === "barrier") { fillRect(cx - 12, cy - 5, 24, 10, P.muted); fillRect(cx - 4, cy - 5, 8, 5, P.bg); }
+else if (k === "checkpoint") { drawLine(cx - 6, cy - 11, cx - 6, cy + 11, ink); fillTriangle(cx - 6, cy - 11, cx + 8, cy - 6, cx - 6, cy - 1, P.accent); }
+else if (k === "warn") { fillTriangle(cx, cy - 10, cx - 11, cy + 9, cx + 11, cy + 9, P.accent); fillRect(cx - 1, cy - 4, 3, 8, P.bg); }
+}
+function drawPicRow(pics, y, P, labelY) {
+const n = pics.length;
+const step = Math.min(64, Math.floor(300 / n));
+const x0 = Math.floor(W / 2 - (n - 1) * step / 2);
+pics.forEach((pc, i) => {
+const cx = x0 + i * step;
+drawPic(pc[0], cx, y, pc[2], P);
+drawText(pc[1], cx, labelY, P.muted, "f2", "mc");
+});
+}
+const TUT_PICS = {
+1: [["left", "LEFT"], ["right", "RIGHT"], ["fire", "FIRE"], ["ship", "SHIP"]],
+2: [["alien", "ALIEN", 0], ["alien", "ASSAULT", 4], ["alien", "CANNON", 5], ["alien", "BOSS", 2]],
+3: [["coin", "COIN"], ["gun", "GUN"]],
+4: [["heart", "HEART"], ["shield", "SHIELD"]],
+5: [["alien", "BOSS", 2], ["coin", "BOUNTY"]],
+6: [["box", "RUSH", BOOST_RGB[0]], ["box", "FURY", BOOST_RGB[1]], ["box", "WIDE", BOOST_RGB[2]], ["box", "VEIL", BOOST_RGB[3]], ["box", "SALVO", BOOST_RGB[4]]],
+8: [["shell", "CANNON"], ["gun", "SHOTGUN"], ["laser", "BEAM", [255, 214, 56]]],
+10: [["path", "PATH"], ["checkpoint", "20"]],
+12: [["barrier", "BARRIER"], ["shell", "SHELL"]],
+15: [["anvil", "FORGE"], ["gun", "GUNS"]],
+20: [["checkpoint", "20"], ["path", "NEXT"]],
+24: [["machine", "ZEUS", 0], ["machine", "HERA", 1]],
+25: [["machine", "ZEUS", 0], ["machine", "LIGHTNING", 0]],
+26: [["machine", "DEMETER", 3], ["heart", "HEART"]]
+};
+const HELP_PICS = {
+menu: [["path", "CHECKS"], ["coin", "COINS"], ["machine", "DIVINE", 0], ["gun", "FORGE"]],
+shop: [["box", "SHIELD", [96, 200, 255]], ["heart", "SPARE"], ["box", "RUSH", BOOST_RGB[0]], ["box", "FURY", BOOST_RGB[1]], ["box", "WIDE", BOOST_RGB[2]], ["box", "VEIL", BOOST_RGB[3]], ["box", "SALVO", BOOST_RGB[4]]],
+custom: [["gun", "GUNS"], ["ship", "SHIP"], ["laser", "LASER", [255, 214, 56]]],
+forge: [["gun", "GUNS"], ["box", "POWER", [255, 214, 56]], ["anvil", "UPGRADE"]],
+divine: [["machine", "ZEUS", 0], ["machine", "DEMETER", 3], ["machine", "APOLLO", 6], ["machine", "HERMES", 10]],
+checks: [["path", "PATH"], ["lock", "LOCKED"], ["medal", "OPEN"]],
+confirm: [["warn", "RESTART"]],
+scores: [["medal", "BEST"], ["medal", "MARKS"]],
+pause: [["left", "LEFT"], ["right", "RIGHT"], ["fire", "FIRE"], ["pause", "PAUSE"]],
+over: [["heart", "LIVES"], ["alien", "KILLER", 0]]
+};
 function drawHelpButton(P) {
 drawKey("?", BOX.help, false, P);
 reg(BOX.help, () => beginHelp());
@@ -3602,18 +3675,19 @@ setScr(helpFrom);
 function paintHelp(P) {
 FB.fill(P.bg);
 const lines = HELP_TEXT[helpFrom] || HELP_TEXT.menu;
-const rows = 16;
+const rows = 15;
 const pages = Math.max(1, Math.ceil(lines.length / rows));
 if (helpPage >= pages) helpPage = 0;
 drawText("HELP", W / 2, 18, P.ink, "f2", "mc");
 drawText((helpPage + 1) + "/" + pages, W - 12, 18, P.muted, "f2", "mr");
+drawPicRow(HELP_PICS[helpFrom] || [], 50, P, 76);
 const start = helpPage * rows;
 for (let i = 0; i < rows; i++) {
 const idx = start + i;
 if (idx >= lines.length) break;
 const line = lines[idx];
 if (!line) continue;
-const y = 48 + i * 20;
+const y = 102 + i * 19;
 drawText(line, W / 2, y, (i === 0 && helpPage === 0) ? P.accent : P.ink, "f2", "mc");
 }
 if (pages > 1) {
@@ -3839,9 +3913,15 @@ drawKey("BACK", BOX.home, false, P);
 reg(BOX.home, () => (customFromPause ? beginPause() : goMenu()));
 drawHelpButton(P);
 }
+function tutorialJump(level) {
+R.level = level;
+R.lives = 3;
+startLevel();
+}
 function paintPause(P) {
-fillRect(24, 128, 272, 230, P.bg);
-drawRect(24, 128, 272, 230, P.accent);
+const ph = tutorialOn ? 270 : 230;
+fillRect(24, 128, 272, ph, P.bg);
+drawRect(24, 128, 272, ph, P.accent);
 drawText("INVADERS MACHINA", W / 2, 152, P.ink, "f2", "mc");
 drawCard("RESUME", null, BOX.resume, P);
 drawCard("CUSTOM", "ship and guns", BOX.pauseCustom, P);
@@ -3849,6 +3929,13 @@ drawCard("HOME", null, BOX.pauseHome, P);
 reg(BOX.resume, () => resumePlay());
 reg(BOX.pauseCustom, () => { customFromPause = true; customPage = 0; setScr("custom"); });
 reg(BOX.pauseHome, () => goMenu());
+if (tutorialOn) {
+drawText("LV " + R.level, W / 2, 364, P.accent, "f2", "mc");
+drawKey("< BACK", BOX.pausePrev, false, P);
+drawKey("NEXT >", BOX.pauseNext, false, P);
+reg(BOX.pausePrev, () => { if (R.level > 1) tutorialJump(R.level - 1); });
+reg(BOX.pauseNext, () => { if (R.level < 26) tutorialJump(R.level + 1); });
+}
 drawHelpButton(P);
 }
 function paintAdvance(P) {

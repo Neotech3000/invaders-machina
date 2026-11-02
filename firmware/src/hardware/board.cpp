@@ -371,6 +371,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (std::strcmp(where, "RESUME") == 0) resumePlay();
       else if (std::strcmp(where, "CUSTOM") == 0) beginCustom(true);
       else if (std::strcmp(where, "HOME") == 0) beginMenu();
+      else if (std::strcmp(where, "TPREV") == 0 && level_ > 1) tutorialJump(level_ - 1);
+      else if (std::strcmp(where, "TNEXT") == 0 && level_ < 26) tutorialJump(level_ + 1);
       return;
     }
     if (mode_ == Mode::Custom) {
@@ -1212,6 +1214,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Box pauseResumeBox() const { return {32, 176, 256, 46}; }
   Box pauseCustomBox() const { return {32, 232, 256, 46}; }
   Box pauseHomeBox() const { return {32, 288, 256, 46}; }
+  Box pausePrevBox() const { return {32, 344, 96, 40}; }
+  Box pauseNextBox() const { return {192, 344, 96, 40}; }
   Box homeBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
   Box leftBox() const { return {8, kButtonY, 96, 44}; }
   Box fireBox() const { return {112, kButtonY, 96, 44}; }
@@ -1374,6 +1378,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (contains(pauseResumeBox(), x, y)) return "RESUME";
       if (contains(pauseCustomBox(), x, y)) return "CUSTOM";
       if (contains(pauseHomeBox(), x, y)) return "HOME";
+      if (tutorial_on_ && contains(pausePrevBox(), x, y)) return "TPREV";
+      if (tutorial_on_ && contains(pauseNextBox(), x, y)) return "TNEXT";
       return "none";
     }
     if (mode_ == Mode::Custom) {
@@ -1879,12 +1885,163 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
   }
 
+  struct PicSpec {
+    const char* kind;
+    const char* label;
+    int arg;
+  };
+
+  const PicSpec* helpPics(Mode from, int* n) const {
+    static const PicSpec menu[] = {{"path", "CHECKS", 0}, {"coin", "COINS", 0}, {"machine", "DIVINE", 0}, {"gun", "FORGE", 0}};
+    static const PicSpec shop[] = {{"box", "SHIELD", -2}, {"heart", "SPARE", 0}, {"box", "RUSH", 0}, {"box", "FURY", 1},
+                                   {"box", "WIDE", 2}, {"box", "VEIL", 3}, {"box", "SALVO", 4}};
+    static const PicSpec custom[] = {{"gun", "GUNS", 0}, {"ship", "SHIP", 0}, {"laser", "LASER", 0}};
+    static const PicSpec forge[] = {{"gun", "GUNS", 0}, {"box", "POWER", -1}, {"anvil", "UPGRADE", 0}};
+    static const PicSpec divine[] = {{"machine", "ZEUS", 0}, {"machine", "DEMETER", 3}, {"machine", "APOLLO", 6}, {"machine", "HERMES", 10}};
+    static const PicSpec checks[] = {{"path", "PATH", 0}, {"lock", "LOCKED", 0}, {"medal", "OPEN", 0}};
+    static const PicSpec confirm[] = {{"warn", "RESTART", 0}};
+    static const PicSpec scores[] = {{"medal", "BEST", 0}, {"medal", "MARKS", 0}};
+    static const PicSpec pause[] = {{"left", "LEFT", 0}, {"right", "RIGHT", 0}, {"fire", "FIRE", 0}, {"pause", "PAUSE", 0}};
+    static const PicSpec over[] = {{"heart", "LIVES", 0}, {"alien", "KILLER", 0}};
+#define PIC_LIST(name) { *n = static_cast<int>(sizeof name / sizeof name[0]); return name; }
+    switch (from) {
+      case Mode::Menu: PIC_LIST(menu)
+      case Mode::Shop: PIC_LIST(shop)
+      case Mode::Custom: PIC_LIST(custom)
+      case Mode::Forge: PIC_LIST(forge)
+      case Mode::Divine: PIC_LIST(divine)
+      case Mode::Check: PIC_LIST(checks)
+      case Mode::Confirm: PIC_LIST(confirm)
+      case Mode::Scores: PIC_LIST(scores)
+      case Mode::Pause: PIC_LIST(pause)
+      default: PIC_LIST(over)
+    }
+#undef PIC_LIST
+  }
+
+  const PicSpec* tutPics(int level, int* n) const {
+    static const PicSpec l1[] = {{"left", "LEFT", 0}, {"right", "RIGHT", 0}, {"fire", "FIRE", 0}, {"ship", "SHIP", 0}};
+    static const PicSpec l2[] = {{"alien", "ALIEN", 0}, {"alien", "ASSAULT", 4}, {"alien", "CANNON", 5}, {"alien", "BOSS", 2}};
+    static const PicSpec l3[] = {{"coin", "COIN", 0}, {"gun", "GUN", 0}};
+    static const PicSpec l4[] = {{"heart", "HEART", 0}, {"shield", "SHIELD", 0}};
+    static const PicSpec l5[] = {{"alien", "BOSS", 2}, {"coin", "BOUNTY", 0}};
+    static const PicSpec l6[] = {{"box", "RUSH", 0}, {"box", "FURY", 1}, {"box", "WIDE", 2}, {"box", "VEIL", 3}, {"box", "SALVO", 4}};
+    static const PicSpec l8[] = {{"shell", "CANNON", 0}, {"gun", "SHOTGUN", 0}, {"laser", "BEAM", 0}};
+    static const PicSpec l10[] = {{"path", "PATH", 0}, {"checkpoint", "20", 0}};
+    static const PicSpec l12[] = {{"barrier", "BARRIER", 0}, {"shell", "SHELL", 0}};
+    static const PicSpec l15[] = {{"anvil", "FORGE", 0}, {"gun", "GUNS", 0}};
+    static const PicSpec l20[] = {{"checkpoint", "20", 0}, {"path", "NEXT", 0}};
+    static const PicSpec l24[] = {{"machine", "ZEUS", 0}, {"machine", "HERA", 1}};
+    static const PicSpec l25[] = {{"machine", "ZEUS", 0}, {"machine", "LIGHTNING", 0}};
+    static const PicSpec l26[] = {{"machine", "DEMETER", 3}, {"heart", "HEART", 0}};
+    static const PicSpec none[] = {{"ship", "", 0}};
+#define TUT_LIST(name) { *n = static_cast<int>(sizeof name / sizeof name[0]); return name; }
+    switch (level) {
+      case 1: TUT_LIST(l1)
+      case 2: TUT_LIST(l2)
+      case 3: TUT_LIST(l3)
+      case 4: TUT_LIST(l4)
+      case 5: TUT_LIST(l5)
+      case 6: TUT_LIST(l6)
+      case 8: TUT_LIST(l8)
+      case 10: TUT_LIST(l10)
+      case 12: TUT_LIST(l12)
+      case 15: TUT_LIST(l15)
+      case 20: TUT_LIST(l20)
+      case 24: TUT_LIST(l24)
+      case 25: TUT_LIST(l25)
+      case 26: TUT_LIST(l26)
+      default: *n = 0; return none;
+    }
+#undef TUT_LIST
+  }
+
+  void drawPic(const char* kind, int cx, int cy, int arg) {
+    const Palette ink = palette();
+    if (std::strcmp(kind, "left") == 0) fillTriangle(cx + 7, cy - 9, cx + 7, cy + 9, cx - 9, cy, ink.ink);
+    else if (std::strcmp(kind, "right") == 0) fillTriangle(cx - 7, cy - 9, cx - 7, cy + 9, cx + 9, cy, ink.ink);
+    else if (std::strcmp(kind, "fire") == 0) {
+      fillCircle(cx, cy, 9, ink.accent);
+      fillCircle(cx, cy, 4, ink.bg);
+    } else if (std::strcmp(kind, "pause") == 0) {
+      fillRect(cx - 6, cy - 8, 4, 16, ink.ink);
+      fillRect(cx + 2, cy - 8, 4, 16, ink.ink);
+    } else if (std::strcmp(kind, "ship") == 0) {
+      fillTriangle(cx - 10, cy + 9, cx + 10, cy + 9, cx, cy - 10, ink.accent);
+      fillRect(cx - 2, cy + 1, 4, 4, ink.bg);
+    } else if (std::strcmp(kind, "alien") == 0) {
+      drawAlienAt(cx - 10, cy - 9, static_cast<uint8_t>(arg));
+    } else if (std::strcmp(kind, "shot") == 0) {
+      fillRect(cx - 1, cy - 10, 3, 14, ink.ink);
+    } else if (std::strcmp(kind, "shell") == 0) {
+      fillCircle(cx, cy + 3, 5, ink.accent);
+      fillRect(cx - 1, cy - 8, 3, 7, ink.ink);
+    } else if (std::strcmp(kind, "coin") == 0) {
+      drawCoin(cx - 5, cy - 5);
+    } else if (std::strcmp(kind, "heart") == 0) {
+      drawHeart(cx - 6, cy - 5, color565(255, 64, 96));
+    } else if (std::strcmp(kind, "shield") == 0) {
+      drawCircle(cx, cy, 11, color565(96, 200, 255));
+      drawCircle(cx, cy, 10, color565(96, 200, 255));
+    } else if (std::strcmp(kind, "box") == 0) {
+      uint16_t c = arg == -2 ? color565(96, 200, 255) : arg == -1 ? color565(255, 214, 56) : boostColorOf(arg);
+      fillRect(cx - 9, cy - 9, 18, 18, c);
+      fillRect(cx - 4, cy - 4, 8, 8, ink.bg);
+    } else if (std::strcmp(kind, "gun") == 0) {
+      fillRect(cx - 2, cy - 11, 4, 16, ink.ink);
+      fillRect(cx - 6, cy + 5, 12, 4, ink.ink);
+    } else if (std::strcmp(kind, "laser") == 0) {
+      drawLine(cx - 11, cy, cx + 11, cy, color565(255, 214, 56));
+      fillCircle(cx, cy, 3, color565(255, 214, 56));
+    } else if (std::strcmp(kind, "machine") == 0) {
+      fillCircle(cx, cy, 10, godInkOf(arg + 1));
+      fillCircle(cx, cy, 5, ink.bg);
+    } else if (std::strcmp(kind, "path") == 0) {
+      drawLine(cx - 11, cy, cx + 11, cy, ink.accent);
+      fillCircle(cx - 11, cy, 4, ink.accent);
+      fillCircle(cx + 11, cy, 4, ink.accent);
+    } else if (std::strcmp(kind, "lock") == 0) {
+      drawRect(cx - 7, cy - 2, 14, 12, ink.muted);
+      drawRect(cx - 4, cy - 9, 8, 9, ink.muted);
+    } else if (std::strcmp(kind, "medal") == 0) {
+      fillCircle(cx, cy - 3, 8, ink.accent);
+      fillTriangle(cx - 6, cy + 4, cx + 6, cy + 4, cx, cy + 11, ink.accent);
+    } else if (std::strcmp(kind, "anvil") == 0) {
+      fillRect(cx - 10, cy - 6, 20, 6, ink.ink);
+      fillRect(cx - 5, cy, 10, 7, ink.ink);
+    } else if (std::strcmp(kind, "barrier") == 0) {
+      fillRect(cx - 12, cy - 5, 24, 10, ink.muted);
+      fillRect(cx - 4, cy - 5, 8, 5, ink.bg);
+    } else if (std::strcmp(kind, "checkpoint") == 0) {
+      drawLine(cx - 6, cy - 11, cx - 6, cy + 11, ink.ink);
+      fillTriangle(cx - 6, cy - 11, cx + 8, cy - 6, cx - 6, cy - 1, ink.accent);
+    } else if (std::strcmp(kind, "warn") == 0) {
+      fillTriangle(cx, cy - 10, cx - 11, cy + 9, cx + 11, cy + 9, ink.accent);
+      fillRect(cx - 1, cy - 4, 3, 8, ink.bg);
+    }
+  }
+
+  void drawPicRow(const PicSpec* pics, int n, int y, int label_y) {
+    const Palette ink = palette();
+    if (n <= 0) return;
+    const int step = 300 / n < 64 ? 300 / n : 64;
+    const int x0 = kPanelWidth / 2 - (n - 1) * step / 2;
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    for (int i = 0; i < n; ++i) {
+      const int cx = x0 + i * step;
+      drawPic(pics[i].kind, cx, y, pics[i].arg);
+      setTextColor(ink.muted);
+      drawString(pics[i].label, cx, label_y);
+    }
+  }
+
   void paintHelp() {
     const Palette ink = palette();
     fillScreen(ink.bg);
     int count = 0;
     const char* const* lines = helpLines(help_from_, &count);
-    static constexpr int kHelpRows = 16;
+    static constexpr int kHelpRows = 15;
     int pages = (count + kHelpRows - 1) / kHelpRows;
     if (pages < 1) pages = 1;
     if (help_page_ >= pages) help_page_ = 0;
@@ -1898,11 +2055,14 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     char page[20];
     snprintf(page, sizeof page, "%d/%d", help_page_ + 1, pages);
     drawString(page, kPanelWidth - 12, 18);
+    int pic_n = 0;
+    const PicSpec* pics = helpPics(help_from_, &pic_n);
+    drawPicRow(pics, pic_n, 50, 76);
     for (int i = 0; i < kHelpRows; ++i) {
       const int idx = start + i;
       if (idx >= count) break;
       const char* line = lines[idx];
-      const int y = 48 + i * 20;
+      const int y = 102 + i * 19;
       setTextDatum(lgfx::middle_center);
       setTextColor(i == 0 && help_page_ == 0 ? ink.accent : ink.ink);
       if (line[0] == '\0') continue;
@@ -2098,13 +2258,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setFont(&fonts::Font4);
     setTextColor(ink.accent);
     drawString(card.title, kPanelWidth / 2, 50);
+    int pic_n = 0;
+    const PicSpec* pics = tutPics(level_, &pic_n);
+    drawPicRow(pics, pic_n, 100, 126);
     setFont(&fonts::Font2);
     setTextColor(ink.ink);
     const char* const* lines = tutLines();
     for (int i = 0; i < card.count; ++i) {
       const char* line = lines[card.first + i];
       if (line[0] == '\0') continue;
-      drawString(line, kPanelWidth / 2, 92 + i * 22);
+      drawString(line, kPanelWidth / 2, 150 + i * 20);
     }
     drawKey("EXIT", tutExitBox(), false);
     drawKey("NEXT", tutNextBox(), false);
@@ -2142,6 +2305,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       tutorial_on_ = false;
       level_ = tutorial_saved_level_;
     }
+    auto_fire_ = false;
     demo_ = false;
     clearBoosts();
     saveShop();
@@ -4254,7 +4418,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void drawGameKeys(const char* held) {
     drawKey("LEFT", leftBox(), held != nullptr && std::strcmp(held, "LEFT") == 0);
-    drawKey("FIRE", fireBox(), held != nullptr && std::strcmp(held, "FIRE") == 0);
+    drawKey(auto_fire_ ? "AUTO" : "FIRE", fireBox(), held != nullptr && std::strcmp(held, "FIRE") == 0);
     drawKey("RIGHT", rightBox(), held != nullptr && std::strcmp(held, "RIGHT") == 0);
   }
 
@@ -6090,8 +6254,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void paintPausePanel() {
     const Palette ink = palette();
-    fillRect(24, 128, 272, 230, ink.bg);
-    drawRect(24, 128, 272, 230, ink.accent);
+    const int ph = tutorial_on_ ? 270 : 230;
+    fillRect(24, 128, 272, ph, ink.bg);
+    drawRect(24, 128, 272, ph, ink.accent);
     setFont(&fonts::Font2);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
@@ -6099,7 +6264,21 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawCard("RESUME", nullptr, pauseResumeBox());
     drawCard("CUSTOM", "ship and guns", pauseCustomBox());
     drawCard("HOME", nullptr, pauseHomeBox());
+    if (tutorial_on_) {
+      char lv[12];
+      snprintf(lv, sizeof lv, "LV %d", level_);
+      setTextColor(ink.accent);
+      drawString(lv, kPanelWidth / 2, 364);
+      drawKey("< BACK", pausePrevBox(), false);
+      drawKey("NEXT >", pauseNextBox(), false);
+    }
     drawHelpButton();
+  }
+
+  void tutorialJump(int lv) {
+    level_ = lv;
+    lives_ = 3;
+    startLevel();
   }
 
   void beginPause() {
@@ -7367,6 +7546,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (!demo_) drawGameKeys(held);
       held_ = held;
     }
+    if (rose && held != nullptr && std::strcmp(held, "FIRE") == 0) {
+      auto_fire_ = !auto_fire_;
+      if (!demo_) drawGameKeys(held);
+    }
     const int old_player = player_x_;
     const int pace = ship_step_ + (hermes_ticks_ > 0 ? 4 : 0);
     const bool stunned = player_stun_ > 0;
@@ -7387,7 +7570,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       hole_closed = shield_hole_ == 0;
     }
     stepBoosts();
-    const bool firing = !stunned && held != nullptr && std::strcmp(held, "FIRE") == 0;
+    const bool firing = !stunned && ((held != nullptr && std::strcmp(held, "FIRE") == 0) || auto_fire_);
     if (gun_cool_ > 0) gun_cool_ -= 1;
     if (hud_msg_ticks_ > 0) {
       hud_msg_ticks_ -= 1;
@@ -7584,6 +7767,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int check_god_ = -1;
   bool power_drawn_ = false;
   bool tutorial_on_ = false;
+  bool auto_fire_ = false;
   int tutorial_saved_level_ = 1;
   char over_title_[16] = {};
   char over_killer_[24] = {};
