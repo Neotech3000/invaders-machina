@@ -217,8 +217,10 @@ gunLv: blankLevels(), laser: 0, theme: 0,
 shield: 0, spare: 0, thrust: 0, forges: blankForges(), fpw: 0, fup: 0,
 armed: [0, 0, 0, 0, 0], gods: 0, dive: 0, dmul: 0,
 clearedLv: [], clearedGw: [],
-best: [0, 0, 0], ach: 0, coinsLife: 0
+best: [0, 0, 0], ach: 0, coinsLife: 0, tips: 0
 };
+const TIP_MOVE = 1 << 0, TIP_SHOOT = 1 << 1, TIP_LIVES = 1 << 2;
+const TIP_COINS = 1 << 3, TIP_SHOP = 1 << 4, TIP_PAUSE = 1 << 5;
 const ACH = [
 ["FIRST BLOOD", "Destroy an alien"],
 ["WAVE CLEAR", "Clear a wave"],
@@ -288,6 +290,7 @@ save.dive = (loadedSave.dive | 0) & save.gods;
 }
 save.ships = ((save.ships | 0) | 1) & 0x3f;
 save.ship = (save.ship | 0) % SHIPS.length;
+save.tips = (loadedSave.tips | 0) & 0xff;
 save.clearedLv = [];
 if (Array.isArray(loadedSave.clearedLv)) {
   for (const n of loadedSave.clearedLv) {
@@ -600,8 +603,13 @@ else buildFormation();
 if (!demo && L >= 100) grant(13);
 if (!demo && !tutorialOn && L % 20 === 0) {
 const bit = L / 20 - 1;
-if (bit >= 0 && bit < 15) save.camp |= (1 << bit);
+let fresh = false;
+if (bit >= 0 && bit < 15) {
+fresh = (save.camp & (1 << bit)) === 0;
+save.camp |= (1 << bit);
+}
 if (perk(PERK.shieldRepair) && save.shield < shieldCap()) save.shield += 1;
+if (fresh) setMsg("CHECKPOINT");
 }
 if (!demo && !tutorialOn) { save.level = L; persist(); }
 resetMachines();
@@ -613,6 +621,7 @@ setScr("splash");
 R.raidSplash = false;
 setScr(demo ? "demo" : "play");
 if (tutorialOn && TUTORIAL_CARDS[R.level]) setScr("tutorial");
+else if (!demo) maybeStartCoach();
 }
 }
 function startTutorial() {
@@ -1374,6 +1383,60 @@ if (which >= 12 && which < 12 + BOOSTS.length) return clr(BOOST_RGB[which - 12])
 return clr([255, 220, 80]);
 }
 function setMsg(m) { R.msg = m; R.msgT = 45; }
+function tipSeen(bit) { return ((save.tips | 0) & bit) !== 0; }
+function markTip(bit) {
+save.tips = ((save.tips | 0) | bit) & 0xff;
+persist();
+}
+function tipText(bit) {
+if (bit === TIP_MOVE) return "TAP LEFT / RIGHT TO MOVE";
+if (bit === TIP_SHOOT) return "TAP FIRE TO SHOOT";
+if (bit === TIP_LIVES) return "HEARTS = LIVES";
+if (bit === TIP_COINS) return "COINS BUY GEAR IN SHOP";
+if (bit === TIP_SHOP) return "SPEND COINS HERE";
+if (bit === TIP_PAUSE) return "BACK OPENS PAUSE";
+return "";
+}
+let tipBit = 0, tipTicks = 0;
+function showCoach(bit) {
+if (demo || tutorialOn || tipSeen(bit) || !bit) return;
+tipBit = bit;
+tipTicks = 140;
+}
+function dismissCoach(advance) {
+if (!tipBit) return;
+const bit = tipBit;
+markTip(bit);
+tipBit = 0;
+tipTicks = 0;
+if (!advance) return;
+if (bit === TIP_MOVE) showCoach(TIP_SHOOT);
+else if (bit === TIP_SHOOT) showCoach(TIP_LIVES);
+}
+function stepCoach() {
+if (!tipBit || tipTicks <= 0) return;
+tipTicks -= 1;
+if (tipTicks === 0) dismissCoach(true);
+}
+function maybeStartCoach() {
+if (demo || tutorialOn || scr !== "play") return;
+if (!tipSeen(TIP_MOVE)) showCoach(TIP_MOVE);
+else if (!tipSeen(TIP_SHOOT)) showCoach(TIP_SHOOT);
+else if (!tipSeen(TIP_LIVES)) showCoach(TIP_LIVES);
+}
+function noteCoachAction(held) {
+if (!tipBit || !held) return;
+if (tipBit === TIP_MOVE && (held === "LEFT" || held === "RIGHT")) dismissCoach(true);
+else if (tipBit === TIP_SHOOT && held === "FIRE") dismissCoach(true);
+}
+function drawCoachTip(P) {
+if (!tipBit || demo) return;
+const b = BOX.tip;
+fillRect(b.x, b.y, b.w, b.h, P.button);
+drawRect(b.x, b.y, b.w, b.h, P.accent);
+drawText(tipText(tipBit), b.x + Math.floor(b.w / 2), b.y + Math.floor(b.h / 2), P.ink, "f2", "mc");
+reg(b, () => dismissCoach(true));
+}
 function stepDrop() {
 const d = R.drop_;
 if (!d) return;
@@ -2095,6 +2158,10 @@ if (overlapRect(c.x, ny, COIN_SIZE, COIN_SIZE, R.px, SHIP_Y, SHIP_W, SHIP_H)) {
 R.coins.splice(i, 1);
 if (!demo && save.coins < 65535) save.coins += 1;
 floatText("Coin!", clr([222, 228, 236]));
+if (!tipSeen(TIP_COINS)) {
+markTip(TIP_COINS);
+setMsg("COINS → SHOP");
+}
 noteCoin();
 beep(1046, 45);
 continue;
@@ -2206,6 +2273,11 @@ return phase === 36 && overlapRect(R.raidBeamX - 1, SHIP_Y, 4, SHIP_H, R.px, SHI
 }
 function stepPlay(input) {
 const entry = scr;
+if (!demo) {
+const held = input.left ? "LEFT" : input.right ? "RIGHT" : input.fire ? "FIRE" : null;
+noteCoachAction(held);
+stepCoach();
+}
 if (R.zapT > 0) R.zapT -= 1;
 for (const f of R.floats) { f.y -= 1; f.t -= 1; }
 R.floats = R.floats.filter(f => f.t > 0);
@@ -2335,7 +2407,7 @@ const BOX = {
 left: { x: 8, y: BUTTON_Y, w: 96, h: 44 },
 fire: { x: 112, y: BUTTON_Y, w: 96, h: 44 },
 right: { x: 216, y: BUTTON_Y, w: 96, h: 44 },
-back: { x: 4, y: 2, w: 70, h: 26 },
+back: { x: 4, y: 2, w: 88, h: 34 },
 help: { x: 240, y: 2, w: 76, h: 34 },
 play: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
 home: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
@@ -2349,29 +2421,30 @@ pausePrev: { x: 32, y: 344, w: 96, h: 40 },
 pauseNext: { x: 192, y: 344, w: 96, h: 40 },
 color: { x: 16, y: 46, w: 140, h: 36 },
 ship: { x: 164, y: 46, w: 140, h: 36 },
-menuPlay: { x: 16, y: 54, w: 288, h: 38 },
-menuCheck: { x: 16, y: 96, w: 288, h: 38 },
-menuCustom: { x: 16, y: 138, w: 288, h: 38 },
-menuShop: { x: 16, y: 180, w: 288, h: 38 },
-menuScores: { x: 16, y: 222, w: 288, h: 38 },
-menuTheme: { x: 16, y: 264, w: 288, h: 38 },
-menuHome: { x: 16, y: 306, w: 288, h: 38 },
-menuForge: { x: 16, y: 348, w: 288, h: 38 },
-scorePage: { x: 16, y: 388, w: 120, h: 32 },
+menuPlay: { x: 16, y: 52, w: 288, h: 44 },
+menuCheck: { x: 16, y: 100, w: 288, h: 36 },
+menuCustom: { x: 16, y: 140, w: 288, h: 36 },
+menuShop: { x: 16, y: 180, w: 288, h: 36 },
+menuScores: { x: 16, y: 220, w: 288, h: 36 },
+menuTheme: { x: 16, y: 260, w: 288, h: 36 },
+menuHome: { x: 16, y: 300, w: 288, h: 36 },
+menuForge: { x: 16, y: 340, w: 288, h: 36 },
+scorePage: { x: 16, y: 388, w: 120, h: 34 },
 menuRestart: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
-menuTutorial: { x: 16, y: 390, w: 288, h: 32 },
+menuTutorial: { x: 16, y: 384, w: 288, h: 36 },
+tip: { x: 8, y: 398, w: 304, h: 28 },
 tutSkip: { x: 8, y: BUTTON_Y, w: 144, h: 44 },
 tutNext: { x: 168, y: BUTTON_Y, w: 144, h: 44 },
-shopPage: { x: 8, y: 396, w: 120, h: 28 },
-forgePage: { x: 8, y: 388, w: 120, h: 28 },
-forgeUp: { x: 136, y: 388, w: 176, h: 28 },
+shopPage: { x: 8, y: 392, w: 120, h: 34 },
+forgePage: { x: 8, y: 386, w: 120, h: 34 },
+forgeUp: { x: 136, y: 386, w: 176, h: 34 },
 forgeYes: { x: 32, y: 280, w: 256, h: 46 },
 forgeNo: { x: 32, y: 336, w: 256, h: 46 },
 forgeRevealUp: { x: 32, y: 238, w: 256, h: 48 },
 forgeEquip: { x: 32, y: 300, w: 256, h: 48 }
 };
 function gunBox(slot) { return { x: 16, y: 88 + slot * 34, w: 288, h: 32 }; }
-function shopTabBox(t) { return { x: 4 + t * 52, y: 40, w: 50, h: 34 }; }
+function shopTabBox(t) { return { x: 4 + t * 52, y: 38, w: 50, h: 36 }; }
 function shopRowBox(r) { return { x: 16, y: 84 + r * 52, w: 288, h: 46 }; }
 function forgeTabBox(t) { return { x: 8 + t * 102, y: 40, w: 96, h: 32 }; }
 function forgeRowBox(r) { return { x: 16, y: 88 + r * 50, w: 288, h: 44 }; }
@@ -2713,6 +2786,8 @@ if (R.beamBurst > 0) {
 R.beamBurst = 0;
 R.beamCool = beamCoolLen();
 }
+if (tipBit) dismissCoach(false);
+if (!tipSeen(TIP_PAUSE)) markTip(TIP_PAUSE);
 setScr("pause");
 }
 function resumePlay() {
@@ -2800,12 +2875,13 @@ fillRect(box.x, box.y, box.w, box.h, isHeld ? P.buttonOn : P.button);
 drawRect(box.x, box.y, box.w, box.h, P.accent);
 drawText(text, box.x + Math.floor(box.w / 2), box.y + Math.floor(box.h / 2), P.ink, "f2", "mc");
 }
-function drawCard(title, sub, box, P) {
-fillRect(box.x, box.y, box.w, box.h, P.button);
+function drawCard(title, sub, box, P, primary = false) {
+fillRect(box.x, box.y, box.w, box.h, primary ? P.buttonOn : P.button);
 drawRect(box.x, box.y, box.w, box.h, P.accent);
+if (primary) drawRect(box.x + 2, box.y + 2, box.w - 4, box.h - 4, P.accent);
 const cx = box.x + Math.floor(box.w / 2), cy = box.y + Math.floor(box.h / 2);
 drawText(title, cx, cy - (sub ? 8 : 0), P.ink, "f2", "mc");
-if (sub) drawText(sub, cx, cy + 12, P.muted, "f2", "mc");
+if (sub) drawText(sub, cx, cy + 12, primary ? P.ink : P.muted, "f2", "mc");
 }
 function reg(box, fn) {
 btns.push({ x: box.x, y: box.y, w: box.w, h: box.h, fn });
@@ -3096,10 +3172,10 @@ let tag = "CORE";
 if (R.raid && R.units.some(u => u.alive)) tag = "GOONS";
 else if (R.raid) tag = "RAID";
 line = tag + " " + R.level + " " + R.score;
-} else line = "MACHINA " + R.level + " " + R.score;
+} else line = "LV " + R.level + "  " + R.score;
 const hearts = heartSlots();
 if (textWidth(line) > W - 24 - hearts * 14) {
-line = boosts && R.msgT <= 0 ? boosts : "M " + R.level + " " + R.score;
+line = boosts && R.msgT <= 0 ? boosts : "LV" + R.level + " " + R.score;
 }
 if (demo) line = "DEMO " + R.level;
 drawText(line, 8, 12, P.ink, "f2", "ml");
@@ -3376,7 +3452,7 @@ drawShieldBubble(R.px);
 drawHud(P);
 if (demo) {
 fillRect(0, BUTTON_Y, W, H - BUTTON_Y, P.bg);
-drawKey("PLAY", BOX.play, false, P);
+drawKey("TAP PLAY", BOX.play, false, P);
 reg(BOX.play, () => goMenu());
 return;
 }
@@ -3385,6 +3461,7 @@ drawKey("BACK", BOX.back, false, P);
 drawKey("LEFT", BOX.left, input.left, P);
 drawKey("FIRE", BOX.fire, input.fire, P);
 drawKey("RIGHT", BOX.right, input.right, P);
+drawCoachTip(P);
 }
 function paintGodMark(ink, bg) {
 const cx = Math.floor(W / 2);
@@ -3732,18 +3809,18 @@ drawHelpButton(P);
 }
 function paintMenu(P) {
 FB.fill(P.bg);
-drawText("INVADERS", W / 2, 24, P.ink, "f4", "mc");
+drawText("INVADERS", W / 2, 22, P.ink, "f4", "mc");
 drawKey("BACK", BOX.back, false, P);
 reg(BOX.back, () => startDemo());
-drawText("MACHINA", W / 2, 48, P.accent, "f2", "mc");
-drawText("$" + save.coins, W - 12, 48, P.accent, "f2", "mr");
-drawCard("PLAY", "level " + save.level, BOX.menuPlay, P);
+drawText("MACHINA", W / 2, 46, P.accent, "f2", "mc");
+drawText("$" + save.coins + " COIN", W - 12, 46, P.accent, "f2", "mr");
+drawCard("PLAY", "level " + save.level, BOX.menuPlay, P, true);
 drawCard("CHECKPOINTS", popCount(save.camp) + " unlocked", BOX.menuCheck, P);
 drawCard("CUSTOM", "ship, guns, laser", BOX.menuCustom, P);
-drawCard("SHOP", "themes, guns, power-ups", BOX.menuShop, P);
+drawCard("SHOP", "spend coins here", BOX.menuShop, P);
 drawCard("SCORES", "best and marks", BOX.menuScores, P);
-drawCard(THEME_NAMES[save.theme], "tap to switch", BOX.menuTheme, P);
-drawCard("DIVINE MACHINES", popCount(save.gods) + " unlocked", BOX.menuHome, P);
+drawCard(THEME_NAMES[save.theme], "theme · tap", BOX.menuTheme, P);
+drawCard("DIVINE", popCount(save.gods) + " unlocked", BOX.menuHome, P);
 drawCard("FORGE", "combine attributes", BOX.menuForge, P);
 drawKey("TUTORIAL", BOX.menuTutorial, false, P);
 reg(BOX.menuTutorial, () => startTutorial());
@@ -3757,14 +3834,16 @@ reg(BOX.menuTheme, () => cycleTheme());
 reg(BOX.menuHome, () => { divPage = 0; divMsg = ""; setScr("divine"); });
 reg(BOX.menuForge, () => beginForge());
 reg(BOX.menuRestart, () => setScr("confirm"));
+if (!tipSeen(TIP_SHOP)) drawText("SHOP spends $ coins", W / 2, 378, P.muted, "f2", "mc");
 drawHelpButton(P);
 }
 function popCount(n) { let k = 0; n = n | 0; while (n) { k += n & 1; n >>>= 1; } return k; }
 function paintDivine(P) {
 FB.fill(P.bg);
-drawText("DIVINE MACHINES", W / 2, 18, P.ink, "f2", "mc");
-drawText(popCount(save.dive) + "/" + divineSlots() + " EQUIPPED", W / 2, 40, P.accent, "f2", "mc");
-if (divMsg) drawText(divMsg, W / 2, 62, P.muted, "f2", "mc");
+drawText("DIVINE MACHINES", W / 2, 16, P.ink, "f2", "mc");
+drawText("tap to equip unlocked powers", W / 2, 34, P.muted, "f2", "mc");
+drawText(popCount(save.dive) + "/" + divineSlots() + " EQUIPPED", W / 2, 52, P.accent, "f2", "mc");
+if (divMsg) drawText(divMsg, W / 2, 68, P.muted, "f2", "mc");
 for (let row = 0; row < 6; row++) {
 const idx = divPage * 6 + row;
 if (idx >= 12) break;
@@ -3812,7 +3891,8 @@ if (checkGod < 0) paintCheckMap(P);
 else paintCheckList(P);
 }
 function paintCheckMap(P) {
-drawText("CHECKPOINTS", W / 2, 26, P.ink, "f2", "mc");
+drawText("CHECKPOINTS", W / 2, 18, P.ink, "f2", "mc");
+drawText("tap a god path", W / 2, 36, P.muted, "f2", "mc");
 for (let g = 0; g < 11; g++) {
 const a = checkNodeBox(g), b = checkNodeBox(g + 1);
 const lit = checkLevelOpen((g + 1) * 25) && checkLevelOpen((g + 2) * 25);
@@ -3866,9 +3946,9 @@ drawHelpButton(P);
 function paintConfirm(P) {
 FB.fill(P.bg);
 drawText("RESTART GAME?", W / 2, 120, P.ink, "f4", "mc");
-drawText("Are you sure?", W / 2, 156, P.muted, "f2", "mc");
-drawKey("YES", BOX.yes, false, P);
-drawKey("NO", BOX.no, false, P);
+drawText("Wipes this run. Scores stay.", W / 2, 156, P.muted, "f2", "mc");
+drawCard("YES · WIPE RUN", "level, coins, gear", BOX.yes, P, true);
+drawCard("NO · KEEP RUN", "back to menu", BOX.no, P);
 reg(BOX.yes, () => restartGame());
 reg(BOX.no, () => goMenu());
 drawHelpButton(P);
@@ -3897,7 +3977,8 @@ reg(BOX.home, () => { customPage = 0; });
 drawHelpButton(P);
 return;
 }
-drawText("CUSTOM", W / 2, 22, P.ink, "f2", "mc");
+drawText("CUSTOM", W / 2, 18, P.ink, "f2", "mc");
+drawText("tap a gun to equip", W / 2, 36, P.muted, "f2", "mc");
 drawKey("FORGED", customForgeBox(), false, P);
 reg(customForgeBox(), () => { customPage = 1; });
 drawCard("LASER " + LASERS[save.laser][0], "tap to change", BOX.color, P);
@@ -3923,9 +4004,9 @@ const ph = tutorialOn ? 270 : 230;
 fillRect(24, 128, 272, ph, P.bg);
 drawRect(24, 128, 272, ph, P.accent);
 drawText("INVADERS MACHINA", W / 2, 152, P.ink, "f2", "mc");
-drawCard("RESUME", null, BOX.resume, P);
+drawCard("RESUME", "keep fighting", BOX.resume, P, true);
 drawCard("CUSTOM", "ship and guns", BOX.pauseCustom, P);
-drawCard("HOME", null, BOX.pauseHome, P);
+drawCard("HOME", "campaign menu", BOX.pauseHome, P);
 reg(BOX.resume, () => resumePlay());
 reg(BOX.pauseCustom, () => { customFromPause = true; customPage = 0; setScr("custom"); });
 reg(BOX.pauseHome, () => goMenu());
@@ -3970,14 +4051,18 @@ drawText("INVADERS MACHINA", W / 2, 150, P.muted, "f2", "mc");
 drawText(R.won ? "CLEARED" : "YOU DIED", W / 2, 186, P.ink, "f2", "mc");
 if (!R.won) drawText(R.hitBy + " Killed you", W / 2, 214, P.accent, "f2", "mc");
 drawText("LV " + R.level + "   " + R.score, W / 2, 244, P.muted, "f2", "mc");
-drawKey("HOME", BOX.home, false, P);
+drawCard("HOME", "campaign menu", BOX.home, P, true);
 reg(BOX.home, () => goMenu());
 drawHelpButton(P);
 }
 function paintShop(P) {
 FB.fill(P.bg);
+if (!tipSeen(TIP_SHOP)) {
+markTip(TIP_SHOP);
+if (!shopMsg) shopMsg = "SPEND COINS HERE";
+}
 drawText("SHOP", 12, 18, P.ink, "f2", "ml");
-drawText("$" + save.coins, 232, 18, P.accent, "f2", "mr");
+drawText("$" + save.coins + " COIN", 232, 18, P.accent, "f2", "mr");
 const tabs = ["THEME", "SHIPS", "COLOR", "GUNS", "POWER", "UPGRD"];
 for (let t = 0; t < 6; t++) {
 drawKey(tabs[t], shopTabBox(t), t === shopTab, P);
@@ -4094,8 +4179,8 @@ drawText(forgeItemName(forgeTab, forgeSecond) + " " +
 forgeAttrName(forgeTab, forgeSecond, forgeAttrB), W / 2, 196, P.ink, "f2", "mc");
 drawText("TOTAL $" + forgeTotal(), W / 2, 228, P.accent, "f2", "mc");
 if (forgeMsg) drawText(forgeMsg, W / 2, 252, P.accent, "f2", "mc");
-drawKey("YES", BOX.forgeYes, false, P);
-drawKey("NO", BOX.forgeNo, false, P);
+drawCard("YES · COMBINE", "TOTAL $" + forgeTotal(), BOX.forgeYes, P, true);
+drawCard("NO", "pick again", BOX.forgeNo, P);
 reg(BOX.forgeYes, () => forgeConfirm());
 reg(BOX.forgeNo, () => { forgeStep = 3; forgeMsg = ""; });
 drawHelpButton(P);
