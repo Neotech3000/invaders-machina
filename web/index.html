@@ -45,6 +45,7 @@ const COIN_MAX = 16;
 const COIN_CHANCE = 20;
 const COIN_SIZE = 11;
 const BOLT_MAX = 16;
+const FIRE_GAP_MIN = 8;
 const ESCORT_Y = 54;
 const TICK_MS = 1000 / 60;
 const FONTS = {
@@ -574,6 +575,7 @@ return [ALIEN_W, ALIEN_H];
 }
 function startLevel() {
 const L = R.level;
+if (tutorialOn && L > 26) { goMenu(); return; }
 R.foes = []; R.bolts = []; R.blasts = []; R.escorts = []; R.raidMates = []; R.boss = null; R.floats = [];
 R.mini = false; R.raid = false; R.god = 0; R.godEntrance = false;
 R.hurt = false;
@@ -593,12 +595,12 @@ else if (L % 5 === 0) buildBoss();
 else if (save.raidWon && Math.random() < 0.4) buildMini();
 else buildFormation();
 if (!demo && L >= 100) grant(13);
-if (!demo && L % 20 === 0) {
+if (!demo && !tutorialOn && L % 20 === 0) {
 const bit = L / 20 - 1;
 if (bit >= 0 && bit < 15) save.camp |= (1 << bit);
 if (perk(PERK.shieldRepair) && save.shield < shieldCap()) save.shield += 1;
 }
-if (!demo) { save.level = L; persist(); }
+if (!demo && !tutorialOn) { save.level = L; persist(); }
 resetMachines();
 if (!demo && R.raid) {
 R.raidSplash = true;
@@ -607,7 +609,27 @@ setScr("splash");
 } else {
 R.raidSplash = false;
 setScr(demo ? "demo" : "play");
+if (tutorialOn && TUTORIAL_CARDS[R.level]) setScr("tutorial");
 }
+}
+function startTutorial() {
+demo = false;
+tutorialOn = true;
+R = newRun(1);
+startLevel();
+}
+function paintTutorial(P) {
+FB.fill(P.bg);
+const card = TUTORIAL_CARDS[R.level];
+drawText("TUTORIAL " + R.level, W / 2, 18, P.muted, "f2", "mc");
+drawText(card.title, W / 2, 50, P.accent, "f4", "mc");
+card.lines.forEach((line, i) => {
+if (line) drawText(line, W / 2, 92 + i * 22, P.ink, "f2", "mc");
+});
+drawKey("EXIT", BOX.tutSkip, false, P);
+reg(BOX.tutSkip, () => goMenu());
+drawKey("NEXT", BOX.tutNext, false, P);
+reg(BOX.tutNext, () => setScr("play"));
 }
 function buildTerrain() {
 R.scraps = [];
@@ -1198,16 +1220,7 @@ if (!best || n > bestN) { best = s; bestN = n; }
 }
 if (!best) return false;
 R.blasts.push({ x: best.x, y: best.y, t: 24 });
-for (const u of R.units) {
-if (!u.alive) continue;
-const [sw, sh] = unitSize(u);
-if (overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, R.ox + u.ox, R.oy + u.oy, sw, sh)) hitUnit(u);
-}
-if (R.boss && overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, R.boss.x, R.boss.y, bossW(), bossH())) bossHit();
-for (let mi = R.raidMates.length - 1; mi >= 0; mi--) {
-const m = R.raidMates[mi];
-if (overlapRect(best.x - BLAST_R, best.y - BLAST_R, BLAST_R * 2, BLAST_R * 2, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidMate(mi);
-}
+blastDamage(best.x, best.y);
 return true;
 }
 if (i === 10) {
@@ -1479,8 +1492,10 @@ else if (gun === 8) gap = Math.max(4, 9 - lv);
 else gap = Math.max(2, 4 - lv);
 gap -= 2 * forgedCount("rapid");
 if (perk(PERK.rapid)) gap -= 1;
+gap = Math.max(FIRE_GAP_MIN, gap);
 if (boostOn(0)) gap -= 2;
-return Math.max(2, gap);
+if (R.berserk > 0) gap -= 2;
+return Math.max(FIRE_GAP_MIN - 3, gap);
 }
 function spawnBoltAt(cx, y, vx, vy, w, h, tag) {
 if (R.bolts.length >= BOLT_MAX) return false;
@@ -1558,6 +1573,11 @@ return true;
 }
 if (gun === 8) {
 if (!spawnBoltAt(cx, SHIP_Y - 10, 0, -7, 3, 8, 3)) return false;
+spawnForgeExtras(cx, lv);
+return true;
+}
+if (gun === 0) {
+if (!spawnBoltAt(cx, SHIP_Y - 9, 0, -5 - Math.floor(lv / 2), 5, 6, 5)) return false;
 spawnForgeExtras(cx, lv);
 return true;
 }
@@ -1763,6 +1783,20 @@ for (let i = R.bolts.length - 1; i >= 0; i--) {
 const b = R.bolts[i];
 steerBolt(b);
 const nx = b.x + b.vx, ny = b.y + b.vy;
+if (b.tag === 5) {
+if (ny < 26 || nx < -8 || nx > W) {
+R.bolts.splice(i, 1);
+continue;
+}
+if (barrierHitRect(nx, ny, b.w, b.h) || shellTouch(b, nx, ny)) {
+R.bolts.splice(i, 1);
+shellBurst(nx + 2, ny + 3);
+continue;
+}
+b.x = nx;
+b.y = ny;
+continue;
+}
 if (ny < 26 || nx < -8 || nx > W || barrierHitRect(nx, ny, b.w, b.h)) {
 R.bolts.splice(i, 1);
 continue;
@@ -1791,6 +1825,41 @@ b.x = nx;
 b.y = ny;
 }
 R.escorts = R.escorts.filter(e => e.hp > 0);
+}
+function shellTouch(b, x, y) {
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw, sh] = unitSize(u);
+if (overlapRect(x, y, b.w, b.h, R.ox + u.ox, R.oy + u.oy, sw, sh)) return true;
+}
+if (R.boss && overlapRect(x, y, b.w, b.h, R.boss.x, R.boss.y, bossW(), bossH())) return true;
+for (const m of R.raidMates) {
+if (overlapRect(x, y, b.w, b.h, m.x, m.y, BOSS_W, BOSS_H)) return true;
+}
+return false;
+}
+function shellBurst(cx, cy) {
+R.blasts.push({ x: cx, y: cy, t: 24 });
+for (const b of R.barriers) {
+for (let c = 0; c < 10; c++) {
+const bx = b.x + c * 3;
+if (bx >= cx - BLAST_R && bx <= cx + BLAST_R) b.cols[c] = 0;
+}
+}
+blastDamage(cx, cy);
+}
+function blastDamage(cx, cy) {
+const x = cx - BLAST_R, y = cy - BLAST_R, d = BLAST_R * 2;
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw, sh] = unitSize(u);
+if (overlapRect(x, y, d, d, R.ox + u.ox, R.oy + u.oy, sw, sh)) hitUnit(u);
+}
+if (R.boss && overlapRect(x, y, d, d, R.boss.x, R.boss.y, bossW(), bossH())) bossHit();
+for (let mi = R.raidMates.length - 1; mi >= 0; mi--) {
+const m = R.raidMates[mi];
+if (overlapRect(x, y, d, d, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidMate(mi);
+}
 }
 function blastAt(cx, cy) {
 R.blasts.push({ x: cx, y: cy, t: 24 });
@@ -1871,8 +1940,10 @@ if (bottom > SHIP_Y - 28) R.oy -= bottom - (SHIP_Y - 28);
 function die() {
 R.beamOn = false;
 R.beamBurst = 0;
+if (!tutorialOn) {
 save.level = R.level;
 persist();
+}
 R.over = true;
 noteScore(R.score);
 setScr("over");
@@ -1965,11 +2036,8 @@ const mx = R.ox + u.ox + sw / 2;
 const my = R.oy + u.oy + sh;
 const who = unitLabel(u);
 if (u.kind === 4) {
-const suppressLeft = R.px + SHIP_W / 2 <= mx;
-const x0 = suppressLeft ? 6 : mx + 8;
-const x1 = suppressLeft ? mx - 8 : W - 6;
-if (x1 < x0 + 12) fireFoe(suppressLeft ? 8 : W - 12, my, 1, who, 0);
-else for (let s = 0; s < 4; s++) fireFoe(x0 + Math.floor((x1 - x0) * s / 3), my, 1, who, 0);
+fireFoe(mx - 8, my, 1, who, 0);
+fireFoe(mx + 6, my, 1, who, 0);
 } else if (u.kind === 5) {
 fireFoe(mx, my, 2, who, 0);
 } else if (u.kind === 6) {
@@ -2048,11 +2116,13 @@ R.level = R.level >= LEVELS ? 1 : R.level + 1;
 startLevel();
 return;
 }
+if (!tutorialOn) {
 markLevel(R.level);
 grant(1);
 if (!R.hurt) grant(2);
 if (R.raid) grant(5);
 if (R.godEntrance) grant(4);
+}
 if (R.level >= LEVELS) {
 save.level = LEVELS;
 noteScore(R.score);
@@ -2063,8 +2133,10 @@ setScr("over");
 return;
 }
 R.level += 1;
+if (!tutorialOn) {
 save.level = R.level;
 persist();
+}
 if (R.level % 5 === 0 && R.level % 25 !== 0) {
 R.nextStyle = rolledBossStyle(R.level);
 } else R.nextStyle = -1;
@@ -2281,6 +2353,9 @@ menuHome: { x: 16, y: 306, w: 288, h: 38 },
 menuForge: { x: 16, y: 348, w: 288, h: 38 },
 scorePage: { x: 16, y: 388, w: 120, h: 32 },
 menuRestart: { x: 24, y: BUTTON_Y, w: 272, h: 44 },
+menuTutorial: { x: 16, y: 390, w: 288, h: 32 },
+tutSkip: { x: 8, y: BUTTON_Y, w: 144, h: 44 },
+tutNext: { x: 168, y: BUTTON_Y, w: 144, h: 44 },
 shopPage: { x: 8, y: 396, w: 120, h: 28 },
 forgePage: { x: 8, y: 388, w: 120, h: 28 },
 forgeUp: { x: 136, y: 388, w: 176, h: 28 },
@@ -2597,6 +2672,7 @@ persist();
 }
 function startCampaign() {
 demo = false;
+tutorialOn = false;
 const armed = Array.isArray(save.armed) ? save.armed.slice() : [0, 0, 0, 0, 0];
 R = newRun(save.level || 1);
 R.boost = armed;
@@ -2617,6 +2693,7 @@ setScr("demo");
 }
 function goMenu() {
 demo = false;
+tutorialOn = false;
 setScr("menu");
 persist();
 }
@@ -3420,6 +3497,94 @@ over: [
 "RUN OVER","","Shows whether you cleared the","campaign or lost a life count.","If you died, the killer name is","listed under YOU DIED.","HOME opens the campaign menu.","Coins and unlocks from the run","are already saved."
 ]
 };
+const TUTORIAL_CARDS = {
+1: { title: "WELCOME", lines: [
+"The Olympians sent war machines",
+"to take the sky. Hold the line.",
+"",
+"LEFT and RIGHT move your ship.",
+"FIRE shoots. Touch the board to",
+"slide the ship under your finger.",
+"Your shots fly up. Lose all hearts",
+"and the run is over."] },
+2: { title: "ENEMIES", lines: [
+"Aliens march in formation and",
+"slowly drop toward your ship.",
+"Some fire straight down.",
+"ASSAULT units fire from their own",
+"sides. Step out of their line.",
+"CANNON units lob shells that burst",
+"and hurt everything nearby."] },
+3: { title: "COINS AND THE SHOP", lines: [
+"Enemies drop coins. Fly into them",
+"to collect. Coins are kept even",
+"if you lose the run.",
+"",
+"Spend them in SHOP on power-ups,",
+"guns, ships, and themes."] },
+4: { title: "HEARTS AND SHIELDS", lines: [
+"Every hit costs one heart.",
+"Hearts also drop from enemies.",
+"",
+"SHIELD in the shop blocks one hit.",
+"SPARE HEART adds a life for your",
+"next run."] },
+5: { title: "BOSSES", lines: [
+"Every fifth level brings a boss.",
+"It moves and fires. Hit its core",
+"until the bar empties.",
+"Bosses pay big coin bounties."] },
+6: { title: "POWER-UPS", lines: [
+"Falling boxes are power-ups.",
+"Fly into one to take it.",
+"",
+"RUSH: faster fire. FURY: harder hits.",
+"WIDE: wider bolts. VEIL: invulnerable.",
+"SALVO: side bolts.",
+"Each lasts a short time."] },
+8: { title: "GUNS", lines: [
+"CUSTOM lets you pick your gun.",
+"CANNON bursts on contact.",
+"SHOTGUN spreads, ASSAULT is quick,",
+"BEAM is continuous.",
+"Gun drops level up what you own."] },
+10: { title: "CHECKPOINTS", lines: [
+"Every 20 levels opens a checkpoint.",
+"Open CHECKPOINTS from the menu to",
+"jump back to any open level.",
+"Levels show as you pass them."] },
+12: { title: "BARRIERS", lines: [
+"Barriers and scraps shelter you",
+"from enemy fire.",
+"",
+"Shells from enemies and from your",
+"CANNON blast them apart."] },
+15: { title: "FORGE", lines: [
+"FORGE combines two guns or two",
+"perks into a new one.",
+"Look for the mix that fits you."] },
+20: { title: "CHECKPOINT 20", lines: [
+"You reached checkpoint 20.",
+"Future runs can start here.",
+"The enemies keep getting faster."] },
+24: { title: "THE OLYMPIANS", lines: [
+"The next level holds the first god.",
+"Each god has goon waves, then a",
+"fight with the god itself.",
+"Beat the god to claim its machine."] },
+25: { title: "ZEUS", lines: [
+"ZEUS guards the sky. Clear the goon",
+"waves, then face ZEUS.",
+"Beat him to unlock LIGHTNING:",
+"a zap that stuns enemies in its path.",
+"Equip machines in DIVINE MACHINES."] },
+26: { title: "DIVINE MACHINES", lines: [
+"Equipped machines fire on their",
+"own timers. The bars under your",
+"hearts show each cooldown.",
+"Next up: HERA."] }
+};
+let tutorialOn = false;
 const HELP_SCREENS = new Set(["menu","shop","custom","forge","divine","checks","confirm","scores","pause","over"]);
 function drawHelpButton(P) {
 drawKey("?", BOX.help, false, P);
@@ -3506,6 +3671,8 @@ drawCard("SCORES", "best and marks", BOX.menuScores, P);
 drawCard(THEME_NAMES[save.theme], "tap to switch", BOX.menuTheme, P);
 drawCard("DIVINE MACHINES", popCount(save.gods) + " unlocked", BOX.menuHome, P);
 drawCard("FORGE", "combine attributes", BOX.menuForge, P);
+drawKey("TUTORIAL", BOX.menuTutorial, false, P);
+reg(BOX.menuTutorial, () => startTutorial());
 drawKey("RESTART GAME", BOX.menuRestart, false, P);
 reg(BOX.menuPlay, () => startCampaign());
 reg(BOX.menuCheck, () => { checkGod = -1; setScr("checks"); });
@@ -3613,6 +3780,7 @@ drawText(String(L), box.x + 44, box.y + 20, open ? P.ink : P.muted, "f2", "mc");
 drawText(open ? (isGod ? "GOD" : "OPEN") : "LOCKED", box.x + 44, box.y + 38, open ? (isGod ? ink : P.accent) : P.muted, "f2", "mc");
 if (open) reg(box, () => {
 demo = false;
+tutorialOn = false;
 R = newRun(L);
 startLevel();
 });
@@ -3892,6 +4060,7 @@ paintLevel(P, scr === "demo" ? { left: false, right: false, fire: false } : play
 else if (scr === "scores") paintScores(P);
 else if (scr === "divine") paintDivine(P);
 else if (scr === "checks") paintChecks(P);
+else if (scr === "tutorial") paintTutorial(P);
 else if (scr === "shop") paintShop(P);
 else if (scr === "forge") {
 paintForge(P);

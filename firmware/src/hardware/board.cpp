@@ -301,6 +301,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       return;
     }
+    if (mode_ == Mode::Tutorial) {
+      if (!rose || !on) return;
+      if (std::strcmp(where, "NEXT") == 0) resumePlay();
+      else if (std::strcmp(where, "EXIT") == 0) beginMenu();
+      return;
+    }
     if (mode_ == Mode::Menu) {
       if (!rose || !on) return;
       if (std::strcmp(where, "PLAY") == 0) beginCampaign();
@@ -310,6 +316,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       else if (std::strcmp(where, "FORGE") == 0) beginForge();
       else if (std::strcmp(where, "DIVINE") == 0) beginDivine();
       else if (std::strcmp(where, "SCORES") == 0) beginScores();
+      else if (std::strcmp(where, "TUTORIAL") == 0) beginTutorial();
       else if (std::strcmp(where, "LEAVE") == 0) beginDemo();
       else if (std::strcmp(where, "THEME") == 0) {
         do {
@@ -402,8 +409,105 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
  private:
   enum class Mode : uint8_t {
-    Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom, Splash, Shop, Forge, Divine, Scores, Help
+    Demo, Menu, Check, Confirm, Play, Advance, Over, Pause, Custom, Splash, Shop, Forge, Divine, Scores, Help,
+    Tutorial
   };
+
+  struct TutCard {
+    int level;
+    const char* title;
+    uint8_t first;
+    uint8_t count;
+  };
+  const TutCard* tutCards() const {
+    static const TutCard kTutCards[] = {
+        {1, "WELCOME", 0, 8},          {2, "ENEMIES", 8, 7},
+        {3, "COINS AND THE SHOP", 15, 6}, {4, "HEARTS AND SHIELDS", 21, 6},
+        {5, "BOSSES", 27, 4},          {6, "POWER-UPS", 31, 7},
+        {8, "GUNS", 38, 5},            {10, "CHECKPOINTS", 43, 4},
+        {12, "BARRIERS", 47, 5},       {15, "FORGE", 52, 3},
+        {20, "CHECKPOINT 20", 55, 3},  {24, "THE OLYMPIANS", 58, 4},
+        {25, "ZEUS", 62, 5},           {26, "DIVINE MACHINES", 67, 4},
+    };
+    return kTutCards;
+  }
+  static constexpr int kTutCardN = 14;
+  const char* const* tutLines() const {
+    static const char* const kTutLines[] = {
+      "The Olympians sent war machines",
+      "to take the sky. Hold the line.",
+      "",
+      "LEFT and RIGHT move your ship.",
+      "FIRE shoots. Touch the board to",
+      "slide the ship under your finger.",
+      "Your shots fly up. Lose all hearts",
+      "and the run is over.",
+      "Aliens march in formation and",
+      "slowly drop toward your ship.",
+      "Some fire straight down.",
+      "ASSAULT units fire from their own",
+      "sides. Step out of their line.",
+      "CANNON units lob shells that burst",
+      "and hurt everything nearby.",
+      "Enemies drop coins. Fly into them",
+      "to collect. Coins are kept even",
+      "if you lose the run.",
+      "",
+      "Spend them in SHOP on power-ups,",
+      "guns, ships, and themes.",
+      "Every hit costs one heart.",
+      "Hearts also drop from enemies.",
+      "",
+      "SHIELD in the shop blocks one hit.",
+      "SPARE HEART adds a life for your",
+      "next run.",
+      "Every fifth level brings a boss.",
+      "It moves and fires. Hit its core",
+      "until the bar empties.",
+      "Bosses pay big coin bounties.",
+      "Falling boxes are power-ups.",
+      "Fly into one to take it.",
+      "",
+      "RUSH: faster fire. FURY: harder hits.",
+      "WIDE: wider bolts. VEIL: invulnerable.",
+      "SALVO: side bolts.",
+      "Each lasts a short time.",
+      "CUSTOM lets you pick your gun.",
+      "CANNON bursts on contact.",
+      "SHOTGUN spreads, ASSAULT is quick,",
+      "BEAM is continuous.",
+      "Gun drops level up what you own.",
+      "Every 20 levels opens a checkpoint.",
+      "Open CHECKPOINTS from the menu to",
+      "jump back to any open level.",
+      "Levels show as you pass them.",
+      "Barriers and scraps shelter you",
+      "from enemy fire.",
+      "",
+      "Shells from enemies and from your",
+      "CANNON blast them apart.",
+      "FORGE combines two guns or two",
+      "perks into a new one.",
+      "Look for the mix that fits you.",
+      "You reached checkpoint 20.",
+      "Future runs can start here.",
+      "The enemies keep getting faster.",
+      "The next level holds the first god.",
+      "Each god has goon waves, then a",
+      "fight with the god itself.",
+      "Beat the god to claim its machine.",
+      "ZEUS guards the sky. Clear the goon",
+      "waves, then face ZEUS.",
+      "Beat him to unlock LIGHTNING:",
+      "a zap that stuns enemies in its path.",
+      "Equip machines in DIVINE MACHINES.",
+      "Equipped machines fire on their",
+      "own timers. The bars under your",
+      "hearts show each cooldown.",
+      "Next up: HERA.",
+    };
+    return kTutLines;
+  }
 
   struct Box {
     int x;
@@ -516,6 +620,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   static constexpr int kBoosts = 5;
   static constexpr int kGods = 12;
   static constexpr int kFloats = 3;
+  static constexpr int kFireGapMin = 8;
   static constexpr int kAttrCount = 5;
   static constexpr int kScraps = 6;
   static constexpr int kDroneW = 16;
@@ -728,7 +833,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void saveCampaign() {
-    if (demo_) return;
+    if (demo_ || tutorial_on_) return;
     prefs_.putUShort("lv", static_cast<uint16_t>(level_));
     prefs_.putUShort("cp", camp_);
     prefs_.putUChar("raidok", raid_won_ ? 1 : 0);
@@ -737,13 +842,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void noteLevelCleared() {
-    if (demo_ || level_cleared(cleared_lv_, level_)) return;
+    if (demo_ || tutorial_on_ || level_cleared(cleared_lv_, level_)) return;
     mark_level_cleared(cleared_lv_, level_);
     prefs_.putBytes("clv", cleared_lv_, sizeof cleared_lv_);
   }
 
   void noteGodWaveCleared() {
-    if (demo_ || god_wave_cleared(cleared_gw_, level_, god_wave_)) return;
+    if (demo_ || tutorial_on_ || god_wave_cleared(cleared_gw_, level_, god_wave_)) return;
     mark_god_wave_cleared(cleared_gw_, level_, god_wave_);
     prefs_.putBytes("cgw", cleared_gw_, sizeof cleared_gw_);
   }
@@ -1085,6 +1190,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   Box shopRow(int r) const { return {16, 84 + r * 52, 288, 46}; }
   Box shopPageBox() const { return {8, 396, 120, 28}; }
   Box menuRestartBox() const { return {24, kButtonY, kPanelWidth - 48, 44}; }
+  Box menuTutorialBox() const { return {16, 390, kPanelWidth - 32, 32}; }
+  Box tutExitBox() const { return {8, kButtonY, 144, 44}; }
+  Box tutNextBox() const { return {168, kButtonY, 144, 44}; }
   Box checkNodeBox(int g) const {
     const int row = g / 3;
     const int col = g % 3;
@@ -1139,7 +1247,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (contains(menuThemeBox(), x, y)) return "THEME";
       if (contains(menuDivineBox(), x, y)) return "DIVINE";
       if (contains(menuForgeBox(), x, y)) return "FORGE";
+      if (contains(menuTutorialBox(), x, y)) return "TUTORIAL";
       if (contains(menuRestartBox(), x, y)) return "RESTART";
+      return "none";
+    }
+    if (mode_ == Mode::Tutorial) {
+      if (contains(tutNextBox(), x, y)) return "NEXT";
+      if (contains(tutExitBox(), x, y)) return "EXIT";
       return "none";
     }
     if (mode_ == Mode::Scores) {
@@ -1830,6 +1944,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       case Mode::Check:
         paintChecks();
         break;
+      case Mode::Tutorial:
+        paintTutorial();
+        break;
       case Mode::Confirm:
         paintConfirm();
         break;
@@ -1926,8 +2043,71 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawCard(themeName(), "tap to switch", menuThemeBox());
     drawCard("DIVINE MACHINES", divineMenuLine(), menuDivineBox());
     drawCard("FORGE", "combine attributes", menuForgeBox());
+    drawKey("TUTORIAL", menuTutorialBox(), false);
     drawKey("RESTART GAME", menuRestartBox(), false);
     drawHelpButton();
+  }
+
+  int tutorialCard(int lv) const {
+    const TutCard* cards = tutCards();
+    for (int i = 0; i < kTutCardN; ++i) {
+      if (cards[i].level == lv) return i;
+    }
+    return -1;
+  }
+
+  void beginTutorial() {
+    tutorial_saved_level_ = level_;
+    tutorial_on_ = true;
+    level_ = 1;
+    demo_ = false;
+    clearBoosts();
+    fadeOut();
+    score_ = 0;
+    lives_ = 3;
+    god_ = 0;
+    god_wave_ = 0;
+    god_entrance_ = false;
+    mini_ = false;
+    raid_ = false;
+    invuln_ = 0;
+    clearFoe();
+    foe_cool_ = 0;
+    hud_msg_ticks_ = 0;
+    beam_burst_ = 0;
+    beam_cool_ = 0;
+    sky_on_ = false;
+    rng_ = esp_random();
+    if (rng_ == 0) rng_ = 1;
+    startLevel();
+    fadeIn();
+  }
+
+  void paintTutorial() {
+    const Palette ink = palette();
+    fillScreen(ink.bg);
+    const int idx = tutorialCard(level_);
+    if (idx < 0) return;
+    const TutCard& card = tutCards()[idx];
+    setFont(&fonts::Font2);
+    setTextDatum(lgfx::middle_center);
+    setTextColor(ink.muted);
+    char head[24];
+    snprintf(head, sizeof head, "TUTORIAL %d", level_);
+    drawString(head, kPanelWidth / 2, 18);
+    setFont(&fonts::Font4);
+    setTextColor(ink.accent);
+    drawString(card.title, kPanelWidth / 2, 50);
+    setFont(&fonts::Font2);
+    setTextColor(ink.ink);
+    const char* const* lines = tutLines();
+    for (int i = 0; i < card.count; ++i) {
+      const char* line = lines[card.first + i];
+      if (line[0] == '\0') continue;
+      drawString(line, kPanelWidth / 2, 92 + i * 22);
+    }
+    drawKey("EXIT", tutExitBox(), false);
+    drawKey("NEXT", tutNextBox(), false);
   }
 
   const char* continueLine() const {
@@ -1958,6 +2138,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void beginMenu() {
     if (demo_) level_ = camp_level_;
+    if (tutorial_on_) {
+      tutorial_on_ = false;
+      level_ = tutorial_saved_level_;
+    }
     demo_ = false;
     clearBoosts();
     saveShop();
@@ -4556,6 +4740,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
   void startLevel() {
+    if (tutorial_on_ && level_ > 26) {
+      beginMenu();
+      return;
+    }
     clearCoins();
     mode_ = Mode::Play;
     shot_ = false;
@@ -4581,9 +4769,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     resetMachines();
     buildLevel();
     paintLevel();
+    if (tutorial_on_ && tutorialCard(level_) >= 0) {
+      mode_ = Mode::Tutorial;
+      paintTutorial();
+    }
     if (!demo_ && level_ >= 100) grant(kAchLv100);
     // A checkpoint opens every 20 levels and is kept in flash.
-    if (!demo_ && level_ > 0 && level_ % 20 == 0) {
+    if (!demo_ && !tutorial_on_ && level_ > 0 && level_ % 20 == 0) {
       const int bit = level_ / 20 - 1;
       if (bit >= 0 && bit < 15) camp_ = static_cast<uint16_t>(camp_ | (1u << bit));
       if (perk(PERK_SHIELD_REPAIR) && shield_ < shieldCap()) {
@@ -5409,8 +5601,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     else gap = 4 - lv > 2 ? 4 - lv : 2;
     gap -= 2 * forgedCount(ATTR_RAPID);
     if (perk(PERK_RAPID)) gap -= 1;
+    gap = gap < kFireGapMin ? kFireGapMin : gap;
     if (boostOn(0)) gap -= 2;
-    return gap < 2 ? 2 : gap;
+    if (berserk_ticks_ > 0) gap -= 2;
+    return gap < kFireGapMin - 3 ? kFireGapMin - 3 : gap;
   }
 
   void spawnForgeExtras(int cx, int lv) {
@@ -5475,6 +5669,11 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (gun == 8) {
       if (!spawnBoltAt(cx, kShipY - 10, 0, -7, 3, 8, 3)) return false;
+      spawnForgeExtras(cx, lv);
+      return true;
+    }
+    if (gun == 0) {
+      if (!spawnBoltAt(cx, kShipY - 9, 0, -5 - lv / 2, 5, 6, 5)) return false;
       spawnForgeExtras(cx, lv);
       return true;
     }
@@ -5555,6 +5754,24 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       const int nx = bolt.x + bolt.vx;
       const int ny = bolt.y + bolt.vy;
       const bool miss = ny < 26 || nx < -8 || nx > kPanelWidth;
+      if (bolt.tag == 5) {
+        if (miss) {
+          repair(ox, oy, bolt.w, bolt.h);
+          bolt.on = false;
+          continue;
+        }
+        if (hitBarrier(nx, ny, bolt.w, bolt.h) || shellTouches(nx, ny, bolt.w, bolt.h)) {
+          repair(ox, oy, bolt.w, bolt.h);
+          bolt.on = false;
+          shellBurst(nx + 2, ny + 3);
+          continue;
+        }
+        bolt.x = static_cast<int16_t>(nx);
+        bolt.y = static_cast<int16_t>(ny);
+        fillRect(nx, ny, bolt.w, bolt.h, laserColor());
+        uncover(ox, oy, nx, ny, bolt.w, bolt.h);
+        continue;
+      }
       if (miss || hitBarrier(nx, ny, bolt.w, bolt.h)) {
         repair(ox, oy, bolt.w, bolt.h);
         bolt.on = false;
@@ -6813,6 +7030,29 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   // A cannon shell bursts on contact. On this panel 3 mm is about 20 px,
   // which is the kBlastR constant.
+  bool shellTouches(int x, int y, int w, int h) {
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive) continue;
+      if (overlap(x, y, w, h, origin_x_ + units_[i].ox, origin_y_ + units_[i].oy, unitW(units_[i]),
+                  unitH(units_[i]))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void shellBurst(int cx, int cy) {
+    blastAt(cx, cy);
+    for (int i = unit_n_ - 1; i >= 0; --i) {
+      if (!units_[i].alive) continue;
+      if (!overlap(cx - kBlastR, cy - kBlastR, kBlastR * 2, kBlastR * 2, origin_x_ + units_[i].ox,
+                   origin_y_ + units_[i].oy, unitW(units_[i]), unitH(units_[i]))) {
+        continue;
+      }
+      applyHit(i);
+    }
+  }
+
   bool blastAt(int cx, int cy) {
     const uint16_t ink = color565(255, 176, 60);
     for (int r = 5; r <= kBlastR; r += 5) {
@@ -7031,15 +7271,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       const int mx = origin_x_ + units_[i].ox + unitW(units_[i]) / 2;
       const int my = origin_y_ + units_[i].oy + unitH(units_[i]);
       if (units_[i].kind == 4) {
-        // Assault covers the side the ship is on. The open side is the way across.
-        const bool suppress_left = (player_x_ + kShipW / 2) <= mx;
-        const int x0 = suppress_left ? 6 : mx + 8;
-        const int x1 = suppress_left ? mx - 8 : kPanelWidth - 6;
-        if (x1 < x0 + 12) {
-          spawnFoe(suppress_left ? 8 : kPanelWidth - 12, my, 0, 1);
-        } else {
-          for (int s = 0; s < 4; ++s) spawnFoe(x0 + (x1 - x0) * s / 3, my, 0, 1);
-        }
+        spawnFoe(mx - 8, my, 0, 1);
+        spawnFoe(mx + 6, my, 0, 1);
       } else if (units_[i].kind == 5) {
         // Cannon: one shell that bursts on impact.
         spawnFoe(mx - 2, my, 0, 2);
@@ -7350,6 +7583,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   FloatLabel floats_[kFloats] = {};
   int check_god_ = -1;
   bool power_drawn_ = false;
+  bool tutorial_on_ = false;
+  int tutorial_saved_level_ = 1;
   char over_title_[16] = {};
   char over_killer_[24] = {};
   int poseidon_cool_ = 0;
