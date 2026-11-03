@@ -506,7 +506,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       "CUSTOM lets you pick your gun.",
       "CANNON: one shell per press.",
       "SHOTGUN: one burst. ASSAULT: five.",
-      "BEAM: about one second per press.",
+      "BEAM: one second. WAVE: sonic ring.",
       "Gun drops level up what you own.",
       "Every 20 levels opens a checkpoint.",
       "Open CHECKPOINTS from the menu to",
@@ -532,9 +532,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       "Beat him to unlock LIGHTNING:",
       "stun 1.5s and hit the lowest foe.",
       "Equip machines in DIVINE MACHINES.",
-      "Equipped machines fire on their",
-      "own timers. The bars under your",
-      "hearts show each cooldown.",
+      "Equipped machines fly as AI helpers",
+      "and fire on their own timers.",
+      "Cooldown bars stack two rows of six.",
       "Next up: HERA.",
     };
     return kTutLines;
@@ -1675,8 +1675,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     drawMachineBars();
   }
 
-  // One short bar per equipped machine, sitting under the hearts. A full bar
-  // is ready. A cooling machine fills back up as the wait runs out.
+  // Cooldown pips under the hearts: two rows of up to six (6 over 6).
   void drawMachineBars() {
     int idx[kGods];
     int n = 0;
@@ -1686,29 +1685,31 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (n == 0) return;
     const Palette ink = palette();
-    int gap = 2;
-    int w = 10;
-    int total = n * w + (n - 1) * gap;
-    int x = kPanelWidth - 8 - total;
-    if (x < 4) {
-      w = 6;
-      gap = 1;
-      total = n * w + (n - 1) * gap;
-      x = kPanelWidth - 8 - total;
+    const int gap = 2;
+    const int w = 10;
+    for (int row = 0; row < 2; ++row) {
+      const int start = row * 6;
+      if (start >= n) break;
+      const int count = n - start > 6 ? 6 : n - start;
+      const int total = count * w + (count - 1) * gap;
+      int x = kPanelWidth - 8 - total;
       if (x < 2) x = 2;
-    }
-    for (int s = 0; s < n; ++s) {
-      const int i = idx[s];
-      const int cool = machineCool(i);
-      const int bx = x + s * (w + gap);
-      fillRect(bx, 20, w, 3, ink.button);
-      int fill = w;
-      if (cool > 0 && div_cool_[i] > 0) {
-        int left = div_cool_[i];
-        if (left > cool) left = cool;
-        fill = w * (cool - left) / cool;
+      const int y = 18 + row * 5;
+      for (int s = 0; s < count; ++s) {
+        const int i = idx[start + s];
+        const int cool = machineCool(i);
+        const int bx = x + s * (w + gap);
+        fillRect(bx, y, w, 3, ink.button);
+        int fill = w;
+        if (cool > 0 && div_cool_[i] > 0) {
+          int left = div_cool_[i];
+          if (left > cool) left = cool;
+          fill = w * (cool - left) / cool;
+        }
+        if (i == 1 && clone_alive_) fill = w;
+        if (i == 5 && berserk_ticks_ > 0) fill = w;
+        if (fill > 0) fillRect(bx, y, fill, 3, godInkOf(i + 1));
       }
-      if (fill > 0) fillRect(bx, 20, fill, 3, godInkOf(i + 1));
     }
   }
 
@@ -1785,6 +1786,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       "Guns: CANNON, SHOTGUN,",
       "ASSAULT, BEAM, TWIN, WAVE,",
       "RAIL, NOVA, HOMING.",
+      "WAVE fires one sonic ring per",
+      "press that expands, damages,",
+      "and pushes. Not autofire.",
       "FORGED opens your combined",
       "guns. Equip one from that list.",
       "BACK returns without changing",
@@ -1824,6 +1828,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       "or unequip. PAGE shows more.",
       "MULTI from the shop adds slots",
       "(start with 1, up to 12).",
+      "Equipped machines fly as AI",
+      "companions near your ship.",
       "",
       "ZEUS LIGHTNING - column zap:",
       "stun 1.5s and hit lowest foe.",
@@ -3894,6 +3900,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     god_ward_ = 0;
     drone_drawn_ = false;
     drone_n_ = 0;
+    for (int i = 0; i < kGods; ++i) comp_act_[i] = 0;
+    sonic_r_ = -1;
+    sonic_hit_mask_ = 0;
     clone_alive_ = !demo_ && divineOn(1);
     clone_drawn_ = false;
     clone_cool_ = 0;
@@ -3904,6 +3913,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   void tryBerserk() {
     if (lives_ != 1 || !divineOn(5)) return;
     berserk_ticks_ = 500;
+    pulseCompanion(5);
     for (int i = 0; i < kGods; ++i) {
       div_cool_[i] = div_cool_[i] > 125 ? div_cool_[i] - 125 : 0;
     }
@@ -6204,7 +6214,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       case 4:
         return 1;  // TWIN: one dual volley
       case 5:
-        return 3;  // WAVE: triple pulse
+        return 1;  // WAVE: one sonic ring
       case 6:
         return 1;  // RAIL: one lance
       case 7:
@@ -6236,11 +6246,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       spawnForgeExtras(cx, lv);
       return true;
     }
-    if (gun == 5) {
-      if (!spawnBoltAt(cx, kShipY - 10, 2, -8 - lv / 2, 3, 8, 1)) return false;
-      spawnForgeExtras(cx, lv);
-      return true;
-    }
+    if (gun == 5) return fireSonicAt(ship_x);
     if (gun == 6) {
       if (!spawnBoltAt(cx, kShipY - 16, 0, -16, 2, 16, 2)) return false;
       spawnForgeExtras(cx, lv);
@@ -6271,13 +6277,110 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     return true;
   }
 
+  bool fireSonicAt(int ship_x) {
+    if (sonic_r_ >= 0) return false;
+    const int lv = gunLv(gun_equip_);
+    sonic_x_ = ship_x + kShipW / 2;
+    sonic_y_ = kShipY - 6;
+    sonic_r_ = 6;
+    sonic_max_ = 42 + lv * 8 + forgedCount(ATTR_WIDE) * 4;
+    if (perk(PERK_WIDE)) sonic_max_ += 4;
+    if (boostOn(2)) sonic_max_ += 6;
+    sonic_hit_mask_ = 0;
+    if (sonic_drawn_) {
+      repair(sonic_bx_ - sonic_br_ - 2, sonic_by_ - sonic_br_ / 2 - 2, sonic_br_ * 2 + 4,
+             sonic_br_ + 4);
+      sonic_drawn_ = false;
+    }
+    spawnForgeExtras(sonic_x_, lv);
+    return true;
+  }
+
+  bool sonicBandHit(int cx, int cy, int r, int x, int y, int w, int h) const {
+    const int px = x + w / 2;
+    const int py = y + h / 2;
+    const int dx = px - cx;
+    const int dy = py - cy;
+    const int d2 = dx * dx + dy * dy;
+    const int r0 = r > 7 ? r - 7 : 0;
+    const int r1 = r + 3;
+    return d2 >= r0 * r0 && d2 <= r1 * r1;
+  }
+
+  void stepSonicWave() {
+    if (sonic_r_ < 0) return;
+    if (sonic_drawn_) {
+      repair(sonic_bx_ - sonic_br_ - 2, sonic_by_ - sonic_br_ / 2 - 2, sonic_br_ * 2 + 4,
+             sonic_br_ + 4);
+      sonic_drawn_ = false;
+    }
+    const int cx = sonic_x_;
+    const int cy = sonic_y_;
+    const int r = sonic_r_;
+    const int push = 1;
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive) continue;
+      if ((sonic_hit_mask_ >> i) & 1ull) continue;
+      const int ux = origin_x_ + units_[i].ox;
+      const int uy = origin_y_ + units_[i].oy;
+      const int uw = unitW(units_[i]);
+      const int uh = unitH(units_[i]);
+      if (!sonicBandHit(cx, cy, r, ux, uy, uw, uh)) continue;
+      sonic_hit_mask_ |= (1ull << i);
+      applyHit(i);
+      if (units_[i].stun < 12) units_[i].stun = 12;
+      const int dir = (ux + uw / 2 < cx) ? -push * 2 : push * 2;
+      units_[i].ox = static_cast<int16_t>(units_[i].ox + dir);
+      if (units_[i].alive) drawAlienAt(origin_x_ + units_[i].ox, origin_y_ + units_[i].oy, units_[i].kind);
+      else repair(ux, uy, uw, uh);
+    }
+    for (int i = 0; i < kFoeBolts; ++i) {
+      if (!foes_[i].on) continue;
+      if (!sonicBandHit(cx, cy, r, foes_[i].x, foes_[i].y, foes_[i].w, foes_[i].h)) continue;
+      const int dir = (foes_[i].x + foes_[i].w / 2 < cx) ? -2 : 2;
+      foes_[i].vx = static_cast<int8_t>(foes_[i].vx + dir);
+      foes_[i].vy = static_cast<int8_t>(foes_[i].vy - 2);
+    }
+    sonic_r_ += 5 + gunLv(gun_equip_) / 2;
+    if (sonic_r_ > sonic_max_) {
+      sonic_r_ = -1;
+      sonic_hit_mask_ = 0;
+      return;
+    }
+    sonic_bx_ = cx;
+    sonic_by_ = cy;
+    sonic_br_ = sonic_r_;
+    const int ry = sonic_r_ * 55 / 100;
+    drawEllipse(cx, cy, sonic_r_, ry < 4 ? 4 : ry, color565(120, 220, 255));
+    if (sonic_r_ > 8) {
+      const int ir = sonic_r_ - 5;
+      const int iry = ir * 55 / 100;
+      drawEllipse(cx, cy, ir, iry < 3 ? 3 : iry, color565(220, 245, 255));
+    }
+    sonic_drawn_ = true;
+  }
+
   bool tryFire() {
     const int gun = baseGun();
     if (gun == 3 || gun_cool_ > 0) return false;
     const bool twin = clone_alive_;
+    if (gun == 5) {
+      if (sonic_r_ >= 0) return false;
+      if (!fireWeaponAt(player_x_)) return false;
+      if (twin) {
+        fireWeaponAt(clone_x_);
+        pulseCompanion(1);
+      }
+      gun_cool_ = fireGap();
+      if (gun_cool_ < 10) gun_cool_ = 10;
+      return true;
+    }
     if (boltSlots() < primaryBolts() * (twin ? 2 : 1)) return false;
     if (!fireWeaponAt(player_x_)) return false;
-    if (twin) fireWeaponAt(clone_x_);
+    if (twin) {
+      fireWeaponAt(clone_x_);
+      pulseCompanion(1);
+    }
     gun_cool_ = fireGap();
     return true;
   }
@@ -7371,29 +7474,160 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     return hit;
   }
 
+  void pulseCompanion(int i) {
+    if (i < 0 || i >= kGods) return;
+    if (comp_act_[i] < 18) comp_act_[i] = 18;
+  }
+
+  bool companionActive(int i) const {
+    if (i == 1) return clone_alive_;
+    if (i == 5) return berserk_ticks_ > 0;
+    if (i == 4) return aegis_hits_ > 0;
+    if (i == 3) return demeter_timer_ > 0;
+    if (i == 6) return sun_ticks_ > 0;
+    if (i == 8) return charm_ticks_ > 0;
+    if (i == 10) return hermes_ticks_ > 0;
+    if (i == 11) return revel_ticks_ > 0;
+    if (i == 2) return wave_y_ >= 0;
+    return comp_act_[i] > 0;
+  }
+
+  bool nearestThreat(int* out_x, int* out_y) const {
+    int best_d = 2147483647;
+    bool found = false;
+    const int sx = player_x_ + kShipW / 2;
+    const int sy = kShipY;
+    auto consider = [&](int x, int y) {
+      const int dx = x - sx;
+      const int dy = y - sy;
+      const int d = dx * dx + dy * dy * 2;
+      if (d < best_d) {
+        best_d = d;
+        *out_x = x;
+        *out_y = y;
+        found = true;
+      }
+    };
+    for (int i = 0; i < unit_n_; ++i) {
+      if (!units_[i].alive) continue;
+      consider(origin_x_ + units_[i].ox + unitW(units_[i]) / 2,
+               origin_y_ + units_[i].oy + unitH(units_[i]) / 2);
+    }
+    for (int i = 0; i < kFoeBolts; ++i) {
+      if (!foes_[i].on) continue;
+      consider(foes_[i].x + foes_[i].w / 2, foes_[i].y + foes_[i].h / 2);
+    }
+    return found;
+  }
+
   void eraseDrones() {
     if (!drone_drawn_) return;
-    for (int i = 0; i < drone_n_; ++i) repair(drone_x_[i], kShipY - 14, 8, 8);
+    for (int i = 0; i < drone_n_; ++i) {
+      repair(drone_x_[i] - 1, drone_y_[i] - 1, kDroneW + 2, kDroneH + 2);
+    }
     drone_drawn_ = false;
     drone_n_ = 0;
   }
 
+  void drawCompanionSprite(int i, int x, int y, bool face_right, bool act) {
+    const uint16_t ink = godInkOf(i + 1);
+    const uint16_t hi = color565(255, 255, 255);
+    const uint16_t body = act ? hi : ink;
+    fillRect(x + 2, y + 2, 5, 5, body);
+    fillRect(x + 1, y + 3, 7, 3, ink);
+    if (face_right) fillRect(x + 6, y + 3, 2, 2, hi);
+    else fillRect(x + 1, y + 3, 2, 2, hi);
+    if (i == 0) {
+      fillRect(x + 3, y, 2, 3, hi);
+      fillRect(x + 4, y + 7, 1, 3, ink);
+    } else if (i == 1) {
+      drawRect(x, y + 1, 9, 7, ink);
+    } else if (i == 2) {
+      fillRect(x + 1, y + 6, 7, 2, color565(64, 190, 255));
+    } else if (i == 3) {
+      fillRect(x + 3, y, 2, 2, color565(120, 220, 96));
+    } else if (i == 4) {
+      drawRect(x, y + 1, 9, 7, color565(206, 214, 232));
+    } else if (i == 5) {
+      fillRect(x + (face_right ? 5 : 1), y, 3, 8, color565(255, 72, 60));
+    } else if (i == 6) {
+      fillRect(x + 3, y, 3, 2, color565(255, 200, 88));
+    } else if (i == 7) {
+      fillRect(x + (face_right ? 6 : 0), y + 1, 3, 6, color565(176, 220, 255));
+    } else if (i == 8) {
+      fillRect(x + 2, y + 1, 2, 2, color565(255, 140, 200));
+      fillRect(x + 5, y + 1, 2, 2, color565(255, 140, 200));
+    } else if (i == 9) {
+      fillRect(x + 1, y + 6, 7, 2, color565(255, 128, 40));
+    } else if (i == 10) {
+      fillRect(x, y + 4, 3, 1, ink);
+      fillRect(x + 6, y + 4, 3, 1, ink);
+    } else if (i == 11) {
+      fillRect(x + 2, y + 6, 5, 2, color565(190, 96, 255));
+    }
+    if (act) fillRect(x + 3, y + 3, 2, 2, ink);
+  }
+
+  // Equipped Divine Machines orbit as AI helpers. Hera's mirror clone ship stays
+  // separate; Ares still only berserks at 1 life via tryBerserk.
   void paintDrones() {
     eraseDrones();
+    for (int i = 0; i < kGods; ++i) {
+      if (comp_act_[i] > 0) comp_act_[i] -= 1;
+    }
     if (demo_) return;
+    int equipped[kGods];
     int n = 0;
     for (int i = 0; i < kGods; ++i) {
       if (!divineOn(i)) continue;
-      int x = player_x_ - 6 + n * 10;
+      equipped[n++] = i;
+    }
+    if (n == 0) return;
+    int threat_x = player_x_ + kShipW / 2;
+    int threat_y = 80;
+    const bool has_threat = nearestThreat(&threat_x, &threat_y);
+    for (int s = 0; s < n; ++s) {
+      const int i = equipped[s];
+      const int t = space_tick_ + s * 17;
+      // Cheap orbit: quarter-circle tables via bit masks (no float / sin).
+      const int orbit = 20 + (s % 3) * 5;
+      int ox = ((t & 32) ? -1 : 1) * (orbit - ((t >> 2) & 7));
+      int oy = -16 - (s & 1) * 4 + ((t >> 3) & 7) - 3;
+      const bool firing = comp_act_[i] > 0;
+      const bool active = companionActive(i);
+      if (firing || active) {
+        const int dx = threat_x - (player_x_ + kShipW / 2);
+        ox = ox / 3 + (dx < 0 ? -1 : 1) * (14 + s * 2);
+        oy = oy / 2 - 12;
+        if (oy > -8) oy = -8;
+        if (oy < -34) oy = -34;
+        if (ox < -36) ox = -36;
+        if (ox > 36) ox = 36;
+      }
+      if (i == 1 && clone_alive_) {
+        ox = (clone_x_ + kShipW / 2) - (player_x_ + kShipW / 2);
+        oy = -10;
+      }
+      int x = player_x_ + kShipW / 2 + ox - 4;
+      int y = kShipY + oy;
       if (x < 2) x = 2;
       if (x > kPanelWidth - 10) x = kPanelWidth - 10;
-      drone_x_[n] = x;
-      fillRect(x, kShipY - 14, 8, 6, godInkOf(i + 1));
-      fillRect(x + 2, kShipY - 12, 4, 2, color565(255, 255, 255));
-      n += 1;
+      if (y < 40) y = 40;
+      if (y > kShipY - 6) y = kShipY - 6;
+      drone_x_[s] = x;
+      drone_y_[s] = y;
+      const bool face_right = !has_threat || threat_x >= x + 4;
+      drawCompanionSprite(i, x, y, face_right, firing || active);
+      if (firing) {
+        if (i == 0) drawLine(x + 4, y, threat_x, threat_y < 36 ? 36 : threat_y, godInkOf(1));
+        else if (i == 6) fillRect(x + 3, 36, 2, y > 36 ? y - 36 : 1, color565(255, 210, 96));
+        else if (i == 7) drawLine(x + 4, y, threat_x, threat_y, color565(176, 220, 255));
+        else if (i == 9) drawCircle(threat_x, threat_y, 6, color565(255, 128, 40));
+        else if (i == 2) fillRect(2, y + 2, kPanelWidth - 4, 2, color565(48, 160, 255));
+      }
     }
     drone_n_ = n;
-    drone_drawn_ = n > 0;
+    drone_drawn_ = true;
   }
 
   // Mirror the player, and keep the clone inside the playfield.
@@ -7623,7 +7857,10 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         div_cool_[i] -= 1;
         continue;
       }
-      if (triggerMachine(i)) div_cool_[i] = machineCool(i);
+      if (triggerMachine(i)) {
+        div_cool_[i] = machineCool(i);
+        pulseCompanion(i);
+      }
     }
   }
 
@@ -8039,6 +8276,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (press_left_ > 0 && tryFire()) press_left_ -= 1;
     }
     stepBolts();
+    stepSonicWave();
     stepDrop();
     stepCoins();
     stepFloats();
@@ -8354,6 +8592,17 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   bool drone_drawn_ = false;
   int drone_n_ = 0;
   int drone_x_[kGods] = {};
+  int drone_y_[kGods] = {};
+  int comp_act_[kGods] = {};
+  int sonic_r_ = -1;
+  int sonic_x_ = 0;
+  int sonic_y_ = 0;
+  int sonic_max_ = 0;
+  uint64_t sonic_hit_mask_ = 0;
+  bool sonic_drawn_ = false;
+  int sonic_bx_ = 0;
+  int sonic_by_ = 0;
+  int sonic_br_ = 0;
   char div_msg_[16] = {};
   uint16_t camp_ = 0;
   uint8_t cleared_lv_[kClearedLevelBytes] = {};

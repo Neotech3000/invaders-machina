@@ -547,6 +547,8 @@ demeterUses: 0, demeterBonus: 0, demeterT: 0, athenaUses: 0, aegisT: 0, aegisHit
 stun: 0, charm: 0, revel: 0, hermes: 0, berserk: 0,
 waveY: -1, sunT: 0, sunX: 0, godBeamT: 0, godBeamX: 0, godWard: 0,
 cloneAlive: false, cloneX: 16, cloneCool: 0,
+compAct: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+sonicR: -1, sonicX: 0, sonicY: 0, sonicMax: 0, sonicHit: null,
 playerStun: 0, apolloT: 0, apolloX: 160, apolloX2: 200, nextStyle: -1,
 hephT: 0, heph: [{ on: false }, { on: false }, { on: false }],
 poseidonCool: 40, poseidonWarn: 0, poseidonXs: []
@@ -1010,8 +1012,14 @@ R.waveY = -1; R.sunT = 0; R.sunX = 0; R.godBeamT = 0; R.godBeamX = 0; R.godWard 
 R.cloneAlive = !demo && divineOn(1);
 R.cloneX = clamp((W - SHIP_W) - R.px, 4, W - SHIP_W - 4);
 R.cloneCool = 0;
+R.compAct = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+R.sonicR = -1; R.sonicHit = null;
 R.divCool = [];
 for (let i = 0; i < 12; i++) R.divCool[i] = 24;
+}
+function pulseCompanion(i) {
+if (!R || i < 0 || i >= 12) return;
+R.compAct[i] = Math.max(R.compAct[i] || 0, 18);
 }
 function grantDivine(god) {
 if (god < 1 || god > 12) return;
@@ -1024,6 +1032,7 @@ R.msgT = 45;
 function tryBerserk() {
 if (R.lives !== 1 || !divineOn(5)) return;
 R.berserk = 500;
+pulseCompanion(5);
 for (let i = 0; i < 12; i++) R.divCool[i] = R.divCool[i] > 125 ? R.divCool[i] - 125 : 0;
 R.gunCool = R.gunCool > 125 ? R.gunCool - 125 : 0;
 R.beamCool = R.beamCool > 125 ? R.beamCool - 125 : 0;
@@ -1162,9 +1171,13 @@ if (overlapRect(R.sunX, 36, 6, SHIP_Y - 36, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidM
 R.sunT -= 1;
 }
 for (let i = 0; i < 12; i++) {
+if (R.compAct[i] > 0) R.compAct[i] -= 1;
 if (!divineOn(i)) continue;
 if (R.divCool[i] > 0) { R.divCool[i] -= 1; continue; }
-if (triggerMachine(i)) R.divCool[i] = MACHINES[i].cool;
+if (triggerMachine(i)) {
+R.divCool[i] = MACHINES[i].cool;
+pulseCompanion(i);
+}
 }
 }
 function triggerMachine(i) {
@@ -1625,12 +1638,23 @@ case 0: return 1; // CANNON
 case 1: return 1; // SHOTGUN burst
 case 2: return 5; // ASSAULT
 case 4: return 1; // TWIN
-case 5: return 3; // WAVE
+case 5: return 1; // WAVE sonic ring
 case 6: return 1; // RAIL
 case 7: return 1; // NOVA
 case 8: return 2; // HOMING
 default: return 1;
 }
+}
+function fireSonicAt(shipX) {
+if (R.sonicR >= 0) return false;
+const lv = gunLv(save.gunEquip);
+R.sonicX = shipX + SHIP_W / 2;
+R.sonicY = SHIP_Y - 6;
+R.sonicR = 6;
+R.sonicMax = 42 + lv * 8 + forgedCount("wide") * 4 + (perk(PERK.wide) ? 4 : 0) + (boostOn(2) ? 6 : 0);
+R.sonicHit = new Set();
+spawnForgeExtras(R.sonicX, lv);
+return true;
 }
 function fireWeaponAt(shipX) {
 const gun = baseGun();
@@ -1651,11 +1675,7 @@ spawnBoltAt(shipX + SHIP_W - 4, SHIP_Y - 10, 0, -9 - lv, 3, 8, 0);
 spawnForgeExtras(cx, lv);
 return true;
 }
-if (gun === 5) {
-if (!spawnBoltAt(cx, SHIP_Y - 10, 2, -8 - Math.floor(lv / 2), 3, 8, 1)) return false;
-spawnForgeExtras(cx, lv);
-return true;
-}
+if (gun === 5) return fireSonicAt(shipX);
 if (gun === 6) {
 if (!spawnBoltAt(cx, SHIP_Y - 16, 0, -16, 2, 16, 2)) return false;
 spawnForgeExtras(cx, lv);
@@ -1687,11 +1707,67 @@ function fireGun() {
 const gun = baseGun();
 if (gun === 3 || R.gunCool > 0) return false;
 const twin = !!R.cloneAlive;
+if (gun === 5) {
+if (R.sonicR >= 0) return false;
+if (!fireWeaponAt(R.px)) return false;
+if (twin) { fireWeaponAt(R.cloneX); pulseCompanion(1); }
+R.gunCool = Math.max(fireGap(), 10);
+return true;
+}
 if (boltSlots() < primaryBolts() * (twin ? 2 : 1)) return false;
 if (!fireWeaponAt(R.px)) return false;
-if (twin) fireWeaponAt(R.cloneX);
+if (twin) { fireWeaponAt(R.cloneX); pulseCompanion(1); }
 R.gunCool = fireGap();
 return true;
+}
+function sonicBandHit(cx, cy, r, x, y, w, h) {
+const px = x + w / 2, py = y + h / 2;
+const dx = px - cx, dy = py - cy;
+const d2 = dx * dx + dy * dy;
+const r0 = Math.max(0, r - 7), r1 = r + 3;
+return d2 >= r0 * r0 && d2 <= r1 * r1;
+}
+function stepSonicWave() {
+if (!R || R.sonicR < 0) return;
+const cx = R.sonicX, cy = R.sonicY, r = R.sonicR;
+const hit = R.sonicHit || (R.sonicHit = new Set());
+const push = (tx) => (tx < cx ? -1 : 1);
+for (const u of R.units) {
+if (!u.alive || hit.has(u)) continue;
+const [sw, sh] = unitSize(u);
+const ux = R.ox + u.ox, uy = R.oy + u.oy;
+if (!sonicBandHit(cx, cy, r, ux, uy, sw, sh)) continue;
+hit.add(u);
+hitUnit(u);
+if (!(u.stun > 0) || u.stun < 12) u.stun = 12;
+u.ox += push(ux + sw / 2) * 2;
+}
+for (const e of R.escorts) {
+if (hit.has(e)) continue;
+if (!sonicBandHit(cx, cy, r, escortX(e), ESCORT_Y, ALLY_W, ALLY_H)) continue;
+hit.add(e);
+e.hp -= playerDamage();
+addScore(10);
+}
+if (R.boss && !hit.has(R.boss) && sonicBandHit(cx, cy, r, R.boss.x, R.boss.y, bossW(), bossH())) {
+hit.add(R.boss);
+bossHit();
+R.boss.x = clamp(R.boss.x + push(R.boss.x + bossW() / 2) * 3, 8, W - bossW() - 8);
+}
+for (let mi = R.raidMates.length - 1; mi >= 0; mi--) {
+const m = R.raidMates[mi];
+if (hit.has(m)) continue;
+if (!sonicBandHit(cx, cy, r, m.x, m.y, BOSS_W, BOSS_H)) continue;
+hit.add(m);
+hurtRaidMate(mi);
+}
+for (const f of R.foes) {
+if (!sonicBandHit(cx, cy, r, f.x, f.y, f.w, f.h)) continue;
+f.vx += push(f.x + f.w / 2) * 2;
+f.vy -= 2;
+}
+R.sonicR += 5 + Math.floor(gunLv(save.gunEquip) / 2);
+if (R.sonicR > R.sonicMax) { R.sonicR = -1; R.sonicHit = null; }
 }
 function placeClone() {
 if (demo || !divineOn(1)) { R.cloneAlive = false; return; }
@@ -2333,6 +2409,7 @@ if (fireEdge && R.pressLeft === 0) R.pressLeft = pressShotsOf();
 if (R.pressLeft > 0 && fireGun()) R.pressLeft -= 1;
 }
 stepBolts();
+stepSonicWave();
 stepDrop();
 stepMachines();
 moveFormation();
@@ -3186,24 +3263,147 @@ function drawMachineBars(P) {
 const idx = [];
 for (let i = 0; i < 12; i++) if (divineOn(i)) idx.push(i);
 if (!idx.length) return;
-let w = 10, gap = 2;
-let total = idx.length * w + (idx.length - 1) * gap;
+const rows = [idx.slice(0, 6), idx.slice(6, 12)];
+const w = 10, gap = 2;
+for (let row = 0; row < 2; row++) {
+const list = rows[row];
+if (!list.length) continue;
+const total = list.length * w + (list.length - 1) * gap;
 let x = W - 8 - total;
-if (x < 4) {
-w = 6; gap = 1;
-total = idx.length * w + (idx.length - 1) * gap;
-x = Math.max(2, W - 8 - total);
-}
-for (let s = 0; s < idx.length; s++) {
-const i = idx[s];
+if (x < 2) x = 2;
+const y = 18 + row * 5;
+for (let s = 0; s < list.length; s++) {
+const i = list[s];
 const cool = MACHINES[i].cool;
 const left = R.divCool[i] || 0;
 const bx = x + s * (w + gap);
-fillRect(bx, 20, w, 3, P.button);
+fillRect(bx, y, w, 3, P.button);
 let fill = w;
 if (cool > 0 && left > 0) fill = Math.floor(w * (cool - Math.min(left, cool)) / cool);
-if (fill > 0) fillRect(bx, 20, fill, 3, clr(GOD_INK[i]));
+if (i === 1 && R.cloneAlive) fill = w;
+if (i === 5 && R.berserk > 0) fill = w;
+if (fill > 0) fillRect(bx, y, fill, 3, clr(GOD_INK[i]));
 }
+}
+}
+function nearestThreat() {
+let best = null, bestD = 1e9;
+const sx = R.px + SHIP_W / 2, sy = SHIP_Y;
+const consider = (x, y) => {
+const d = (x - sx) * (x - sx) + (y - sy) * (y - sy) * 2;
+if (d < bestD) { bestD = d; best = { x, y }; }
+};
+for (const u of R.units) {
+if (!u.alive) continue;
+const [sw, sh] = unitSize(u);
+consider(R.ox + u.ox + sw / 2, R.oy + u.oy + sh / 2);
+}
+if (R.boss) consider(R.boss.x + bossW() / 2, R.boss.y + bossH() / 2);
+for (const m of R.raidMates) consider(m.x + BOSS_W / 2, m.y + BOSS_H / 2);
+for (const f of R.foes) consider(f.x + f.w / 2, f.y + f.h / 2);
+return best;
+}
+function companionActive(i) {
+if (i === 1) return !!R.cloneAlive;
+if (i === 5) return R.berserk > 0;
+if (i === 4) return R.aegisHits > 0;
+if (i === 3) return R.demeterT > 0;
+if (i === 6) return R.sunT > 0;
+if (i === 8) return R.charm > 0;
+if (i === 10) return R.hermes > 0;
+if (i === 11) return R.revel > 0;
+if (i === 2) return R.waveY >= 0;
+return (R.compAct[i] || 0) > 0;
+}
+function companionPos(slot, n, i, threat) {
+const t = R.spaceTick * 0.09 + slot * 2.1;
+const orbit = 20 + (slot % 3) * 5;
+let ox = Math.cos(t) * orbit;
+let oy = Math.sin(t * 1.35) * 7 - 16 - (slot & 1);
+if (companionActive(i) || (R.compAct[i] || 0) > 0) {
+const face = threat || { x: R.px + SHIP_W / 2, y: 80 };
+const dx = face.x - (R.px + SHIP_W / 2);
+const dy = face.y - SHIP_Y;
+ox = clamp(ox * 0.35 + Math.sign(dx || 1) * (14 + slot * 2), -36, 36);
+oy = clamp(oy * 0.4 + Math.sign(dy || -1) * 10 - 18, -34, -8);
+}
+if (i === 1 && R.cloneAlive) {
+ox = (R.cloneX + SHIP_W / 2) - (R.px + SHIP_W / 2);
+oy = -10;
+}
+const x = clamp(Math.round(R.px + SHIP_W / 2 + ox - 4), 2, W - 10);
+const y = clamp(Math.round(SHIP_Y + oy), 40, SHIP_Y - 6);
+return { x, y };
+}
+function drawCompanionSprite(i, x, y, faceRight, act) {
+const ink = clr(GOD_INK[i]);
+const hi = clr([255, 255, 255]);
+const body = act ? hi : ink;
+fillRect(x + 2, y + 2, 5, 5, body);
+fillRect(x + 1, y + 3, 7, 3, ink);
+if (faceRight) fillRect(x + 6, y + 3, 2, 2, hi);
+else fillRect(x + 1, y + 3, 2, 2, hi);
+if (i === 0) { // Zeus bolt tip
+fillRect(x + 3, y, 2, 3, hi);
+fillRect(x + 4, y + 7, 1, 3, ink);
+} else if (i === 1) { // Hera mirror mote (not the Double clone)
+drawRect(x, y + 1, 9, 7, ink);
+} else if (i === 2) {
+fillRect(x + 1, y + 6, 7, 2, clr([64, 190, 255]));
+} else if (i === 3) {
+fillRect(x + 3, y, 2, 2, clr([120, 220, 96]));
+} else if (i === 4) {
+drawRect(x, y + 1, 9, 7, clr([206, 214, 232]));
+} else if (i === 5) {
+fillRect(x + (faceRight ? 5 : 1), y, 3, 8, clr([255, 72, 60]));
+} else if (i === 6) {
+fillRect(x + 3, y, 3, 2, clr([255, 200, 88]));
+} else if (i === 7) {
+fillRect(x + (faceRight ? 6 : 0), y + 1, 3, 6, clr([176, 220, 255]));
+} else if (i === 8) {
+fillRect(x + 2, y + 1, 2, 2, clr([255, 140, 200]));
+fillRect(x + 5, y + 1, 2, 2, clr([255, 140, 200]));
+} else if (i === 9) {
+fillRect(x + 1, y + 6, 7, 2, clr([255, 128, 40]));
+} else if (i === 10) {
+fillRect(x, y + 4, 3, 1, ink);
+fillRect(x + 6, y + 4, 3, 1, ink);
+} else if (i === 11) {
+fillRect(x + 2, y + 6, 5, 2, clr([190, 96, 255]));
+}
+if (act) fillRect(x + 3, y + 3, 2, 2, ink);
+}
+function drawCompanions() {
+if (demo) return;
+const equipped = [];
+for (let i = 0; i < 12; i++) if (divineOn(i)) equipped.push(i);
+if (!equipped.length) return;
+const threat = nearestThreat();
+const n = equipped.length;
+for (let s = 0; s < n; s++) {
+const i = equipped[s];
+const pos = companionPos(s, n, i, threat);
+const faceRight = threat ? threat.x >= pos.x + 4 : true;
+const firing = (R.compAct[i] || 0) > 0;
+const act = firing || companionActive(i);
+drawCompanionSprite(i, pos.x, pos.y, faceRight, act);
+if (firing) {
+const tip = threat || { x: pos.x + 4, y: pos.y - 20 };
+if (i === 0) drawLine(pos.x + 4, pos.y, tip.x, Math.max(36, tip.y), clr(GOD_INK[i]));
+else if (i === 6) fillRect(pos.x + 3, 36, 2, Math.max(1, pos.y - 36), clr([255, 210, 96]));
+else if (i === 7) drawLine(pos.x + 4, pos.y, tip.x, tip.y, clr([176, 220, 255]));
+else if (i === 9) drawCircle(Math.round(tip.x), Math.round(tip.y), 6, clr([255, 128, 40]));
+else if (i === 2) fillRect(2, pos.y + 2, W - 4, 2, clr([48, 160, 255]));
+}
+}
+}
+function drawSonicWave(P) {
+if (!R || R.sonicR < 0) return;
+const r = R.sonicR;
+const ink = clr([120, 220, 255]);
+const rim = clr([220, 245, 255]);
+drawEllipse(R.sonicX, R.sonicY, r, Math.max(4, Math.floor(r * 0.55)), ink);
+if (r > 8) drawEllipse(R.sonicX, R.sonicY, r - 5, Math.max(3, Math.floor((r - 5) * 0.55)), rim);
 }
 function drawHearts(P) {
 const slots = heartSlots();
@@ -3467,6 +3667,7 @@ if (R.waveY >= 0) {
 fillRect(0, R.waveY, W, 12, clr([48, 160, 255]));
 fillRect(0, R.waveY + 4, W, 4, clr([190, 230, 255]));
 }
+drawSonicWave(P);
 for (const bolt of R.bolts) fillRect(Math.round(bolt.x), Math.round(bolt.y), bolt.w, bolt.h, lc);
 if (R.drop_) {
 const d = R.drop_;
@@ -3499,16 +3700,7 @@ for (let i = 0; i < 4; i++) drawLine(nx, ny + i * 5, nx + SHIP_W + 4, ny + i * 5
 for (let i = 0; i < 5; i++) drawLine(nx + i * 8, ny, nx + i * 8, ny + 16, net);
 }
 if (R.cloneAlive) drawShipAt(R.cloneX, P);
-if (!demo) {
-let dn = 0;
-for (let i = 0; i < 12; i++) {
-if (!divineOn(i)) continue;
-const x = clamp(R.px - 6 + dn * 10, 2, W - 10);
-fillRect(x, SHIP_Y - 14, 8, 6, clr(GOD_INK[i]));
-fillRect(x + 2, SHIP_Y - 12, 4, 2, clr([255, 255, 255]));
-dn += 1;
-}
-}
+drawCompanions();
 if (R.aegisHits > 0) drawRect(R.px - 3, SHIP_Y - 3, SHIP_W + 6, SHIP_H + 6, clr([220, 230, 245]));
 drawShieldBubble(R.px);
 drawHud(P);
@@ -3622,13 +3814,13 @@ shop: [
 "SHOP","","Tabs across the top change","what is for sale. PAGE flips","long lists. BACK leaves.","","THEME - color packs. First is","free; others cost coins.","SHIPS - STRIKER, INTERCEPT,","VALKYRIE, PHANTOM, TITAN,","SERAPH hulls.","COLOR - laser tint. First free,","others $15.","GUNS - unlock and equip.","CANNON free; others $90.","","POWER tab:","SHIELD $10 - one shield charge.","SPARE HEART $15 - extra life","for the next run.","RUSH $20 - faster fire.","FURY $25 - harder hits.","WIDE $15 - wider bolts.","VEIL $40 - invulnerability.","SALVO $20 - side bolts.","Armed boosts start on PLAY.","","UPGRD tab:","level each owned gun ($50 x","next level), THRUSTERS (speed),","and MULTI $300 (equip one more","Divine Machine)."
 ],
 custom: [
-"CUSTOM / WEAPONS","","LASER - cycle owned beam tint.","SHIP - cycle owned hull.","Tap a gun row to equip it.","Guns: CANNON, SHOTGUN,","ASSAULT, BEAM, TWIN, WAVE,","RAIL, NOVA, HOMING.","FORGED opens your combined","guns. Equip one from that list.","BACK returns without changing","the fight you left."
+"CUSTOM / WEAPONS","","LASER - cycle owned beam tint.","SHIP - cycle owned hull.","Tap a gun row to equip it.","Guns: CANNON, SHOTGUN,","ASSAULT, BEAM, TWIN, WAVE,","RAIL, NOVA, HOMING.","WAVE fires one sonic ring per","press that expands, damages,","and pushes. Not autofire.","FORGED opens your combined","guns. Equip one from that list.","BACK returns without changing","the fight you left."
 ],
 forge: [
 "FORGE","","Tabs: GUNS, POWER, UPGRD.","Pick a first item, then a","second. Confirm COMBINE to","spend coins and create a new","forged gun or perk.","","Gun attributes include HEAVY,","RAPID, WIDE, TWIN, PIERCE,","SPREAD, BURST, COOL, WAVE,","HOMING, POWER.","Power forge perks: THICK,","AEGIS, REPAIR, GLOW, LONGER,","VITAL, MAXHP, HEAL, REVIVE,","ARMOR.","Upgrade forge perks: DAMAGE,","RAPID, WIDE, TWIN, PIERCE,","SPEED, SALVO, COOL, BURST.","","Forged guns keep their own","level. UPGRADE raises that","level. EQUIP puts a forged gun","on the ship. BACK steps out."
 ],
 divine: [
-"DIVINE MACHINES","","Beat each Olympian to unlock","its machine. Tap a row to equip","or unequip. PAGE shows more.","MULTI from the shop adds slots","(start with 1, up to 12).","","ZEUS LIGHTNING - column zap:","stun 1.5s and hit lowest foe.","CD 5s.","HERA DOUBLE - mirror clone that","fires with you; dies if hit.","POSEIDON TSUNAMI - brief rising","wave that blocks shots. CD 8s.","DEMETER HEAL RAY - +2 then +1","temp life for 3.5s. CD 5s.","Two casts per level.","ATHENA AEGIS - 3-hit shield for","3s, twice per level. CD 7s.","ARES BERSERKER - at 1 life for","8s: +dmg, faster fire, cools.","APOLLO SOLARIS - short burn","beam under you. CD 5s.","ARTEMIS SILVER - one homing","bolt. CD 6s.","APHRODITE CHARM - stop enemy","fire for 3s. CD 9s.","HEPHAESTUS ANVIL - blast densest","foe cluster. CD 6s.","HERMES CADUCEUS - speed + veil","for 1.5s. CD 6s.","DIONYSUS REVEL - slow enemy","shots for 3s. CD 8s."
+"DIVINE MACHINES","","Beat each Olympian to unlock","its machine. Tap a row to equip","or unequip. PAGE shows more.","MULTI from the shop adds slots","(start with 1, up to 12).","Equipped machines fly as AI","companions near your ship.","","ZEUS LIGHTNING - column zap:","stun 1.5s and hit lowest foe.","CD 5s.","HERA DOUBLE - mirror clone that","fires with you; dies if hit.","POSEIDON TSUNAMI - brief rising","wave that blocks shots. CD 8s.","DEMETER HEAL RAY - +2 then +1","temp life for 3.5s. CD 5s.","Two casts per level.","ATHENA AEGIS - 3-hit shield for","3s, twice per level. CD 7s.","ARES BERSERKER - at 1 life for","8s: +dmg, faster fire, cools.","APOLLO SOLARIS - short burn","beam under you. CD 5s.","ARTEMIS SILVER - one homing","bolt. CD 6s.","APHRODITE CHARM - stop enemy","fire for 3s. CD 9s.","HEPHAESTUS ANVIL - blast densest","foe cluster. CD 6s.","HERMES CADUCEUS - speed + veil","for 1.5s. CD 6s.","DIONYSUS REVEL - slow enemy","shots for 3s. CD 8s."
 ],
 checks: [
 "CHECKPOINTS","","The path links the Olympians in","order, ZEUS to DIONYSUS.","Tap an OPEN god to list levels","every 5, up to 20 above and","below its level.","Tap an OPEN level to jump there.","LOCKED levels stay dark until","you pass their checkpoint in a","run. BACK returns to the path.","Jumping does not erase shop","gear or divine unlocks."
@@ -3695,7 +3887,7 @@ const TUTORIAL_CARDS = {
 "CUSTOM lets you pick your gun.",
 "CANNON: one shell per press.",
 "SHOTGUN: one burst. ASSAULT: five.",
-"BEAM: about one second per press.",
+"BEAM: one second. WAVE: sonic ring.",
 "Gun drops level up what you own."] },
 10: { title: "CHECKPOINTS", lines: [
 "Every 20 levels opens a checkpoint.",
@@ -3728,9 +3920,9 @@ const TUTORIAL_CARDS = {
 "stun 1.5s and hit the lowest foe.",
 "Equip machines in DIVINE MACHINES."] },
 26: { title: "DIVINE MACHINES", lines: [
-"Equipped machines fire on their",
-"own timers. The bars under your",
-"hearts show each cooldown.",
+"Equipped machines fly as AI helpers",
+"and fire on their own timers.",
+"Cooldown bars stack two rows of six.",
 "Next up: HERA."] }
 };
 let tutorialOn = false;
