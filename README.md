@@ -12,7 +12,7 @@ A space shooter for the ESP32-3248S035 display, and the same game in one web pag
 Controls:
 
 - **Move:** Left and Right arrows, or A and D. The ship also follows the mouse or trackpad.
-- **Fire:** Space, W, Up arrow, or hold the mouse or trackpad button.
+- **Fire:** Space, W, Up arrow, or click/tap FIRE. Each press starts that gun’s shot pattern (not hold-to-autofire).
 - **Menus:** click, or Up and Down and Enter.
 - **Pause / back:** Esc.
 

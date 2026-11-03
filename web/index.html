@@ -217,7 +217,7 @@ gunLv: blankLevels(), laser: 0, theme: 0,
 shield: 0, spare: 0, thrust: 0, forges: blankForges(), fpw: 0, fup: 0,
 armed: [0, 0, 0, 0, 0], gods: 0, dive: 0, dmul: 0,
 clearedLv: [], clearedGw: [],
-best: [0, 0, 0], ach: 0, coinsLife: 0, tips: 0
+best: [0, 0, 0], ach: 0, coinsLife: 0, tips: 0, devMode: false
 };
 const TIP_MOVE = 1 << 0, TIP_SHOOT = 1 << 1, TIP_LIVES = 1 << 2;
 const TIP_COINS = 1 << 3, TIP_SHOP = 1 << 4, TIP_PAUSE = 1 << 5;
@@ -291,6 +291,7 @@ save.dive = (loadedSave.dive | 0) & save.gods;
 save.ships = ((save.ships | 0) | 1) & 0x3f;
 save.ship = (save.ship | 0) % SHIPS.length;
 save.tips = (loadedSave.tips | 0) & 0xff;
+save.devMode = loadedSave.devMode === true;
 save.clearedLv = [];
 if (Array.isArray(loadedSave.clearedLv)) {
   for (const n of loadedSave.clearedLv) {
@@ -522,6 +523,9 @@ if (x >= b.x && y >= b.y && x < b.x + b.w && y < b.y + b.h) return i;
 return -1;
 }
 let R = null;
+let fireWasDown = false;
+let confirmPin = false;
+let pinBuf = "";
 function newRun(level) {
 return {
 level, score: 0, lives: 3, invuln: 0,
@@ -532,7 +536,7 @@ scraps: [], terrain: 0, sky: null, floats: [],
 boss: null, escorts: [], mini: false, raid: false,
 god: 0, godWave: 0, godEntrance: false, godBars: 3, godHp: 0, godHpMax: 1,
 raidMates: [],
-cool: 0, foeCool: 0, foeGap: 40, hitBy: "ALIEN", gunCool: 0,
+cool: 0, foeCool: 0, foeGap: 40, hitBy: "ALIEN", gunCool: 0, pressLeft: 0,
 beamOn: false, beamX: 0, beamBurst: 0, beamCool: 0, beamTick: 0, spaceTick: 0,
 spreadSide: false, revived: false, raidSplash: false, shieldHole: 0,
 raidBeamT: 0, raidBeamX: 160,
@@ -587,8 +591,9 @@ R.mini = false; R.raid = false; R.god = 0; R.godEntrance = false;
 R.hurt = false;
 R.raidSplash = false; R.shieldHole = 0; R.raidBeamT = 0; R.playerStun = 0; R.apolloT = 0; R.hephT = 0;
 if (R.heph) for (const h of R.heph) h.on = false;
-R.invuln = 0; R.cool = 0; R.foeCool = 0; R.gunCool = 0;
+R.invuln = 0; R.cool = 0; R.foeCool = 0; R.gunCool = 0; R.pressLeft = 0;
 R.beamOn = false; R.beamBurst = 0; R.beamCool = 0; R.beamTick = 0;
+fireWasDown = false;
 R.drop = Math.min(20, 8 + Math.floor((L - 1) / 20));
 R.foeGap = Math.max(14, 42 - Math.floor(L / 20) - (L % 5 === 0 ? 6 : 0));
 R.dir = 1; R.step = 2;
@@ -1292,6 +1297,7 @@ const BOOSTS = [
 { name: "VEIL", rate: 3, len: 250, price: 40 },
 { name: "SALVO", rate: 15, len: 500, price: 20 }
 ];
+if (save.devMode) applyDevGrants();
 const BOOST_RGB = [[255, 140, 32], [255, 60, 48], [80, 220, 255], [230, 230, 255], [255, 80, 220]];
 function powerRGB(idx) {
 if (idx === 0) return [96, 200, 255];
@@ -1613,6 +1619,19 @@ if (gun === 4) return 2;
 if (gun === 7) return 5;
 return 1;
 }
+function pressShotsOf() {
+switch (baseGun()) {
+case 0: return 1; // CANNON
+case 1: return 1; // SHOTGUN burst
+case 2: return 5; // ASSAULT
+case 4: return 1; // TWIN
+case 5: return 3; // WAVE
+case 6: return 1; // RAIL
+case 7: return 1; // NOVA
+case 8: return 2; // HOMING
+default: return 1;
+}
+}
 function fireWeaponAt(shipX) {
 const gun = baseGun();
 const lv = gunLv(save.gunEquip);
@@ -1666,12 +1685,13 @@ return true;
 }
 function fireGun() {
 const gun = baseGun();
-if (gun === 3 || R.gunCool > 0) return;
+if (gun === 3 || R.gunCool > 0) return false;
 const twin = !!R.cloneAlive;
-if (boltSlots() < primaryBolts() * (twin ? 2 : 1)) return;
-if (!fireWeaponAt(R.px)) return;
+if (boltSlots() < primaryBolts() * (twin ? 2 : 1)) return false;
+if (!fireWeaponAt(R.px)) return false;
 if (twin) fireWeaponAt(R.cloneX);
 R.gunCool = fireGap();
+return true;
 }
 function placeClone() {
 if (demo || !divineOn(1)) { R.cloneAlive = false; return; }
@@ -1679,11 +1699,11 @@ if (!R.cloneAlive) return;
 R.cloneX = clamp((W - SHIP_W) - R.px, 4, W - SHIP_W - 4);
 }
 function beamBurstLen() {
-let len = 188 + gunLv(save.gunEquip) * 12;
-len += 30 * forgedCount("burst");
-if (perk(PERK.burst)) len += 30;
-len += 20 * forgedCount("twin");
-if (perk(PERK.twin)) len += 20;
+let len = 60 + gunLv(save.gunEquip) * 6;
+len += 15 * forgedCount("burst");
+if (perk(PERK.burst)) len += 15;
+len += 10 * forgedCount("twin");
+if (perk(PERK.twin)) len += 10;
 return len;
 }
 function beamCoolLen() {
@@ -1725,17 +1745,11 @@ if (overlapRect(bx, by, bw, bh, m.x, m.y, BOSS_W, BOSS_H)) hurtRaidMate(mi);
 }
 }
 }
-function stepBeam(firing) {
+function stepBeam(trigger) {
 if (R.beamCool > 0) {
 R.beamCool -= 1;
 R.beamOn = false;
 R.beamBurst = 0;
-return;
-}
-if (R.beamBurst > 0 && !firing) {
-R.beamOn = false;
-R.beamBurst = 0;
-R.beamCool = beamCoolLen();
 return;
 }
 if (R.beamBurst > 0) {
@@ -1750,7 +1764,7 @@ R.beamCool = beamCoolLen();
 }
 return;
 }
-if (!firing) return;
+if (!trigger) return;
 R.beamBurst = beamBurstLen();
 R.beamTick = 0;
 R.beamX = R.px + SHIP_W / 2 - 1;
@@ -2308,11 +2322,15 @@ if (!stunned && input.right) R.px += step;
 if (!stunned && input.aim !== null) R.px = input.aim;
 R.px = clamp(R.px, 4, W - SHIP_W - 4);
 placeClone();
-if (baseGun() === 3) stepBeam(input.fire && R.playerStun <= 0);
+const fireDown = !!input.fire && !stunned;
+const fireEdge = fireDown && !fireWasDown;
+fireWasDown = fireDown;
+if (baseGun() === 3) stepBeam(fireEdge);
 else {
 R.beamOn = false;
 R.beamBurst = 0;
-if (input.fire && !stunned) fireGun();
+if (fireEdge && R.pressLeft === 0) R.pressLeft = pressShotsOf();
+if (R.pressLeft > 0 && fireGun()) R.pressLeft -= 1;
 }
 stepBolts();
 stepDrop();
@@ -2411,7 +2429,9 @@ if (y > low) { low = y; target = R.ox + u.ox + sw / 2; }
 if (target === null && R.boss) target = R.boss.x + BOSS_W / 2;
 if (target === null) return { left: false, right: false, fire: false, aim: null };
 const cx = R.px + SHIP_W / 2;
-return { left: target < cx - 4, right: target > cx + 4, fire: Math.abs(target - cx) <= 6, aim: null };
+const lined = Math.abs(target - cx) <= 6;
+const ready = lined && R.pressLeft === 0 && R.gunCool === 0 && R.beamCool === 0 && R.beamBurst === 0;
+return { left: target < cx - 4, right: target > cx + 4, fire: ready && !fireWasDown, aim: null };
 }
 const BOX = {
 left: { x: 8, y: BUTTON_Y, w: 96, h: 44 },
@@ -2551,9 +2571,36 @@ return "LV" + save.thrust + " $" + shopPrice(tab, idx);
 if (gunLv(gun) >= 5) return "MAX";
 return "LV" + gunLv(gun) + " $" + shopPrice(tab, idx);
 }
+function refillDevBank() { if (save.devMode) save.coins = 65535; }
+function applyDevGrants() {
+save.coins = 65535;
+save.guns = 0xff;
+save.themes = 0xff;
+save.ships = 0x3f;
+save.lasers = 0x0fff;
+save.gods = 0x0fff;
+save.dmul = 11;
+save.camp = 0x7fff;
+save.thrust = 2;
+save.shield = shieldCap();
+save.spare = 9;
+for (let i = 0; i < GUN_COUNT; i++) save.gunLv[i] = 5;
+save.armed = BOOSTS.map((b) => b.len);
+}
+function enableDevMode() {
+// TODO: post-credits unlock will replace this Restart-confirm PIN path.
+save.devMode = true;
+applyDevGrants();
+persist();
+}
+function disableDevMode() {
+save.devMode = false;
+persist();
+}
 function pay(price) {
 if (save.coins < price) { shopMsg = "NOT ENOUGH COINS"; return false; }
 save.coins -= price;
+refillDevBank();
 return true;
 }
 function shopAct(idx) {
@@ -2705,6 +2752,7 @@ slot = firstEmptyForge();
 if (slot < 0) { forgeMsg = "FORGE FULL"; return; }
 }
 save.coins -= total;
+refillDevBank();
 if (forgeTab === 0) {
 save.forges[slot] = sanitizeForge({
 valid: true, base: forgeFirst, donor: forgeSecond, attrA: forgeAttrA, attrB: forgeAttrB
@@ -2733,6 +2781,7 @@ if (lv >= 5) { forgeMsg = "MAXED"; return; }
 const price = 50 * (lv + 1);
 if (save.coins < price) { forgeMsg = "NOT ENOUGH COINS"; return; }
 save.coins -= price;
+refillDevBank();
 save.gunLv[gun] = lv + 1;
 save.gunEquip = gun;
 forgeFocus = gun - GUN_COUNT;
@@ -2858,6 +2907,9 @@ function resetRun() {
   if (!laserOwned(save.laser)) save.laser = 0;
   if (!shipOwned(save.ship)) save.ship = 0;
   if (!gunOwned(save.gunEquip)) save.gunEquip = 0;
+  save.devMode = false;
+  confirmPin = false;
+  pinBuf = "";
   persist();
 }
 if (!hadSave) resetRun();
@@ -3600,8 +3652,8 @@ const TUTORIAL_CARDS = {
 "to take the sky. Hold the line.",
 "",
 "LEFT and RIGHT move your ship.",
-"FIRE shoots. Touch the board to",
-"slide the ship under your finger.",
+"FIRE is one press per pattern.",
+"Touch the board to slide the ship.",
 "Your shots fly up. Lose all hearts",
 "and the run is over."] },
 2: { title: "ENEMIES", lines: [
@@ -3641,9 +3693,9 @@ const TUTORIAL_CARDS = {
 "Each lasts a short time."] },
 8: { title: "GUNS", lines: [
 "CUSTOM lets you pick your gun.",
-"CANNON bursts on contact.",
-"SHOTGUN spreads, ASSAULT is quick,",
-"BEAM is continuous.",
+"CANNON: one shell per press.",
+"SHOTGUN: one burst. ASSAULT: five.",
+"BEAM: about one second per press.",
 "Gun drops level up what you own."] },
 10: { title: "CHECKPOINTS", lines: [
 "Every 20 levels opens a checkpoint.",
@@ -3967,7 +4019,7 @@ reg(BOX.menuScores, () => { scorePage = 0; setScr("scores"); });
 reg(BOX.menuTheme, () => cycleTheme());
 reg(BOX.menuHome, () => { divPage = 0; divMsg = ""; setScr("divine"); });
 reg(BOX.menuForge, () => beginForge());
-reg(BOX.menuRestart, () => setScr("confirm"));
+reg(BOX.menuRestart, () => { confirmPin = false; pinBuf = ""; setScr("confirm"); });
 if (!tipSeen(TIP_SHOP)) drawText("SHOP spends $ coins", W / 2, 378, P.muted, "f2", "mc");
 drawHelpButton(P);
 }
@@ -4077,14 +4129,59 @@ drawKey("BACK", BOX.home, false, P);
 reg(BOX.home, () => { checkGod = -1; });
 drawHelpButton(P);
 }
+function pinDigitBox(d) {
+if (d === 0) return { x: 128, y: 300, w: 64, h: 40 };
+const i = d - 1;
+return { x: 56 + (i % 3) * 72, y: 140 + Math.floor(i / 3) * 48, w: 64, h: 40 };
+}
+function notePinDigit(ch) {
+if (pinBuf.length >= 5) return;
+pinBuf += ch;
+if (pinBuf.length < 5) return;
+if (pinBuf === "13579") {
+enableDevMode();
+confirmPin = false;
+pinBuf = "";
+} else {
+pinBuf = "";
+}
+}
 function paintConfirm(P) {
 FB.fill(P.bg);
+if (confirmPin) {
+drawText(save.devMode ? "DEV" : "· · ·", W / 2, 72, P.ink, "f4", "mc");
+drawText(pinBuf.length ? pinBuf : "·····", W / 2, 108, P.muted, "f2", "mc");
+for (let d = 1; d <= 9; d++) {
+const b = pinDigitBox(d);
+drawKey(String(d), b, false, P);
+reg(b, () => notePinDigit(String(d)));
+}
+drawKey("0", pinDigitBox(0), false, P);
+reg(pinDigitBox(0), () => notePinDigit("0"));
+const clr = { x: 56, y: 300, w: 64, h: 40 };
+const back = { x: 200, y: 300, w: 64, h: 40 };
+drawKey("CLR", clr, false, P);
+drawKey("BACK", back, false, P);
+reg(clr, () => { pinBuf = ""; });
+reg(back, () => { confirmPin = false; pinBuf = ""; });
+if (save.devMode) {
+const off = { x: 56, y: 352, w: 208, h: 40 };
+drawKey("OFF", off, false, P);
+reg(off, () => { disableDevMode(); confirmPin = false; pinBuf = ""; });
+}
+return;
+}
 drawText("RESTART GAME?", W / 2, 120, P.ink, "f4", "mc");
 drawText("Wipes this run. Scores stay.", W / 2, 156, P.muted, "f2", "mc");
 drawCard("YES · WIPE RUN", "level, coins, gear", BOX.yes, P, true);
 drawCard("NO · KEEP RUN", "back to menu", BOX.no, P);
 reg(BOX.yes, () => restartGame());
 reg(BOX.no, () => goMenu());
+// Tiny mute mark opens PIN pad. TODO: post-credits unlock replaces this.
+const entry = { x: 4, y: 4, w: 18, h: 18 };
+fillRect(entry.x + 6, entry.y + 6, 2, 2, P.muted);
+reg(entry, () => { confirmPin = true; pinBuf = ""; });
+if (save.devMode) drawText("·", 14, 20, P.muted, "f2", "mc");
 drawHelpButton(P);
 }
 function forgedListBox(row) { return { x: 16, y: 48 + row * 40, w: 288, h: 36 }; }

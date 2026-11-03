@@ -154,6 +154,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     loadMeta();
     loadTips();
     if (!prefs_.isKey("lv")) resetRun();
+    // TODO: post-credits unlock will replace this Restart-confirm PIN path.
+    dev_mode_ = prefs_.getUChar("dev", 0) != 0;
+    if (dev_mode_) applyDevGrants();
     makeStars();
     ledcSetup(kSoundCh, 2000, 8);
     ledcAttachPin(kPinSpeaker, kSoundCh);
@@ -367,8 +370,21 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     }
     if (mode_ == Mode::Confirm) {
       if (!rose || !on) return;
+      if (confirm_pin_) {
+        if (std::strncmp(where, "DIG", 3) == 0) notePinDigit(where[3]);
+        else if (std::strcmp(where, "PCLR") == 0) {
+          clearPinEntry();
+          paintConfirm();
+        } else if (std::strcmp(where, "PBACK") == 0) closeConfirmPin();
+        else if (std::strcmp(where, "POFF") == 0) {
+          disableDevMode();
+          closeConfirmPin();
+        }
+        return;
+      }
       if (std::strcmp(where, "YES") == 0) restartCampaign();
       else if (std::strcmp(where, "NO") == 0) beginMenu();
+      else if (std::strcmp(where, "DEV") == 0) openConfirmPin();
       return;
     }
     if (mode_ == Mode::Pause) {
@@ -453,8 +469,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       "to take the sky. Hold the line.",
       "",
       "LEFT and RIGHT move your ship.",
-      "FIRE shoots. Touch the board to",
-      "slide the ship under your finger.",
+      "FIRE is one press per pattern.",
+      "Touch the board to slide the ship.",
       "Your shots fly up. Lose all hearts",
       "and the run is over.",
       "Aliens march in formation and",
@@ -488,9 +504,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       "SALVO: side bolts.",
       "Each lasts a short time.",
       "CUSTOM lets you pick your gun.",
-      "CANNON bursts on contact.",
-      "SHOTGUN spreads, ASSAULT is quick,",
-      "BEAM is continuous.",
+      "CANNON: one shell per press.",
+      "SHOTGUN: one burst. ASSAULT: five.",
+      "BEAM: about one second per press.",
       "Gun drops level up what you own.",
       "Every 20 levels opens a checkpoint.",
       "Open CHECKPOINTS from the menu to",
@@ -1220,6 +1236,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
   Box yesBox() const { return {32, 190, 256, 52}; }
   Box noBox() const { return {32, 260, 256, 52}; }
+  // Obscure Restart-confirm entry. TODO: replace with post-credits unlock gate.
+  Box confirmDevEntryBox() const { return {4, 4, 18, 18}; }
+  Box pinDigitBox(int d) const {
+    if (d == 0) return {128, 300, 64, 40};
+    const int i = d - 1;
+    return {56 + (i % 3) * 72, 140 + (i / 3) * 48, 64, 40};
+  }
+  Box pinClrBox() const { return {56, 300, 64, 40}; }
+  Box pinBackBox() const { return {200, 300, 64, 40}; }
+  Box pinOffBox() const { return {56, 352, 208, 40}; }
   Box colorBox() const { return {16, 46, 140, 36}; }
   Box shipBox() const { return {164, 46, 140, 36}; }
   Box gunBox(int slot) const { return {16, 88 + slot * 34, 288, 32}; }
@@ -1376,8 +1402,21 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return "none";
     }
     if (mode_ == Mode::Confirm) {
+      if (confirm_pin_) {
+        static char digit[8];
+        for (int d = 0; d <= 9; ++d) {
+          if (!contains(pinDigitBox(d), x, y)) continue;
+          snprintf(digit, sizeof digit, "DIG%d", d);
+          return digit;
+        }
+        if (contains(pinClrBox(), x, y)) return "PCLR";
+        if (contains(pinBackBox(), x, y)) return "PBACK";
+        if (dev_mode_ && contains(pinOffBox(), x, y)) return "POFF";
+        return "none";
+      }
       if (contains(yesBox(), x, y)) return "YES";
       if (contains(noBox(), x, y)) return "NO";
+      if (contains(confirmDevEntryBox(), x, y)) return "DEV";
       return "none";
     }
     if (mode_ == Mode::Play || mode_ == Mode::Advance) {
@@ -2285,7 +2324,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     fadeIn();
   }
 
-  // A CPU pilot: chase the lowest live unit and hold FIRE once it is lined up.
+  // A CPU pilot: chase the lowest live unit and tap FIRE when lined up.
   void stepDemo(uint32_t now) {
     (void)now;
     int best = -1;
@@ -2309,7 +2348,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     } else if (want > cx + 4) {
       stepGame(true, false, rightBox().x + 4, rightBox().y + 4);
     } else {
-      stepGame(true, false, fireBox().x + 4, fireBox().y + 4);
+      const bool ready = press_left_ == 0 && gun_cool_ == 0 && beam_cool_ == 0 && beam_burst_ == 0;
+      if (ready && !fire_held_) {
+        stepGame(true, false, fireBox().x + 4, fireBox().y + 4);
+      } else {
+        stepGame(false, false, 0, 0);
+      }
     }
   }
 
@@ -2457,7 +2501,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       tutorial_on_ = false;
       level_ = tutorial_saved_level_;
     }
-    auto_fire_ = false;
+    press_left_ = 0;
+    fire_held_ = false;
     demo_ = false;
     clearBoosts();
     saveShop();
@@ -2730,7 +2775,81 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return false;
     }
     bank_ = static_cast<uint16_t>(bank_ - price);
+    refillDevBank();
     return true;
+  }
+
+  void refillDevBank() {
+    if (dev_mode_) bank_ = 65535;
+  }
+
+  void applyDevGrants() {
+    bank_ = 65535;
+    gun_unlock_ = 0xFF;
+    themes_owned_ = 0xFF;
+    ships_owned_ = 0x3F;
+    lasers_owned_ = 0x0FFF;
+    div_unlock_ = 0x0FFF;
+    div_multi_ = 11;
+    camp_ = 0x7FFF;
+    thrust_ = 2;
+    ship_step_ = kShipStep + thrust_ + (perk(PERK_SPEED) ? 1 : 0);
+    shield_ = static_cast<uint8_t>(shieldCap());
+    spare_ = 9;
+    for (int i = 0; i < kGunCount; ++i) gun_lv_[i] = kGunMaxLv;
+    for (int i = 0; i < kBoosts; ++i) boost_armed_[i] = boostLen(i);
+  }
+
+  void enableDevMode() {
+    // TODO: post-credits unlock will replace this Restart-confirm PIN path.
+    dev_mode_ = true;
+    applyDevGrants();
+    prefs_.putUChar("dev", 1);
+    saveGear();
+    saveShop();
+    saveCampaign();
+  }
+
+  void disableDevMode() {
+    dev_mode_ = false;
+    prefs_.putUChar("dev", 0);
+  }
+
+  void clearPinEntry() {
+    pin_len_ = 0;
+    pin_buf_[0] = '\0';
+  }
+
+  void openConfirmPin() {
+    // TODO: post-credits unlock will replace this Restart-confirm PIN path.
+    confirm_pin_ = true;
+    clearPinEntry();
+    paintConfirm();
+  }
+
+  void closeConfirmPin() {
+    confirm_pin_ = false;
+    clearPinEntry();
+    paintConfirm();
+  }
+
+  void notePinDigit(char ch) {
+    if (pin_len_ >= 5) return;
+    pin_buf_[pin_len_++] = ch;
+    pin_buf_[pin_len_] = '\0';
+    if (pin_len_ < 5) {
+      paintConfirm();
+      return;
+    }
+    if (std::strcmp(pin_buf_, "13579") == 0) {
+      enableDevMode();
+      confirm_pin_ = false;
+      clearPinEntry();
+      paintConfirm();
+      return;
+    }
+    clearPinEntry();
+    paintConfirm();
   }
 
   void shopAct(int idx) {
@@ -3205,6 +3324,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
     }
     bank_ = static_cast<uint16_t>(bank_ - total);
+    refillDevBank();
     if (forge_tab_ == 0) {
       ForgedGun& g = forged_[slot];
       g.valid = 1;
@@ -3250,6 +3370,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       return;
     }
     bank_ = static_cast<uint16_t>(bank_ - price);
+    refillDevBank();
     gun_lv_[gun] = static_cast<uint8_t>(lv + 1);
     gun_equip_ = static_cast<uint8_t>(gun);
     forge_focus_ = gun - kGunCount;
@@ -3419,18 +3540,41 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     setFont(&fonts::Font4);
     setTextDatum(lgfx::middle_center);
     setTextColor(ink.ink);
+    if (confirm_pin_) {
+      drawString(dev_mode_ ? "DEV" : "· · ·", kPanelWidth / 2, 72);
+      setFont(&fonts::Font2);
+      setTextColor(ink.muted);
+      drawString(pin_len_ > 0 ? pin_buf_ : "·····", kPanelWidth / 2, 108);
+      for (int d = 1; d <= 9; ++d) {
+        char label[2] = {static_cast<char>('0' + d), '\0'};
+        drawKey(label, pinDigitBox(d), false);
+      }
+      drawKey("0", pinDigitBox(0), false);
+      drawKey("CLR", pinClrBox(), false);
+      drawKey("BACK", pinBackBox(), false);
+      if (dev_mode_) drawKey("OFF", pinOffBox(), false);
+      return;
+    }
     drawString("RESTART GAME?", kPanelWidth / 2, 120);
     setFont(&fonts::Font2);
     setTextColor(ink.muted);
     drawString("Wipes this run. Scores stay.", kPanelWidth / 2, 156);
     drawCard("YES · WIPE RUN", "level, coins, gear", yesBox(), true);
     drawCard("NO · KEEP RUN", "back to menu", noBox());
+    // Tiny mute mark: open PIN pad. TODO: post-credits unlock replaces this.
+    fillRect(confirmDevEntryBox().x + 6, confirmDevEntryBox().y + 6, 2, 2, ink.muted);
+    if (dev_mode_) {
+      setTextColor(ink.muted);
+      drawString("·", 14, 20);
+    }
     drawHelpButton();
   }
 
   void beginConfirm() {
     fadeOut();
     mode_ = Mode::Confirm;
+    confirm_pin_ = false;
+    clearPinEntry();
     paintConfirm();
     fadeIn();
   }
@@ -3517,6 +3661,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     div_unlock_ = 0;
     div_equip_ = 0;
     div_multi_ = 0;
+    disableDevMode();
+    confirm_pin_ = false;
+    clearPinEntry();
     for (int i = 0; i < kGods; ++i) div_cool_[i] = 0;
     for (int i = 0; i < kBoosts; ++i) {
       boost_armed_[i] = 0;
@@ -4585,7 +4732,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
 
   void drawGameKeys(const char* held) {
     drawKey("LEFT", leftBox(), held != nullptr && std::strcmp(held, "LEFT") == 0);
-    drawKey(auto_fire_ ? "AUTO" : "FIRE", fireBox(), held != nullptr && std::strcmp(held, "FIRE") == 0);
+    drawKey("FIRE", fireBox(), held != nullptr && std::strcmp(held, "FIRE") == 0);
     drawKey("RIGHT", rightBox(), held != nullptr && std::strcmp(held, "RIGHT") == 0);
   }
 
@@ -5081,6 +5228,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     shot_ = false;
     clearFoe();
     held_ = nullptr;
+    press_left_ = 0;
+    fire_held_ = false;
     beam_on_ = false;
     beam_burst_ = 0;
     beam_cool_ = 0;
@@ -5914,12 +6063,13 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   }
 
 
+  // ~1s base burst (~60 ticks). Forge BURST/TWIN and gun level still stretch it.
   int beamBurstLen() const {
-    int len = 188 + gunLv(gun_equip_) * 12;
-    len += 30 * forgedCount(ATTR_BURST);
-    if (perk(PERK_BURST)) len += 30;
-    len += 20 * forgedCount(ATTR_TWIN);
-    if (perk(PERK_TWIN)) len += 20;
+    int len = 60 + gunLv(gun_equip_) * 6;
+    len += 15 * forgedCount(ATTR_BURST);
+    if (perk(PERK_BURST)) len += 15;
+    len += 10 * forgedCount(ATTR_TWIN);
+    if (perk(PERK_TWIN)) len += 10;
     return len;
   }
 
@@ -6042,6 +6192,30 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     return 1;
   }
 
+  // Shots (or volleys) started by one FIRE rising edge. Beam uses stepBeam instead.
+  int pressShotsOf() const {
+    switch (baseGun()) {
+      case 0:
+        return 1;  // CANNON: one shell
+      case 1:
+        return 1;  // SHOTGUN: one spread burst
+      case 2:
+        return 5;  // ASSAULT: five taps
+      case 4:
+        return 1;  // TWIN: one dual volley
+      case 5:
+        return 3;  // WAVE: triple pulse
+      case 6:
+        return 1;  // RAIL: one lance
+      case 7:
+        return 1;  // NOVA: one star burst
+      case 8:
+        return 2;  // HOMING: twin seekers
+      default:
+        return 1;
+    }
+  }
+
   // One volley from a ship. The cooldown is applied by tryFire after both ships shoot.
   bool fireWeaponAt(int ship_x) {
     const int gun = baseGun();
@@ -6097,14 +6271,15 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     return true;
   }
 
-  void tryFire() {
+  bool tryFire() {
     const int gun = baseGun();
-    if (gun == 3 || gun_cool_ > 0) return;
+    if (gun == 3 || gun_cool_ > 0) return false;
     const bool twin = clone_alive_;
-    if (boltSlots() < primaryBolts() * (twin ? 2 : 1)) return;
-    if (!fireWeaponAt(player_x_)) return;
+    if (boltSlots() < primaryBolts() * (twin ? 2 : 1)) return false;
+    if (!fireWeaponAt(player_x_)) return false;
     if (twin) fireWeaponAt(clone_x_);
     gun_cool_ = fireGap();
+    return true;
   }
 
   void steerBolt(Bolt& bolt) {
@@ -6684,7 +6859,8 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     if (beam_mate_ >= 0) fillRect(beam_mate_, 36, 3, kShipY - 36, laserColor());
   }
 
-  void stepBeam(bool firing, int next_beam) {
+  // Rising-edge trigger starts a ~1s burst; release does not abort. Cooldown still applies.
+  void stepBeam(bool trigger, int next_beam) {
     if (beam_cool_ > 0) {
       beam_cool_ -= 1;
       if (beam_on_) {
@@ -6692,13 +6868,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
         beam_on_ = false;
       }
       beam_burst_ = 0;
-      return;
-    }
-    if (beam_burst_ > 0 && !firing) {
-      if (beam_on_) eraseBeam();
-      beam_on_ = false;
-      beam_burst_ = 0;
-      beam_cool_ = beamCoolLen();
       return;
     }
     if (beam_burst_ > 0) {
@@ -6720,7 +6889,7 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       }
       return;
     }
-    if (!firing) return;
+    if (!trigger) return;
     beam_burst_ = beamBurstLen();
     beam_tick_ = 0;
     beam_x_ = next_beam;
@@ -7805,10 +7974,6 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       if (!demo_) drawGameKeys(held);
       held_ = held;
     }
-    if (rose && held != nullptr && std::strcmp(held, "FIRE") == 0) {
-      auto_fire_ = !auto_fire_;
-      if (!demo_) drawGameKeys(held);
-    }
     const int old_player = player_x_;
     const int pace = ship_step_ + (hermes_ticks_ > 0 ? 4 : 0);
     const bool stunned = player_stun_ > 0;
@@ -7829,7 +7994,9 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
       hole_closed = shield_hole_ == 0;
     }
     stepBoosts();
-    const bool firing = !stunned && ((held != nullptr && std::strcmp(held, "FIRE") == 0) || auto_fire_);
+    const bool fire_down = !stunned && held != nullptr && std::strcmp(held, "FIRE") == 0;
+    const bool fire_edge = fire_down && !fire_held_;
+    fire_held_ = fire_down;
     if (gun_cool_ > 0) gun_cool_ -= 1;
     if (hud_msg_ticks_ > 0) {
       hud_msg_ticks_ -= 1;
@@ -7860,14 +8027,16 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
     stepMachines();
     drawMachineBars();
     drawPowerStatus();
-    if (baseGun() == 3) stepBeam(firing, next_beam);
-    else {
+    if (baseGun() == 3) {
+      stepBeam(fire_edge, next_beam);
+    } else {
       if (beam_on_) {
         eraseBeam();
         beam_on_ = false;
       }
       beam_burst_ = 0;
-      if (firing) tryFire();
+      if (fire_edge && press_left_ == 0) press_left_ = pressShotsOf();
+      if (press_left_ > 0 && tryFire()) press_left_ -= 1;
     }
     stepBolts();
     stepDrop();
@@ -8026,7 +8195,12 @@ class PanelDisplay : public lgfx::LGFX_Device, public Display {
   int check_god_ = -1;
   bool power_drawn_ = false;
   bool tutorial_on_ = false;
-  bool auto_fire_ = false;
+  int press_left_ = 0;
+  bool fire_held_ = false;
+  bool dev_mode_ = false;
+  bool confirm_pin_ = false;
+  uint8_t pin_len_ = 0;
+  char pin_buf_[6] = {};
   int tutorial_saved_level_ = 1;
   uint8_t tips_ = 0;
   uint8_t tip_bit_ = 0;
