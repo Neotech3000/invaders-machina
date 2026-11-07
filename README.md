@@ -250,7 +250,7 @@ Forge joins two guns into a new one. Each forged gun is upgraded on its own and 
 
 The ESP32-C6-LCD-1.47 is a 172×320 ST7789, one RGB LED, and 4MB of flash. The Amazon listing titles it as an ESP32-C6 1.47 inch display development board. Its animation firmware is in `firmware/c6`.
 
-On the panel, three scenes loop: Warp (a sun over a moving grid), Core (a pulsing reactor), and Veil (aurora ribbons). The RGB LED follows the scene. Press BOOT to skip to the next scene. The title reads with the USB-C socket at the bottom.
+On the panel, three scenes loop: Warp (a sun over a moving grid), Core (a pulsing reactor), and Veil (aurora ribbons). The RGB LED follows the scene. Press BOOT to skip to the next scene. The title reads with the USB-C socket at the bottom. When the new firmware starts, the backlight blinks off and then the screen fills.
 
 From `firmware/c6`:
 

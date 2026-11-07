@@ -23,9 +23,8 @@ constexpr int kPinSdCs = 4;
 constexpr int kPinRgb = 8;
 constexpr int kPinBoot = 9;
 constexpr int kColumnOffset = 34;
-constexpr uint32_t kSpiHz = 80000000;
+constexpr uint32_t kSpiHz = 20000000;
 constexpr int kBandRows = 16;
-constexpr int kBacklightDuty = 820;  // 10-bit PWM. The backlight is active high.
 
 constexpr uint8_t kGammaPositive[14] = {0xF0, 0x00, 0x04, 0x04, 0x04, 0x05, 0x29,
                                          0x33, 0x3E, 0x38, 0x12, 0x12, 0x28, 0x30};
@@ -64,8 +63,8 @@ void lcd_init() {
   pinMode(kPinRst, OUTPUT);
   digitalWrite(kPinCs, HIGH);
   digitalWrite(kPinDc, HIGH);
-  ledcAttach(kPinBacklight, 5000, 10);
-  ledcWrite(kPinBacklight, 0);
+  pinMode(kPinBacklight, OUTPUT);
+  digitalWrite(kPinBacklight, HIGH);
 
   SPI.begin(kPinSclk, kPinMiso, kPinMosi, -1);
 
@@ -124,17 +123,25 @@ void lcd_window(int x, int y, int x2, int y2) {
 }
 
 void lcd_pixels(const uint16_t* pixels, size_t count) {
-  static uint8_t discard[4000];
   SPI.beginTransaction(SPISettings(kSpiHz, MSBFIRST, SPI_MODE0));
   digitalWrite(kPinCs, LOW);
   digitalWrite(kPinDc, HIGH);
-  const uint8_t* bytes = (const uint8_t*)pixels;
-  size_t remaining = count * 2;
-  while (remaining) {
-    size_t chunk = remaining > sizeof(discard) ? sizeof(discard) : remaining;
-    SPI.transferBytes(bytes, discard, chunk);
-    bytes += chunk;
-    remaining -= chunk;
+  SPI.writeBytes((const uint8_t*)pixels, count * 2);
+  digitalWrite(kPinCs, HIGH);
+  SPI.endTransaction();
+}
+
+void lcd_fill(uint16_t color) {
+  lcd_window(0, 0, kAetherWidth - 1, kAetherHeight - 1);
+  uint16_t line[kAetherWidth];
+  for (int i = 0; i < kAetherWidth; ++i) {
+    line[i] = color;
+  }
+  SPI.beginTransaction(SPISettings(kSpiHz, MSBFIRST, SPI_MODE0));
+  digitalWrite(kPinCs, LOW);
+  digitalWrite(kPinDc, HIGH);
+  for (int y = 0; y < kAetherHeight; ++y) {
+    SPI.writeBytes((const uint8_t*)line, sizeof(line));
   }
   digitalWrite(kPinCs, HIGH);
   SPI.endTransaction();
@@ -190,14 +197,6 @@ void lamp_show(uint8_t red, uint8_t green, uint8_t blue) {
   delayMicroseconds(280);
 }
 
-void fade_backlight() {
-  for (int duty = 0; duty <= kBacklightDuty; duty += 40) {
-    ledcWrite(kPinBacklight, duty);
-    delay(12);
-  }
-  ledcWrite(kPinBacklight, kBacklightDuty);
-}
-
 uint32_t g_skip_ms = 0;
 bool g_boot_armed = true;
 uint32_t g_boot_down_at = 0;
@@ -221,13 +220,24 @@ void poll_boot(uint32_t now) {
 }
 
 void setup() {
+  // Blink the backlight before anything else. The panel keeps its last
+  // picture across a reboot, so this is the visible sign the new sketch runs.
+  pinMode(kPinBacklight, OUTPUT);
+  digitalWrite(kPinBacklight, LOW);
+  delay(250);
+  digitalWrite(kPinBacklight, HIGH);
+
   Serial.begin(115200);
   pinMode(kPinRgb, OUTPUT);
   digitalWrite(kPinRgb, LOW);
   pinMode(kPinBoot, INPUT_PULLUP);
   lcd_init();
+  AetherRgb splash;
+  splash.r = 255;
+  splash.g = 40;
+  splash.b = 16;
+  lcd_fill(pack565(splash));
   push_frame(0);
-  fade_backlight();
   lamp_show(40, 12, 4);
   Serial.println("aether ready");
 }
