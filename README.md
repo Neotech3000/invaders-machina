@@ -2,6 +2,8 @@
 
 A space shooter for the ESP32-3248S035 display, and the same game in one web page. On the panel, an attract demo plays until you tap **PLAY**. The same menu is in `web/index.html`.
 
+The 1.47 inch ESP32-C6 board is a separate firmware in `firmware/c6`. It plays a looping animation and uploads only to that panel's USB port. See **ESP32-C6 1.47 inch panel** below.
+
 ## Play in a browser
 
 `web/index.html` is one file. It runs in a current Chrome, Edge, Firefox, or Safari on Windows, macOS, Linux, ChromeOS, or a phone. After you have the file, the page does not need a network.
@@ -242,6 +244,30 @@ Forge joins two guns into a new one. Each forged gun is upgraded on its own and 
 - `firmware/src/hardware/touch_map.h` — touch mapping. Leave it unless you remeasure the glass.
 - `firmware/platformio.ini` — the build. Ports stay out of this file.
 - `firmware/platformio.local.ini.example` — copy to `platformio.local.ini` to pin a flash port.
+- `firmware/c6/` — animation for the ESP32-C6 1.47 inch panel.
+
+## ESP32-C6 1.47 inch panel
+
+The ESP32-C6-LCD-1.47 is a 172×320 ST7789, one RGB LED, and 4MB of flash. The Amazon listing titles it as an ESP32-C6 1.47 inch display development board. Its animation firmware is in `firmware/c6`.
+
+On the panel, three scenes loop: Warp (a sun over a moving grid), Core (a pulsing reactor), and Veil (aurora ribbons). The RGB LED follows the scene. Press BOOT to skip to the next scene. The title reads with the USB-C socket at the bottom. When the new firmware starts, the backlight blinks off and then the screen fills.
+
+From `firmware/c6`:
+
+```sh
+pio run -e c6panel
+pio run -e c6panel -t upload
+```
+
+Upload and the serial monitor open only an Espressif USB JTAG port, vendor `303a` product `1001`. That is the port on this panel. If that port is missing, or two of them are plugged in, the command stops. Every other USB device stays closed. To see which port it will use:
+
+```sh
+pio run -e c6panel -t ports
+```
+
+This folder uses PlatformIO's espressif32 8.0.0, because that release is the one that builds Arduino code for the ESP32-C6. The cabinet game in `firmware/` stays on espressif32 6.13.0. PlatformIO Core 6.2.0 can build both.
+
+If the upload cannot connect, hold BOOT, tap RESET, release BOOT, and run the upload again.
 
 ## Troubleshooting
 
