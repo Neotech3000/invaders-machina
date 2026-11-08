@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <SPI.h>
 
 #include "aether.h"
 
@@ -23,7 +22,6 @@ constexpr int kPinSdCs = 4;
 constexpr int kPinRgb = 8;
 constexpr int kPinBoot = 9;
 constexpr int kColumnOffset = 34;
-constexpr uint32_t kSpiHz = 20000000;
 constexpr int kBandRows = 16;
 
 constexpr uint8_t kGammaPositive[14] = {0xF0, 0x00, 0x04, 0x04, 0x04, 0x05, 0x29,
@@ -34,13 +32,53 @@ constexpr uint8_t kGammaNegative[14] = {0xF0, 0x07, 0x0A, 0x0D, 0x0B, 0x07, 0x28
 AetherRgb g_band[kBandRows * kAetherWidth];
 uint16_t g_pixels[kBandRows * kAetherWidth];
 
-void lcd_write(uint8_t value, bool data) {
-  SPI.beginTransaction(SPISettings(kSpiHz, MSBFIRST, SPI_MODE0));
-  digitalWrite(kPinCs, LOW);
-  digitalWrite(kPinDc, data ? HIGH : LOW);
-  SPI.transfer(value);
+// The panel's clock and data pins are GPIO7 and GPIO6. On this chip those
+// pads also sit on the default JTAG port, and the hardware SPI peripheral
+// never clocks them. The RGB LED already proves direct GPIO writes work, so
+// the display is driven the same way. Clock idles low. Data is sampled on
+// the rising edge.
+static inline void IRAM_ATTR hold_cycles(uint32_t cycles) {
+  uint32_t start = esp_cpu_get_cycle_count();
+  while ((esp_cpu_get_cycle_count() - start) < cycles) {
+  }
+}
+
+static void IRAM_ATTR shift_byte(uint8_t value) {
+  gpio_dev_t* hw = &GPIO;
+  for (int bit = 0x80; bit != 0; bit >>= 1) {
+    if (value & bit) {
+      hw->out_w1ts.val = 1u << kPinMosi;
+    } else {
+      hw->out_w1tc.val = 1u << kPinMosi;
+    }
+    hold_cycles(8);
+    hw->out_w1ts.val = 1u << kPinSclk;
+    hold_cycles(12);
+    hw->out_w1tc.val = 1u << kPinSclk;
+  }
+}
+
+static void IRAM_ATTR shift_color(uint16_t color) {
+  shift_byte((uint8_t)(color >> 8));
+  shift_byte((uint8_t)color);
+}
+
+void lcd_begin_bus() {
+  pinMode(kPinMosi, OUTPUT);
+  pinMode(kPinSclk, OUTPUT);
+  pinMode(kPinCs, OUTPUT);
+  pinMode(kPinDc, OUTPUT);
+  digitalWrite(kPinSclk, LOW);
+  digitalWrite(kPinMosi, LOW);
   digitalWrite(kPinCs, HIGH);
-  SPI.endTransaction();
+  digitalWrite(kPinDc, HIGH);
+}
+
+void lcd_write(uint8_t value, bool data) {
+  digitalWrite(kPinDc, data ? HIGH : LOW);
+  digitalWrite(kPinCs, LOW);
+  shift_byte(value);
+  digitalWrite(kPinCs, HIGH);
 }
 
 void lcd_command(uint8_t command) { lcd_write(command, false); }
@@ -65,14 +103,16 @@ void lcd_init() {
   digitalWrite(kPinDc, HIGH);
   pinMode(kPinBacklight, OUTPUT);
   digitalWrite(kPinBacklight, HIGH);
+  lcd_begin_bus();
 
-  SPI.begin(kPinSclk, kPinMiso, kPinMosi, -1);
-
+  // Waveshare holds chip-select low across the reset pulse.
+  digitalWrite(kPinCs, LOW);
   digitalWrite(kPinRst, HIGH);
   delay(10);
   digitalWrite(kPinRst, LOW);
   delay(20);
   digitalWrite(kPinRst, HIGH);
+  digitalWrite(kPinCs, HIGH);
   delay(120);
 
   const uint8_t madctl[] = {0x00};
@@ -123,34 +163,27 @@ void lcd_window(int x, int y, int x2, int y2) {
 }
 
 void lcd_pixels(const uint16_t* pixels, size_t count) {
-  SPI.beginTransaction(SPISettings(kSpiHz, MSBFIRST, SPI_MODE0));
-  digitalWrite(kPinCs, LOW);
   digitalWrite(kPinDc, HIGH);
-  SPI.writeBytes((const uint8_t*)pixels, count * 2);
+  digitalWrite(kPinCs, LOW);
+  for (size_t i = 0; i < count; ++i) {
+    shift_color(pixels[i]);
+  }
   digitalWrite(kPinCs, HIGH);
-  SPI.endTransaction();
 }
 
 void lcd_fill(uint16_t color) {
   lcd_window(0, 0, kAetherWidth - 1, kAetherHeight - 1);
-  uint16_t line[kAetherWidth];
-  for (int i = 0; i < kAetherWidth; ++i) {
-    line[i] = color;
-  }
-  SPI.beginTransaction(SPISettings(kSpiHz, MSBFIRST, SPI_MODE0));
-  digitalWrite(kPinCs, LOW);
   digitalWrite(kPinDc, HIGH);
-  for (int y = 0; y < kAetherHeight; ++y) {
-    SPI.writeBytes((const uint8_t*)line, sizeof(line));
+  digitalWrite(kPinCs, LOW);
+  size_t count = (size_t)kAetherWidth * (size_t)kAetherHeight;
+  for (size_t i = 0; i < count; ++i) {
+    shift_color(color);
   }
   digitalWrite(kPinCs, HIGH);
-  SPI.endTransaction();
 }
 
 uint16_t pack565(AetherRgb color) {
-  uint16_t value =
-      (uint16_t)(((color.r & 0xF8) << 8) | ((color.g & 0xFC) << 3) | (color.b >> 3));
-  return (uint16_t)((value << 8) | (value >> 8));
+  return (uint16_t)(((color.r & 0xF8) << 8) | ((color.g & 0xFC) << 3) | (color.b >> 3));
 }
 
 void push_frame(uint32_t time_ms) {
