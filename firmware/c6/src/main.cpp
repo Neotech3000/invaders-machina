@@ -3,9 +3,12 @@
 #include "aether.h"
 
 #include "driver/gpio.h"
+#include "driver/rtc_io.h"
 #include "esp_attr.h"
 #include "esp_cpu.h"
 #include "hal/gpio_ll.h"
+#include "soc/io_mux_reg.h"
+#include "soc/lp_aon_struct.h"
 
 // ESP32-C6-LCD-1.47. Pinout and ST7789 sequence match Waveshare's Arduino
 // demo for this board. GPIO12 and GPIO13 are the native USB pins and stay
@@ -63,11 +66,28 @@ static void IRAM_ATTR shift_color(uint16_t color) {
   shift_byte((uint8_t)color);
 }
 
+// GPIO6 and GPIO7 wake up as the JTAG clock and JTAG data pads, and they are
+// also the chip's low-power pins. The LED is GPIO8, a normal digital pad, so
+// it can change while these two stay on the function they booted with. The
+// panel only sees a clock after the pad is handed to the GPIO register.
+static void claim_output(int pin) {
+  if (pin <= 7) {
+    rtc_gpio_deinit((gpio_num_t)pin);
+    LP_AON.gpio_mux.gpio_mux_sel &= ~(uint32_t)(1u << pin);
+  }
+  gpio_reset_pin((gpio_num_t)pin);
+  pinMode(pin, OUTPUT);
+  PIN_FUNC_SELECT(IO_MUX_GPIO0_REG + (pin * 4), PIN_FUNC_GPIO);
+  gpio_ll_output_enable(&GPIO, (uint32_t)pin);
+  gpio_ll_matrix_out_default(&GPIO, (uint32_t)pin);
+}
+
 void lcd_begin_bus() {
-  pinMode(kPinMosi, OUTPUT);
-  pinMode(kPinSclk, OUTPUT);
-  pinMode(kPinCs, OUTPUT);
-  pinMode(kPinDc, OUTPUT);
+  claim_output(kPinMosi);
+  claim_output(kPinSclk);
+  claim_output(kPinCs);
+  claim_output(kPinDc);
+  claim_output(kPinRst);
   digitalWrite(kPinSclk, LOW);
   digitalWrite(kPinMosi, LOW);
   digitalWrite(kPinCs, HIGH);
@@ -265,14 +285,23 @@ void setup() {
   digitalWrite(kPinRgb, LOW);
   pinMode(kPinBoot, INPUT_PULLUP);
   lcd_init();
-  AetherRgb splash;
-  splash.r = 255;
-  splash.g = 40;
-  splash.b = 16;
-  lcd_fill(pack565(splash));
+  // Solid primaries first. The panel keeps its last picture until a write
+  // actually lands, so three full-screen colors show whether the LCD moved.
+  const AetherRgb proof[] = {
+      {255, 0, 0},
+      {0, 255, 0},
+      {0, 0, 255},
+  };
+  for (int i = 0; i < 3; ++i) {
+    lcd_fill(pack565(proof[i]));
+    delay(400);
+  }
   push_frame(0);
   lamp_show(40, 12, 4);
-  Serial.println("aether ready");
+  Serial.printf("aether ready  mosi_fn=%lu sclk_fn=%lu lp_mux=0x%02lx\n",
+                (unsigned long)REG_GET_FIELD(IO_MUX_GPIO6_REG, MCU_SEL),
+                (unsigned long)REG_GET_FIELD(IO_MUX_GPIO7_REG, MCU_SEL),
+                (unsigned long)(LP_AON.gpio_mux.gpio_mux_sel & 0xFFu));
 }
 
 void loop() {
