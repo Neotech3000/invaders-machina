@@ -1,0 +1,36 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["AGENTS.md", "docs/board.md"],
+  "references": {
+    "firmware-taby": {
+      "repository": "TRIIIS-LABS/firmware-taby",
+      "branch": "main",
+      "description": "Upstream Physical Taby firmware. Code is Apache-2.0. Taby artwork is under separate terms and is not vendored here."
+    },
+    "invaders-machina": {
+      "repository": "Neotech3000/invaders-machina",
+      "branch": "cursor/c6-panel-animations-c320",
+      "description": "Earlier ESP32-C6-LCD-1.47 bring-up. The panel SPI peripheral did not clock GPIO6 and GPIO7; the RGB LED on GPIO8 did."
+    }
+  },
+  "permissions": [
+    { "action": "shell", "resource": "*esptool*", "effect": "ask" },
+    { "action": "shell", "resource": "*idf.py*flash*", "effect": "ask" },
+    { "action": "shell", "resource": "*pio*upload*", "effect": "ask" },
+    { "action": "shell", "resource": "*esptool*erase*", "effect": "deny" },
+    { "action": "shell", "resource": "*erase-flash*", "effect": "deny" },
+    { "action": "shell", "resource": "*erase_flash*", "effect": "deny" },
+    { "action": "shell", "resource": "*--erase-all*", "effect": "deny" },
+    { "action": "shell", "resource": "git push *", "effect": "ask" }
+  ],
+  "commands": {
+    "smooth": {
+      "description": "Improve C6 LCD animation fluidity without flashing",
+      "agent": "panel",
+      "template": "Load the c6-playback skill and follow it. Diagnose timing, then change only the C6 playback path. Do not flash, erase, or edit S3 targets."
+    }
+  },
+  "watcher": {
+    "ignore": ["build/**", "sdkconfig", ".pio/**", "managed_components/**"]
+  }
+}
